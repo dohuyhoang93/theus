@@ -1,0 +1,202 @@
+import argparse
+import os
+import sys
+import yaml
+import ast
+import inspect
+from pathlib import Path
+from .templates import (
+    TEMPLATE_ENV, 
+    TEMPLATE_MAIN, 
+    TEMPLATE_CONTEXT, 
+    TEMPLATE_WORKFLOW, 
+    TEMPLATE_Hello_PROCESS,
+    TEMPLATE_AUDIT_RECIPE
+)
+
+def init_project(project_name: str, target_dir: Path):
+    """
+    Scaffolds a new Theus project.
+    """
+    print(f"🚀 Initializing Theus Project: {project_name}")
+    
+    # 1. Create Directories
+    try:
+        (target_dir / "src" / "processes").mkdir(parents=True, exist_ok=True)
+        (target_dir / "workflows").mkdir(parents=True, exist_ok=True)
+        (target_dir / "specs").mkdir(parents=True, exist_ok=True) # New V2 folder
+    except OSError as e:
+        print(f"❌ Error creating directories: {e}")
+        sys.exit(1)
+
+    # 2. Write Files
+    files_to_create = {
+        ".env": TEMPLATE_ENV,
+        "main.py": TEMPLATE_MAIN,
+        "src/context.py": TEMPLATE_CONTEXT,
+        "src/__init__.py": "",
+        "src/processes/__init__.py": "",
+        "src/processes/p_hello.py": TEMPLATE_Hello_PROCESS,
+        "workflows/main_workflow.yaml": TEMPLATE_WORKFLOW,
+        "specs/context_schema.yaml": "# Define your Data Contract here\n",
+        "specs/audit_recipe.yaml": TEMPLATE_AUDIT_RECIPE
+    }
+
+    for rel_path, content in files_to_create.items():
+        file_path = target_dir / rel_path
+        if file_path.exists():
+            print(f"   ⚠️  Skipping existing file: {rel_path}")
+            continue
+            
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"   ✅ Created {rel_path}")
+
+    print("\n🎉 Project created successfully!")
+    print("\nNext steps:")
+    if project_name != ".":
+        print(f"  cd {project_name}")
+    print("  pip install -r requirements.txt (if you have one)")
+    print("  python main.py")
+
+def gen_spec(target_dir: Path = Path.cwd()):
+    """
+    Scans src/processes/*.py and generates missing rules in specs/audit_recipe.yaml
+    """
+    print("🔍 Scanning processes for Audit Spec generation...")
+    processes_dir = target_dir / "src" / "processes"
+    recipe_path = target_dir / "specs" / "audit_recipe.yaml"
+    
+    if not processes_dir.exists():
+        print(f"❌ Processes directory not found: {processes_dir}")
+        return
+
+    # 1. Parse Python Files
+    discovered_recipes = {}
+    
+    for py_file in processes_dir.glob("*.py"):
+        if py_file.name.startswith("__"): continue
+        
+        with open(py_file, "r", encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+            
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                # Check for @process decorator
+                is_process = any(
+                    (isinstance(d, ast.Call) and getattr(d.func, 'id', '') == 'process') 
+                    or (isinstance(d, ast.Name) and d.id == 'process')
+                    for d in node.decorator_list
+                )
+                
+                if is_process:
+                    # Naively extract inputs/outputs if possible from AST (Hard without running)
+                    # For MVP, we just create the skeleton entry
+                    process_name = node.name
+                    discovered_recipes[process_name] = {
+                        "inputs": [{"field": "TODO_FIELD", "level": "S", "min": 0}],
+                        "outputs": [{"field": "TODO_FIELD", "level": "A", "threshold": 3}]
+                    }
+                    print(f"   found process: {process_name}")
+
+    if not discovered_recipes:
+        print("⚠️ No processes found.")
+        return
+
+    # 2. Merge with existing YAML
+    existing_data = {}
+    if recipe_path.exists():
+        with open(recipe_path, 'r') as f:
+            existing_data = yaml.safe_load(f) or {}
+
+    if 'process_recipes' not in existing_data:
+        existing_data['process_recipes'] = {}
+
+    changes_made = False
+    for name, skeleton in discovered_recipes.items():
+        if name not in existing_data['process_recipes']:
+            existing_data['process_recipes'][name] = skeleton
+            changes_made = True
+            print(f"   ➕ Added skeleton for {name}")
+
+    if changes_made:
+        with open(recipe_path, 'w', encoding='utf-8') as f:
+            yaml.dump(existing_data, f, sort_keys=False)
+        print(f"✅ Updated {recipe_path}")
+    else:
+        print("✨ No new processes to add.")
+
+def main():
+    parser = argparse.ArgumentParser(description="Theus SDK CLI - Manage your Process-Oriented projects.")
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Command: init
+    parser_init = subparsers.add_parser("init", help="Initialize a new Theus project.")
+    parser_init.add_argument("name", help="Name of the project (or '.' for current directory).")
+
+    # Command: audit
+    parser_audit = subparsers.add_parser("audit", help="Audit tools.")
+    audit_subs = parser_audit.add_subparsers(dest="audit_command")
+    
+    # audit gen-spec
+    parser_gen = audit_subs.add_parser("gen-spec", help="Generate/Update audit_recipe.yaml from code.")
+
+    # audit inspect
+    parser_inspect = audit_subs.add_parser("inspect", help="Inspect effective rules for a process.")
+    parser_inspect.add_argument("process_name", help="Name of the process to inspect.")
+
+    # Command: schema (New V2 Tool)
+    parser_schema = subparsers.add_parser("schema", help="Data Schema tools.")
+    schema_subs = parser_schema.add_subparsers(dest="schema_command")
+    
+    # schema gen
+    parser_schema_gen = schema_subs.add_parser("gen", help="Generate context_schema.yaml from Python Definitions.")
+    parser_schema_gen.add_argument("--context-file", default="src/context.py", help="Path to Python context definition (default: src/context.py)")
+
+    args = parser.parse_args()
+
+    if args.command == "init":
+        project_name = args.name
+        
+        if project_name == ".":
+            target_path = Path.cwd()
+            project_name = target_path.name
+        else:
+            target_path = Path.cwd() / project_name
+            if target_path.exists() and any(target_path.iterdir()):
+                print(f"❌ Directory '{project_name}' exists and is not empty.")
+                sys.exit(1)
+            target_path.mkdir(exist_ok=True)
+            
+        init_project(project_name, target_path)
+        
+    elif args.command == "audit":
+        if args.audit_command == "gen-spec":
+            gen_spec()
+        elif args.audit_command == "inspect":
+            print("TODO: Implement Rule Inspector CLI")
+            
+    elif args.command == "schema":
+        if args.schema_command == "gen":
+            from .schema_gen import generate_schema_from_file
+            print(f"🔍 Scanning context definition: {args.context_file}")
+            try:
+                schema_dict = generate_schema_from_file(args.context_file)
+                
+                output_path = Path("specs/context_schema.yaml")
+                output_path.parent.mkdir(exist_ok=True)
+                
+                with open(output_path, "w", encoding="utf-8") as f:
+                    yaml.dump(schema_dict, f, sort_keys=False)
+                    
+                print(f"✅ Generated schema at: {output_path}")
+                print(yaml.dump(schema_dict, sort_keys=False))
+                
+            except Exception as e:
+                print(f"❌ Failed to generate schema: {e}")
+
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()
