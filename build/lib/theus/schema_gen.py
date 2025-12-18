@@ -65,6 +65,10 @@ def is_optional(py_type: Any) -> bool:
     args = typing.get_args(py_type)
     return origin is typing.Union and type(None) in args
 
+from .zones import resolve_zone, ContextZone
+
+# ... existing imports ...
+
 def inspect_class(cls: Type) -> Dict[str, Any]:
     """Recursively inspects a Dataclass or Pydantic model."""
     schema = {}
@@ -77,6 +81,10 @@ def inspect_class(cls: Type) -> Dict[str, Any]:
             model_fields = getattr(cls, "__fields__", {}) # V1
             
         for name, field_info in model_fields.items():
+            # [ZONE FILTER] Skip Signal/Meta
+            if resolve_zone(name) != ContextZone.DATA:
+                continue
+
             # Extract type
             f_type = getattr(field_info, "annotation", None) 
             if not f_type:
@@ -97,6 +105,10 @@ def inspect_class(cls: Type) -> Dict[str, Any]:
     # 2. Dataclass Strategy
     elif is_dataclass(cls):
         for f in fields(cls):
+            # [ZONE FILTER] Skip Signal/Meta
+            if resolve_zone(f.name) != ContextZone.DATA:
+                continue
+
             type_str = get_type_name(f.type)
             entry = {"type": type_str}
             
@@ -113,7 +125,7 @@ def inspect_class(cls: Type) -> Dict[str, Any]:
                 if isinstance(f.default, (int, str, bool, float)):
                     entry["default"] = f.default
 
-            schema[name] = entry
+            schema[f.name] = entry
             
     return schema
 
@@ -129,14 +141,23 @@ def generate_schema_from_file(file_path: str) -> Dict[str, Any]:
     if not module:
         raise ImportError(f"Could not load module: {file_path}")
         
-    # Heuristic: Find a class named 'SystemContext' or 'DomainContext'
-    target_cls = getattr(module, "SystemContext", getattr(module, "DomainContext", None))
+    # Heuristic: Find class inheriting from BaseSystemContext
+    from theus.context import BaseSystemContext
+    target_cls = None
+    
+    for name, obj in inspect.getmembers(module):
+        if inspect.isclass(obj) and obj.__module__ == module.__name__:
+            if issubclass(obj, BaseSystemContext):
+                target_cls = obj
+                break
+                
+    if not target_cls:
+        # Fallback: exact name match still useful if BaseSystemContext import fails?
+        target_cls = getattr(module, "SystemContext", getattr(module, "DomainContext", None))
     
     if not target_cls:
-        # Fallback: Find any class inheriting from BaseSystemContext?
-        # For now, simplistic name check
-        raise ValueError("Could not find 'SystemContext' or 'DomainContext' class in file.")
-        
+        raise ValueError("Could not find any class inheriting from 'BaseSystemContext' (or named 'SystemContext') in file.")
+
     print(f"   Found context class: {target_cls.__name__}")
     
     # Inspect
@@ -144,6 +165,62 @@ def generate_schema_from_file(file_path: str) -> Dict[str, Any]:
     # We want to flatten this or respect structure
     
     raw_schema = inspect_class(target_cls)
+    
+    # [FALLBACK] If raw_schema is empty (because __init__ usage), try annotations
+    if not raw_schema and hasattr(target_cls, '__annotations__'):
+        annotations = target_cls.__annotations__
+        if 'global_ctx' in annotations:
+            raw_schema['global_ctx'] = {'structure': inspect_class(annotations['global_ctx'])}
+        if 'domain_ctx' in annotations:
+            raw_schema['domain_ctx'] = {'structure': inspect_class(annotations['domain_ctx'])}
+            
+    # [FALLBACK V2 - ENHANCED] 
+    # IF raw_schema is empty OR if the detected structures are empty (due to Base Class inheritance),
+    # Try to find better candidates in the module.
+    
+    need_global_fallback = False
+    need_domain_fallback = False
+    
+    if not raw_schema:
+        need_global_fallback = True
+        need_domain_fallback = True
+        raw_schema = {}
+    else:
+        # Check if global_ctx exists but is empty
+        if 'global_ctx' in raw_schema:
+            s = raw_schema['global_ctx'].get('structure', {})
+            if not s: need_global_fallback = True
+        elif 'global' not in raw_schema: # No global key at all
+             need_global_fallback = True
+             
+        # Check if domain_ctx exists but is empty
+        if 'domain_ctx' in raw_schema:
+            s = raw_schema['domain_ctx'].get('structure', {})
+            if not s: need_domain_fallback = True
+        elif 'domain' not in raw_schema:
+             need_domain_fallback = True
+
+    if need_global_fallback or need_domain_fallback:
+        print(f"   [SchemaGen] Attempting Heuristic Discovery for {'Global' if need_global_fallback else ''} {'Domain' if need_domain_fallback else ''}...")
+        
+        for name, obj in inspect.getmembers(module):
+            if inspect.isclass(obj) and obj.__module__ == module.__name__:
+                # Discovery Strategy for Global
+                if need_global_fallback:
+                    if name.endswith('Global') or name == 'AppGlobal':
+                        print(f"   [SchemaGen] Discovered Global Class: {name}")
+                        raw_schema['global_ctx'] = {'structure': inspect_class(obj)}
+                        need_global_fallback = False # Stop after first match? Maybe better to find "AppGlobal"? sticking to first relevant.
+
+                # Discovery Strategy for Domain
+                if need_domain_fallback:
+                    if name.endswith('Domain') or name == 'AppDomain':
+                         print(f"   [SchemaGen] Discovered Domain Class: {name}")
+                         raw_schema['domain_ctx'] = {'structure': inspect_class(obj)}
+                         need_domain_fallback = False
+                         
+    # Cleanup Debug Prints
+    # ...
     
     # Re-structure for POP Schema format
     # context:
@@ -166,11 +243,11 @@ def generate_schema_from_file(file_path: str) -> Dict[str, Any]:
     # If SystemContext has 'domain: DomainContext', then:
     # raw_schema = {'domain': {'type': 'DomainContext', 'structure': {...}}}
     
-    if "domain" in raw_schema and "structure" in raw_schema["domain"]:
+    # If SystemContext has 'domain_ctx' and 'global_ctx', extracting their structure
+    if "domain_ctx" in raw_schema and "structure" in raw_schema["domain_ctx"]:
+        final_schema["context"]["domain"] = raw_schema["domain_ctx"]["structure"]
+    elif "domain" in raw_schema and "structure" in raw_schema["domain"]: # Support old naming if present
         final_schema["context"]["domain"] = raw_schema["domain"]["structure"]
-    else:
-        # Maybe the target_cls IS the DomainContext?
-        final_schema["context"]["domain"] = raw_schema
 
     if "global_ctx" in raw_schema and "structure" in raw_schema["global_ctx"]:
         final_schema["context"]["global"] = raw_schema["global_ctx"]["structure"]

@@ -28,7 +28,8 @@ graph TD
     end
     
     subgraph "Layer 0: Data (Passive)"
-        Context[Global/Domain/System Context]
+        Context[System Context]
+        Zones[Hybrid Zones: Data / Signal / Meta]
     end
     
     POPEngine -->|Mutates| Context

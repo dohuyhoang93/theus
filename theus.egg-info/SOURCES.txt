@@ -3,6 +3,8 @@ MANIFEST.in
 README.md
 pyproject.toml
 setup.py
+tests/test_audit_v2.py
+tests/test_cli_v2.py
 tests/test_concurrency_v2.py
 tests/test_context_locking.py
 tests/test_deep_leakage.py
@@ -10,12 +12,16 @@ tests/test_delta_mechanics.py
 tests/test_frozen_wrappers.py
 tests/test_fsm.py
 tests/test_generic_use_case.py
+tests/test_guard_zones.py
 tests/test_integration_gui_sim.py
 tests/test_method_leakage.py
+tests/test_schema_v2.py
 tests/test_slice_mutation.py
 tests/test_traversal_blocking.py
 tests/test_tuple_leakage.py
+tests/test_workflow_v2.py
 tests/test_zombie_proxy.py
+tests/test_zones.py
 theus/__init__.py
 theus/__main__.py
 theus/audit.py
@@ -31,6 +37,7 @@ theus/locks.py
 theus/schema_gen.py
 theus/structures.py
 theus/templates.py
+theus/zones.py
 theus.egg-info/PKG-INFO
 theus.egg-info/SOURCES.txt
 theus.egg-info/dependency_links.txt

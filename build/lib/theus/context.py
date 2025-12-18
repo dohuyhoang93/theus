@@ -1,11 +1,13 @@
 from dataclasses import dataclass, field
-from typing import Optional, Any
+from typing import Optional, Any, List, Dict
 from .locks import LockManager
+from .zones import ContextZone, resolve_zone
 
 @dataclass
 class LockedContextMixin:
     """
     Mixin that hooks __setattr__ to enforce LockManager policy.
+    Now also supports Zone-aware Persistence (to_dict/from_dict).
     """
     _lock_manager: Optional[LockManager] = field(default=None, repr=False, init=False)
 
@@ -28,6 +30,51 @@ class LockedContextMixin:
             
         # 3. Perform Write
         super().__setattr__(name, value)
+
+    def get_zone(self, key: str) -> ContextZone:
+        """
+        Resolve the semantic zone of a key.
+        """
+        return resolve_zone(key)
+
+    def to_dict(self, exclude_zones: List[ContextZone] = None) -> Dict[str, Any]:
+        """
+        Export context state to dictionary, filtering out specified zones.
+        Default exclusion: SIGNAL, META (if not specified).
+        """
+        if exclude_zones is None:
+            exclude_zones = [ContextZone.SIGNAL, ContextZone.META]
+            
+        data = {}
+        for k, v in self.__dict__.items():
+            if k.startswith("_"): continue
+            
+            zone = self.get_zone(k)
+            if zone in exclude_zones:
+                continue
+                
+            if hasattr(v, 'to_dict'):
+                data[k] = v.to_dict(exclude_zones)
+            else:
+                data[k] = v
+                
+        return data
+
+    def from_dict(self, data: Dict[str, Any]):
+        """
+        Load state from dictionary.
+        """
+        for k, v in data.items():
+            if k.startswith("_"): continue
+            
+            if hasattr(self, k):
+                current_val = getattr(self, k)
+                if hasattr(current_val, 'from_dict') and isinstance(v, dict):
+                    current_val.from_dict(v)
+                else:
+                    setattr(self, k, v)
+            else:
+                setattr(self, k, v)
 
 
 @dataclass

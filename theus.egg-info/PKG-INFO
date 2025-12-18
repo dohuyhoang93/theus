@@ -1,6 +1,6 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: theus
-Version: 0.1.4
+Version: 0.2.0
 Summary: Theus Agentic Framework (formerly POP SDK) - Industrial Grade Process-Oriented Programming
 Home-page: https://github.com/dohuyhoang93/theus
 Author: Do Huy Hoang
@@ -20,18 +20,6 @@ License-File: LICENSE
 Requires-Dist: pydantic>=2.0
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: typing-extensions>=4.0
-Dynamic: author
-Dynamic: author-email
-Dynamic: classifier
-Dynamic: description
-Dynamic: description-content-type
-Dynamic: home-page
-Dynamic: keywords
-Dynamic: license-file
-Dynamic: project-url
-Dynamic: requires-dist
-Dynamic: requires-python
-Dynamic: summary
 
 # Theus (formerly POP SDK)
 
@@ -49,23 +37,50 @@ Dynamic: summary
 
 ## 🌟 Key Features
 
-### 🛡️ Safety & Security
-- **Context Locking ("The Vault")**: Prevents accidental state mutation from external code (`main.py`). Warning mode by default, Strict mode (crash) for CI.
-- **Frozen Inputs**: Process inputs are wrapped in `FrozenList`/`FrozenDict`. Side-effects are blocked at runtime.
-- **Strict Contracts**: Explicit `@process(inputs=[...], outputs=[...])` decorators prevent "State Spaghetti".
+# Theus SDK (V2.1)
 
-### ⚡ Developer Experience
-- **POP CLI**: Bootstrap new projects instantly with `pop init`.
-- **Hybrid Guard**: Friendly warnings for rapid dev, Strict enforcement for interaction.
-- **Zero-Dependency Core**: Pure Python. Compatible with PyTorch, TensorFlow, or any other library.
+> **Process-Oriented Programming (POP) SDK for Industrial Agents**
+> *Formerly known as POP SDK*
 
----
+Theus is a robust, clean-architecture framework for building deterministic, auditable, and resilient AI Agents. It implements the **POP Microkernel Architecture**, separating Data (Context) from Behavior (Process) and Orchestration (Workflow).
 
-## 📦 Installation
+## 🚀 What's New in V2.1?
+
+- **Microkernel Core**: Separated `POPEngine` from Orchestration Logic.
+- **Hybrid Workflow**: Combine Finite State Machines (FSM) with Linear Process Chains.
+- **Thread-Safe Concurrency**: `ThreadExecutor` for non-blocking I/O and background tasks.
+- **Industrial Safety**:
+    - **ContextGuard**: Prevents unauthorized memory mutations.
+    - **Transaction Rollback**: Atomically reverts state on process crash.
+    - **Audit System**: Runtime validation of Inputs/Outputs via Gates.
+- **CLI**: Rapidly scaffold projects with `theus init`.
+
+## 📚 Documentation
+
+- [Architecture Specification (V2.1)](Documents/SPECS/theus_v2_1_architecture.md)
+- [POP Engineering Handbook (V2.1)](Documents/POP_Specification_v2_1.md)
+- [Configuration Guide (Workflow & Audit)](Documents/GUIDES/configuration.md)
+- [RELEASE NOTES (v0.2.0)](RELEASE_NOTES_v0.2.0.md)
+
+## 🛠 Installation
 
 ```bash
 pip install theus
 ```
+
+## ⚡ Quick Start
+
+Create a fully functional showcase project:
+```bash
+# 1. Create Skeleton
+theus init MyProject
+
+# 2. Run Demo
+cd MyProject
+python main.py
+```
+Interact with the CLI:
+`start` (Run Workflow), `hack` (Test Security), `crash` (Test Resilience), `rollback` (Test Transactions).
 
 ---
 
@@ -73,11 +88,11 @@ pip install theus
 
 The fastest way to start is using the CLI tool.
 
-> **Note**: We recommend using `python -m theus` to ensure compatibility across all operating systems.
+> **Note**: We recommend using `python -m theus.cli` to ensure compatibility across all operating systems.
 
 ```bash
 # 1. Initialize a new project
-python -m theus init my_agent
+python -m theus.cli init my_agent
 
 # 2. Enter directory
 cd my_agent
@@ -87,8 +102,8 @@ python main.py
 ```
 
 Arguments:
-- `python -m theus init <name>`: Create a new project folder.
-- `python -m theus init .`: Initialize in current directory.
+- `python -m theus.cli init <name>`: Create a new project folder.
+- `python -m theus.cli init .`: Initialize in current directory.
 
 ---
 
@@ -102,14 +117,21 @@ Beyond initialization, Theus provides tools for Audit & Schema management.
 Start from code, generate the rules.
 
 ```bash
-python -m theus audit gen-spec
+python -m theus.cli audit gen-spec
 ```
 
 ### Schema Generation
 Generate Context Schema from your Pydantic models.
 
 ```bash
-python -m theus schema gen --context-file src/context.py
+python -m theus.cli schema gen --context-file src/context.py
+```
+
+### Audit Inspection
+Inspect effective rules (Layers, Semantics) for a specific process.
+
+```bash
+python -m theus.cli audit inspect <process_name>
 ```
 
 ---
@@ -117,48 +139,66 @@ python -m theus schema gen --context-file src/context.py
 ## 📚 Manual Usage
 
 ### 1. Define Context (Data)
-Using Pydantic V2 for robust verification.
+Using Pydantic V2. Theus V2 introduces **Hybrid Context Zones** (Data, Signal, Meta) via naming conventions.
 
 ```python
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from theus import BaseSystemContext
 
-class MyGlobal(BaseModel):
-    counter: int = 0
+class AppGlobal(BaseModel):
+    # [DATA ZONE] Immutable Configuration
+    app_name: str = "MyAgent"
 
-class MySystem(BaseModel):
-    global_ctx: MyGlobal
-    # ... domain_ctx ...
+class AppDomain(BaseModel):
+    # [DATA ZONE] Business State (Persisted)
+    user_id: str = ""
+    status: str = "IDLE"
+
+    # [SIGNAL ZONE] Transient Events (Prefix: sig_ or cmd_)
+    sig_stop: bool = False
+    
+    # [META ZONE] Diagnostics (Prefix: meta_)
+    meta_last_error: Optional[str] = None
+
+class MySystem(BaseSystemContext):
+    def __init__(self):
+        self.global_ctx = AppGlobal()
+        self.domain_ctx = AppDomain()
 ```
 
 ### 2. Define Process (Logic)
+Declarative contracts now support **4 Semantic Axes**: Input, Output, Side-Effect, Error.
+
 ```python
 from theus import process
 
 @process(
-    inputs=['global.counter'], 
-    outputs=['global.counter']
+    inputs=['domain.user_id'], 
+    outputs=['domain.status', 'domain.meta_last_error'],
+    side_effects=['I/O'],      # New in V2: Declarative Side-Effect
+    errors=['ValueError']      # New in V2: Expected Errors
 )
-def increment(ctx):
-    # Valid: Declared in outputs
-    ctx.global_ctx.counter += 1
-    return "Incremented"
-
-@process(inputs=['global.counter'], outputs=[])
-def illegal_write(ctx):
-    # INVALID: Read-Only Input
-    # Raises ContractViolationError
-    ctx.global_ctx.counter += 1 
+def check_user(ctx):
+    try:
+        # Valid: Declared in outputs
+        ctx.domain_ctx.status = "CHECKING"
+        # ... perform DB check ...
+        return "Checked"
+    except ValueError as e:
+        ctx.domain_ctx.meta_last_error = str(e)
+        raise e
 ```
 
 ### 3. Run Engine
 ```python
 from theus import POPEngine
 
-system = MySystem(global_ctx=MyGlobal())
+system = MySystem()
 engine = POPEngine(system) # Default: Warning Mode
 
-engine.register_process("inc", increment)
-engine.run_process("inc")
+engine.register_process("check_user", check_user)
+engine.run_process("check_user")
 ```
 
 ---

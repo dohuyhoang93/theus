@@ -84,6 +84,21 @@ process_recipes:
     outputs:
       - field: "domain.result"
         type: "float"
+    
+    # [V2.1 New] Side Effects (Declarative I/O)
+    side_effects:
+      - "I/O"
+      - "Network"
+      
+    # [V2.1 New] Expected Errors
+    errors:
+      - "ValueError"
+      - "ConnectionError"
+
+> **Tip:** Bạn không cần viết file này thủ công. Hãy dùng lệnh:
+> ```bash
+> python -m theus audit gen-spec
+> ```
 ```
 
 ### Các Rule phổ biến

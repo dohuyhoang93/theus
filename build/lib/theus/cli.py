@@ -10,9 +10,11 @@ from .templates import (
     TEMPLATE_MAIN, 
     TEMPLATE_CONTEXT, 
     TEMPLATE_WORKFLOW, 
-    TEMPLATE_Hello_PROCESS,
+    TEMPLATE_PROCESS_CHAIN,
+    TEMPLATE_PROCESS_STRESS,
     TEMPLATE_AUDIT_RECIPE
 )
+from .config import ConfigFactory
 
 def init_project(project_name: str, target_dir: Path):
     """
@@ -36,8 +38,9 @@ def init_project(project_name: str, target_dir: Path):
         "src/context.py": TEMPLATE_CONTEXT,
         "src/__init__.py": "",
         "src/processes/__init__.py": "",
-        "src/processes/p_hello.py": TEMPLATE_Hello_PROCESS,
-        "workflows/main_workflow.yaml": TEMPLATE_WORKFLOW,
+        "src/processes/chain.py": TEMPLATE_PROCESS_CHAIN,
+        "src/processes/stress.py": TEMPLATE_PROCESS_STRESS,
+        "specs/workflow.yaml": TEMPLATE_WORKFLOW,
         "specs/context_schema.yaml": "# Define your Data Contract here\n",
         "specs/audit_recipe.yaml": TEMPLATE_AUDIT_RECIPE
     }
@@ -90,13 +93,34 @@ def gen_spec(target_dir: Path = Path.cwd()):
                 )
                 
                 if is_process:
-                    # Naively extract inputs/outputs if possible from AST (Hard without running)
-                    # For MVP, we just create the skeleton entry
-                    process_name = node.name
-                    discovered_recipes[process_name] = {
-                        "inputs": [{"field": "TODO_FIELD", "level": "S", "min": 0}],
-                        "outputs": [{"field": "TODO_FIELD", "level": "A", "threshold": 3}]
+                    # Extracts inputs/outputs/side_effects/errors from decorator
+                    skeleton = {
+                        "inputs": [{"field": "TODO_FIELD", "level": "I", "min": 0}], # Default: Ignore until configured
+                        "outputs": [{"field": "TODO_FIELD", "level": "I", "threshold": 3}],
+                        "side_effects": [], # New V2 Feature
+                        "errors": []        # New V2 Feature
                     }
+
+                    # Heuristic: Parse Decorator Kwargs
+                    for d in node.decorator_list:
+                        if isinstance(d, ast.Call) and getattr(d.func, 'id', '') == 'process':
+                            for kw in d.keywords:
+                                if kw.arg in ('inputs', 'outputs'):
+                                    # We keep the generic TODO skeleton for I/O rules as they are complex rule objects
+                                    pass
+                                elif kw.arg == 'side_effects':
+                                    try:
+                                        skeleton['side_effects'] = ast.literal_eval(kw.value)
+                                    except:
+                                        skeleton['side_effects'] = ["__DYNAMIC__"]
+                                elif kw.arg == 'errors':
+                                    try:
+                                        skeleton['errors'] = ast.literal_eval(kw.value)
+                                    except:
+                                        skeleton['errors'] = ["__DYNAMIC__"]
+
+                    process_name = node.name
+                    discovered_recipes[process_name] = skeleton
                     print(f"   found process: {process_name}")
 
     if not discovered_recipes:
@@ -125,6 +149,51 @@ def gen_spec(target_dir: Path = Path.cwd()):
         print(f"✅ Updated {recipe_path}")
     else:
         print("✨ No new processes to add.")
+
+def inspect_process(process_name: str, target_dir: Path = Path.cwd()):
+    """
+    Displays the effective audit rules for a process.
+    """
+    recipe_path = target_dir / "specs" / "audit_recipe.yaml"
+    if not recipe_path.exists():
+        print(f"❌ No audit recipe found at {recipe_path}")
+        return
+
+    try:
+        recipe_book = ConfigFactory.load_recipe(str(recipe_path))
+        recipe = recipe_book.definitions.get(process_name)
+        
+        if not recipe:
+            print(f"❌ Process '{process_name}' not found in Audit Recipe.")
+            return
+            
+        print(f"\\n🔍 Audit Inspector: {process_name}")
+        print("-----------------------------------")
+        
+        print(f"📥 INPUTS ({len(recipe.input_rules)} Rules):")
+        for r in recipe.input_rules:
+            print(f"   - {r.target_field}: {r.condition} {r.value} [Level: {r.level}]")
+            
+        print(f"\\n📤 OUTPUTS ({len(recipe.output_rules)} Rules):")
+        for r in recipe.output_rules:
+            print(f"   - {r.target_field}: {r.condition} {r.value} [Level: {r.level}]")
+
+        print(f"\\n⚡ SIDE EFFECTS:")
+        if recipe.side_effects:
+            for s in recipe.side_effects:
+                print(f"   - {s}")
+        else:
+            print("   (None declared)")
+
+        print(f"\\n🚫 EXPECTED ERRORS:")
+        if recipe.errors:
+            for e in recipe.errors:
+                print(f"   - {e}")
+        else:
+            print("   (None declared)")
+            
+    except Exception as e:
+        print(f"❌ Error loading recipe: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="Theus SDK CLI - Manage your Process-Oriented projects.")
@@ -174,7 +243,7 @@ def main():
         if args.audit_command == "gen-spec":
             gen_spec()
         elif args.audit_command == "inspect":
-            print("TODO: Implement Rule Inspector CLI")
+            inspect_process(args.process_name)
             
     elif args.command == "schema":
         if args.schema_command == "gen":

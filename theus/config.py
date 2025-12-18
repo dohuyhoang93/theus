@@ -52,6 +52,8 @@ class ProcessRecipe:
     process_name: str
     input_rules: List[RuleSpec] = field(default_factory=list)
     output_rules: List[RuleSpec] = field(default_factory=list)
+    side_effects: List[str] = field(default_factory=list) # V2
+    errors: List[str] = field(default_factory=list)       # V2
     inherits: Optional[str] = None
 
 @dataclass
@@ -108,6 +110,10 @@ class ConfigFactory:
                      recipe.input_rules.append(ConfigFactory._parse_rule(rule_data))
                 for rule_data in spec.get('outputs', []):
                      recipe.output_rules.append(ConfigFactory._parse_rule(rule_data))
+
+                # Parse Semantics (V2)
+                recipe.side_effects = spec.get('side_effects', [])
+                recipe.errors = spec.get('errors', [])
 
                 resolved[name] = recipe
             

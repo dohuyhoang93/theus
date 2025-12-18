@@ -35,6 +35,7 @@ Theus is a robust, clean-architecture framework for building deterministic, audi
 ## 📚 Documentation
 
 - [Architecture Specification (V2.1)](Documents/SPECS/theus_v2_1_architecture.md)
+- [POP Engineering Handbook (V2.1)](Documents/POP_Specification_v2_1.md)
 - [Configuration Guide (Workflow & Audit)](Documents/GUIDES/configuration.md)
 - [RELEASE NOTES (v0.2.0)](RELEASE_NOTES_v0.2.0.md)
 
@@ -64,11 +65,11 @@ Interact with the CLI:
 
 The fastest way to start is using the CLI tool.
 
-> **Note**: We recommend using `python -m theus` to ensure compatibility across all operating systems.
+> **Note**: We recommend using `python -m theus.cli` to ensure compatibility across all operating systems.
 
 ```bash
 # 1. Initialize a new project
-python -m theus init my_agent
+python -m theus.cli init my_agent
 
 # 2. Enter directory
 cd my_agent
@@ -78,8 +79,8 @@ python main.py
 ```
 
 Arguments:
-- `python -m theus init <name>`: Create a new project folder.
-- `python -m theus init .`: Initialize in current directory.
+- `python -m theus.cli init <name>`: Create a new project folder.
+- `python -m theus.cli init .`: Initialize in current directory.
 
 ---
 
@@ -93,14 +94,21 @@ Beyond initialization, Theus provides tools for Audit & Schema management.
 Start from code, generate the rules.
 
 ```bash
-python -m theus audit gen-spec
+python -m theus.cli audit gen-spec
 ```
 
 ### Schema Generation
 Generate Context Schema from your Pydantic models.
 
 ```bash
-python -m theus schema gen --context-file src/context.py
+python -m theus.cli schema gen --context-file src/context.py
+```
+
+### Audit Inspection
+Inspect effective rules (Layers, Semantics) for a specific process.
+
+```bash
+python -m theus.cli audit inspect <process_name>
 ```
 
 ---

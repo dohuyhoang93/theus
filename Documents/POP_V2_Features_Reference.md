@@ -16,10 +16,15 @@ Tài liệu này tổng hợp chi tiết các cơ chế và tính năng hiện c
 *   **Cơ chế:** Engine chạy trực tiếp trên Thread của Python, sử dụng các cơ chế quản lý bộ nhớ của Python (Reference Counting).
 
 ### 1.2. Process-Oriented (Hướng Quy trình)
-*   **Tách biệt Data & Logic:**
-    *   **Context (Data):** Chỉ chứa dữ liệu (Dataclasses), không chứa methods.
-    *   **Process (Logic):** Pure Functions, chỉ nhận Context vào và trả Context ra.
-*   **Minh bạch (Transparency):** Mọi sự thay đổi trạng thái hệ thống đều phải thông qua Process được khai báo.
+*   **Hybrid Context Zones (Phân vùng Ngữ cảnh):**
+    *   **Data Zone (Persistent):** Dữ liệu Business (Lưu DB, Replay được). Ví dụ: `user_id`, `status`.
+    *   **Signal Zone (Transient):** Sự kiện hoặc Lệnh điều khiển (Reset sau mỗi Tick). Ví dụ: `sig_stop`, `cmd_reset`.
+    *   **Meta Zone (Diagnostic):** Thông tin chẩn đoán, log (Không ảnh hưởng Logic Business). Ví dụ: `meta_last_error`.
+*   **Semantic Process Contracts (Hợp đồng Ngữ nghĩa):**
+    *   **Inputs:** Dữ liệu đầu vào (Read-only).
+    *   **Outputs:** Dữ liệu đầu ra (Writeable).
+    *   **Side-Effects:** Tương tác ngoại vi (I/O, API Calls) - *Declarative*.
+    *   **Errors:** Các lỗi dự kiến (Expected Exceptions).
 
 ---
 
@@ -91,15 +96,19 @@ Hệ thống xử lý lỗi theo 4 cấp độ chuẩn hóa:
 
 POP V2 cung cấp bộ công cụ dòng lệnh mạnh mẽ để tăng tốc phát triển.
 
-### 5.1. `pop init <name>`
+### 5.1. `python -m theus.cli init <name>`
 *   **Chức năng:** Khởi tạo dự án mới theo cấu trúc chuẩn V2.
 *   **Kết quả:** Tạo thư mục `specs/`, `workflows/`, `src/` và các file mẫu.
 
-### 5.2. `pop audit gen-spec`
-*   **Chức năng:** Tự động quét code (`src/processes`) để tìm các Process và Input/Output của chúng.
-*   **Kết quả:** Tạo file khung `specs/audit_recipe_gen.yaml`. Giúp Dev không phải viết YAML từ con số 0.
+### 5.2. `python -m theus.cli schema gen`
+*   **Chức năng:** Tự động sinh `specs/context_schema.yaml` từ code Python.
+*   **Điểm mới:** Tự động lọc các biến thuộc vùng **Signal** và **Meta**, chỉ giữ lại **Data Zone**.
 
-### 5.3. `pop audit inspect <process_name>`
+### 5.3. `python -m theus.cli audit gen-spec`
+*   **Chức năng:** Quét code (`src/processes`) để update `specs/audit_recipe.yaml`.
+*   **Điểm mới:** Trích xuất tự động **Side Effects** (I/O) và **Errors** từ decorator.
+
+### 5.4. `python -m theus.cli audit inspect <process_name>`
 *   **Chức năng:** Xem chi tiết các luật đang áp dụng lên một Process cụ thể.
 *   **Hiển thị:** Danh sách Input Rules, Output Rules và Audit Level tương ứng.
 

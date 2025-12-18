@@ -6,9 +6,11 @@ Gói `theus` được tổ chức theo kiến trúc Microkernel phân lớp:
 ```
 theus/
 ├── context.py       # Dữ liệu (Pydantic V2)
+├── zones.py         # SAFETY: Context Zones (Data, Signal, Meta)
 ├── contracts.py     # Hợp đồng (@process decorator)
 ├── engine.py        # KERNEL: POPEngine (Audit, Atomic execution)
 ├── locks.py         # SAFETY: LockManager (Mutex + Permission)
+├── cli.py           # TOOLING: CLI (init, schema gen, audit gen)
 ├── interfaces.py    # CONTRACTS: IEngine, IScheduler...
 └── orchestrator/    # ORCHESTRATOR LAYER (New in V2.1)
     ├── bus.py       # SignalBus (Queue an toàn)
@@ -31,6 +33,7 @@ Theus V2.1 hoạt động theo mô hình **Sự kiện (Event-Driven)**:
 
 | Tính năng | Mô tả | Lợi ích |
 | :--- | :--- | :--- |
+| **Hybrid Context** | Phân chia dữ liệu thành 3 vùng: Data (lưu), Signal (reset), Meta (log). | Chống "Context Drift", quản lý trạng thái sạch sẽ. |
 | **Microkernel** | Tách biệt Engine (kỹ thuật) và Orchestrator (nghiệp vụ). | Dễ mở rộng, dễ test, code gọn gàng. |
 | **Non-Blocking** | Sử dụng `ThreadPool` để xử lý tác vụ nặng. | **Không bao giờ đơ GUI**. |
 | **State Machine** | Quản lý workflow bằng đồ thị trạng thái (YAML). | Tránh "If/Else Spaghetti" trong code điều khiển. |

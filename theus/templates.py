@@ -139,6 +139,7 @@ states:
     entry: ["p_init", "p_process", "p_finalize"] # Linear Chain
     "on":
        EVT_CHAIN_DONE: "IDLE" # Auto-return when chain finishes
+       EVT_CHAIN_FAIL: "IDLE" # Fallback on error
        CMD_RESET: "IDLE"
 
   TEST_HACK:
@@ -178,6 +179,7 @@ import yaml
 import threading
 import os
 import time
+import queue
 
 # --- ANSI COLORS ---
 class Color:
@@ -214,6 +216,18 @@ def print_menu():
     print(f"  {Color.BLUE}status{Color.RESET} : Check State.")
     print(f"  {Color.BOLD}quit{Color.RESET}   : Exit.")
 
+def orchestrator_loop(manager, bus, stop_event):
+    \"\"\"Background thread to process signals so UI doesn't block.\"\"\"
+    while not stop_event.is_set():
+        try:
+            # Blocking get with timeout allows checking stop_event periodically
+            signal = bus.get(block=True, timeout=0.1)
+            manager.process_signal(signal)
+        except queue.Empty:
+            continue
+        except Exception as e:
+            print(f"{Color.RED}Orchestrator Error: {e}{Color.RESET}")
+
 def main():
     basedir = os.path.dirname(os.path.abspath(__file__))
     workflow_path = os.path.join(basedir, "specs", "workflow.yaml")
@@ -249,11 +263,21 @@ def main():
         wf_def = yaml.safe_load(f)
     manager.load_workflow(wf_def)
     
+    # --- Start Background Orchestrator ---
+    stop_event = threading.Event()
+    orchestrator_thread = threading.Thread(
+        target=orchestrator_loop, 
+        args=(manager, bus, stop_event),
+        daemon=True
+    )
+    orchestrator_thread.start()
+
     print_menu()
     
     running = True
     while running:
         try:
+            # Input is blocking, but Orchestrator is now in background!
             cmd = input(f"\\n{Color.BOLD}theus>{Color.RESET} ").strip().lower()
             
             if cmd == 'quit':
@@ -266,42 +290,44 @@ def main():
             elif cmd == 'hack':
                  print(f"\\n{Color.YELLOW}[SECURITY DEMO] Attempting Unsafe Write...{Color.RESET}")
                  bus.emit("CMD_HACK")
-                 time.sleep(0.5)
-                 if sys_ctx.domain_ctx.status == "HACKED":
-                     print(f"{Color.RED}❌ FAILED! Hacked!{Color.RESET}")
-                 else:
-                     print(f"{Color.GREEN}✅ BLOCKED! ContextGuard prevented write.{Color.RESET}")
+                 # Sleep briefly to allow logs to appear before next prompt
+                 time.sleep(0.2) 
             elif cmd == 'crash':
                  print(f"\\n{Color.YELLOW}[RESILIENCE DEMO] Triggering Crash...{Color.RESET}")
                  bus.emit("CMD_CRASH")
-                 time.sleep(0.5)
-                 print(f"{Color.GREEN}✅ SYSTEM ALIVE!{Color.RESET}")
+                 time.sleep(0.2)
             elif cmd == 'rollback':
                 print(f"\\n{Color.YELLOW}[TRANSACTION DEMO] Testing Rollback...{Color.RESET}")
                 orig_count = sys_ctx.domain_ctx.processed_count
                 print(f"   Original Count: {orig_count}")
                 bus.emit("CMD_ROLLBACK")
-                time.sleep(1.5) # Wait for Process -> Write -> Sleep -> Crash -> Rollback
-                final_count = sys_ctx.domain_ctx.processed_count
                 
+                # Check result after a delay
+                time.sleep(1.5) 
+                
+                final_count = sys_ctx.domain_ctx.processed_count
                 if final_count == 9999:
                      print(f"{Color.RED}❌ FAILED! Dirty Write Persisted! (Count=9999){Color.RESET}")
                 elif final_count == orig_count:
                      print(f"{Color.GREEN}✅ PASSED! Value Rolled Back to {final_count}.{Color.RESET}")
                 else:
                      print(f"{Color.RED}❌ FAILED! Value Mismatch! Expected {orig_count}, Got {final_count}{Color.RESET}")
+
             elif cmd == 'status':
                 state = manager.fsm.get_current_state()
                 data_status = sys_ctx.domain_ctx.status
                 print(f"   [FSM]: {Color.BLUE}{state}{Color.RESET} | [Data]: {data_status}")
                 
-            while not bus.empty():
-                manager.process_signal(bus.get(block=False))
-                
         except KeyboardInterrupt:
             running = False
         except Exception as e:
             print(f"{Color.RED}Error: {e}{Color.RESET}")
+    
+    # Cleanup
+    stop_event.set()
+    orchestrator_thread.join(timeout=1.0)
+    scheduler.shutdown()
+    print("Goodbye!")
 
 if __name__ == "__main__":
     main()

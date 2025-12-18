@@ -1,7 +1,8 @@
 
 import logging
+import threading
 from contextlib import contextmanager
-from typing import Literal
+from typing import Literal, Optional
 
 logger = logging.getLogger("POP.LockManager")
 
@@ -18,18 +19,25 @@ class LockManager:
     """
     def __init__(self, strict_mode: bool = False):
         self.strict_mode = strict_mode
-        self._locked = True # Default is Locked (Secure by Default)
+        self._mutex = threading.Lock() # Protects the state
+        self._writer_thread_id: Optional[int] = None
         
     def validate_write(self, attr_name: str, target_obj: object):
         """
         Called by Context.__setattr__ to verify permission.
+        Thread-Safe: Only the thread that acquired the 'unlock' (Writer) can write.
         """
-        if not self._locked:
-            return # Safe to write (Inside Transaction)
+        current_id = threading.get_ident()
+        
+        # Check if Current Thread is the Active Writer
+        is_owner = (self._writer_thread_id == current_id)
+        
+        if is_owner:
+            return # Safe to write (Authorized Writer)
             
-        # If Locked: Violation!
-        msg = f"UNSAFE MUTATION: Attempting to modify '{attr_name}' on '{type(target_obj).__name__}' outside of a Transaction."
-        hint = "  Hint: Use 'with engine.edit():' or wrap code in a Process."
+        # If not owner: Violation!
+        msg = f"UNSAFE MUTATION: Thread {current_id} attempted to modify '{attr_name}' but Writer is {self._writer_thread_id or 'None'}."
+        hint = "  Hint: Use 'with engine.edit():' or run within a Process."
         
         full_msg = f"{msg}\n{hint}"
         
@@ -43,12 +51,14 @@ class LockManager:
     @contextmanager
     def unlock(self):
         """
-        Context Manager to temporarily unlock safety.
-        Used by POPEngine during Process execution or `edit()`.
+        Thread-Safe Write Lock (Mutex).
+        Acquires exclusive write access for the current thread.
         """
-        prev_state = self._locked
-        self._locked = False
-        try:
-            yield
-        finally:
-            self._locked = prev_state
+        # Block until we can acquire the mutex (Exclusive Write)
+        with self._mutex:
+            current_id = threading.get_ident()
+            self._writer_thread_id = current_id
+            try:
+                yield
+            finally:
+                self._writer_thread_id = None
