@@ -1,0 +1,35 @@
+name: Hybrid Demo Workflow
+states:
+  IDLE:
+    "on":
+      CMD_START: PROCESSING
+      CMD_HACK: TEST_HACK
+      CMD_CRASH: TEST_CRASH
+      CMD_ROLLBACK: TEST_TRANSACTION
+  
+  PROCESSING:
+    # Linear Chain of Processes automatically executed upon entry
+    entry:
+      - p_init
+      - p_process
+      - p_finalize
+    "on":
+      CMD_RESET: IDLE
+      EVT_CHAIN_DONE: IDLE
+      
+  TEST_HACK:
+    entry: p_unsafe_write
+    "on":
+      EVT_CHAIN_DONE: IDLE
+
+  TEST_CRASH:
+    entry: p_crash_test
+    "on":
+      EVT_CHAIN_DONE: IDLE
+      EVT_CHAIN_FAIL: IDLE
+
+  TEST_TRANSACTION:
+    entry: p_transaction_test
+    "on":
+      EVT_CHAIN_FAIL: IDLE
+      EVT_CHAIN_DONE: IDLE

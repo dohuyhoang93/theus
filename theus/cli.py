@@ -10,7 +10,8 @@ from .templates import (
     TEMPLATE_MAIN, 
     TEMPLATE_CONTEXT, 
     TEMPLATE_WORKFLOW, 
-    TEMPLATE_Hello_PROCESS,
+    TEMPLATE_PROCESS_CHAIN,
+    TEMPLATE_PROCESS_STRESS,
     TEMPLATE_AUDIT_RECIPE
 )
 
@@ -36,8 +37,9 @@ def init_project(project_name: str, target_dir: Path):
         "src/context.py": TEMPLATE_CONTEXT,
         "src/__init__.py": "",
         "src/processes/__init__.py": "",
-        "src/processes/p_hello.py": TEMPLATE_Hello_PROCESS,
-        "workflows/main_workflow.yaml": TEMPLATE_WORKFLOW,
+        "src/processes/chain.py": TEMPLATE_PROCESS_CHAIN,
+        "src/processes/stress.py": TEMPLATE_PROCESS_STRESS,
+        "specs/workflow.yaml": TEMPLATE_WORKFLOW,
         "specs/context_schema.yaml": "# Define your Data Contract here\n",
         "specs/audit_recipe.yaml": TEMPLATE_AUDIT_RECIPE
     }

@@ -62,9 +62,9 @@ graph TD
 
 | Thành phần | Trạng thái | Chức năng (Role) | Ghi chú |
 | :--- | :--- | :--- | :--- |
-| **FSMManager** | 🆕 Mới | Đọc `workflow.yaml` (dạng Graph/State), quyết định bước tiếp theo. | Thay thế vòng lặp `for` đơn giản hiện tại. |
-| **EventBus** | 🆕 Mới | Hàng đợi tin nhắn (Queue) gắn trong SystemContext. | Cầu nối giữa GUI và Engine. |
-| **ThreadExecutor** | 🆕 Mới | Wrapper quanh `ThreadPool`. | Chạy Process ở Background để không block GUI. |
+| **WorkflowManager** | ✅ Có sẵn | Đọc `workflow.yaml` (dạng Graph/State), điều phối toàn bộ luồng. | Thay thế `FSMManager` trong thiết kế cũ. |
+| **SignalBus** | ✅ Có sẵn | Hàng đợi tin nhắn (Thread-safe Queue). | Cầu nối giữa GUI và Engine. |
+| **ThreadExecutor** | ✅ Có sẵn | Wrapper quanh `ThreadPoolExecutor` (max_workers). | Chạy Process ở Background để không block GUI. |
 
 ## 4. Luồng dữ liệu (Data Flow) - Kịch bản GUI Async
 

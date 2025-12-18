@@ -178,3 +178,43 @@ Khi Orchestrator chỉ biết đến `IEngine`, ta có thể tráo đổi "Ruộ
 *   **Local Execution:** Inject `POPEngine` (Chạy tại chỗ).
 *   **Remote Execution:** Inject `RpcEngine` (Gửi lệnh sang server khác chạy, dành cho Distributed Agent).
 *   **Mock Testing:** Inject `MockEngine` (Giả lập chạy để test luồng FSM mà không cần chạy code Business thật).
+
+# 9. Câu hỏi xác minh Theus v2 (User Added)
+(Đã phân tích dựa trên context)
+
+# 10. Trả lời xác minh kỹ thuật (Theus V2.1 Verification)
+
+Dưới đây là phần phân tích kỹ thuật dựa trên mã nguồn thực tế của `theus` v2.1.0:
+
+## 10.1 Về FSM (`theus.orchestrator.fsm.StateMachine`)
+1.  **Triển khai**: FSM được viết hoàn toàn bằng **Pure Python** trong `theus/orchestrator/fsm.py`. Nó **không phụ thuộc** vào bất kỳ thư viện bên ngoài nào (như `transitions` hay `automata`). Cơ chế là Graph-based: `Dict[State, Dict[Event, NextState]]`.
+2.  **Ưu/Nhược điểm**:
+    *   *Ưu điểm*: Đơn giản, Minh bạch, Dễ debug (chỉ là Dictionary lookup), Không có overhead của thư viện lớn.
+    *   *Nhược điểm*: Có thể bùng nổ trạng thái (State Explosion) nếu logic quá phức tạp.
+    *   *Đối thủ*: **Behavior Trees (BT)** (linh hoạt hơn cho AI Game), **Hierarchical Task Networks (HTN)** (Planning), hoặc **LLM ReAct** (Unstructured).
+3.  **Lựa chọn**: Chọn FSM khi bạn cần **Sự tất định (Determinism)** cao. Câu hỏi cần trả lời: "Hệ thống có số lượng trạng thái hữu hạn và biết trước không?". Nếu Có -> FSM. Nếu Không (Open-ended) -> Agentic/LLM.
+
+## 10.2 Về Interface (`theus.interfaces.IEngine`)
+1.  **Thiết kế**: `IEngine` là một **Abstract Base Class (ABC)** định nghĩa contract: `execute(name, ctx)`. Nó giúp tách rời lớp Điều phối (Orchestrator) khỏi lớp Thực thi (Kernel).
+2.  **Clean Architecture**: Tuân thủ tuyệt đối **Dependency Inversion Principle (DIP)**. Module cấp cao (Orchestrator) không phụ thuộc Module cấp thấp (POPEngine), cả hai phụ thuộc vào Abstraction (`IEngine`). Điều này cho phép dễ dàng thay thế Kernel thật bằng Mock Kernel khi test.
+
+## 10.3 Về Executor (`theus.orchestrator.executor.ThreadExecutor`)
+1.  **Sử dụng**: **CÓ**. Theus sử dụng `concurrent.futures.ThreadPoolExecutor` được bọc trong class `ThreadExecutor` (file `theus/orchestrator/executor.py`).
+2.  **Triển khai**: Mỗi Process Chain (chuỗi xử lý) được submit vào một Thread riêng biệt. Điều này giúp Event Loop (Main Thread) không bị chặn (Non-blocking I/O), cực kỳ quan trọng cho ứng dụng GUI hoặc Server.
+
+## 10.4 Về Lock (`theus.locks.LockManager` & `ContextGuard`)
+1.  **Cơ chế**:
+    *   **LockManager**: Sử dụng `threading.RLock` (Reentrant Lock). Bảo vệ vùng nhớ vật lý khỏi Race Condition (nhiều thread ghi cùng lúc).
+    *   **ContextGuard**: Sử dụng Proxy Pattern (`__setattr__`). Bảo vệ logic nghiệp vụ (Permissions), chặn truy cập trái phép từ code "bên ngoài" (không phải process).
+2.  **Sự chồng chéo**: Có sự hỗ trợ lẫn nhau nhưng không thừa. `Lock` bảo vệ tính toàn vẹn dữ liệu (Data Integrity). `Guard` bảo vệ tính đúng đắn của quyền truy cập (Access Control).
+3.  **Lỗ hổng**: Granularity (Độ mịn). Hiện tại lock ở mức toàn bộ Context. Nếu 2 process ghi vào 2 field KHÁC NHAU của cùng context, chúng vẫn phải chờ nhau.
+4.  **Hiệu năng**: Đã kiểm tra (`tests/test_concurrency_v2.py`). Với 50 luồng đồng thời thực hiện 5000 write ops, hệ thống hoàn thành trong <1s. Overhead của RLock là không đáng kể so với I/O.
+
+## 10.5 Về Event & God Object (`theus.orchestrator.bus.SignalBus`)
+1.  **Event Drift**: Đúng là trong `SystemContext` có giữ tham chiếu tới `signals` (SignalBus).
+    *   *Rủi ro*: Context trở thành God Object biết quá nhiều thứ (Vừa chứa Data, vừa chứa Service).
+    *   *Giải pháp trong Theus*: `SignalBus` được tách riêng thành một Object độc lập, chỉ được "Inject" vào Context để tiện sử dụng trong Process (`ctx.signals.emit()`). Đây là sự đánh đổi (Pragmatism over Purity) để giữ API đơn giản cho Developer.
+    *   *Lựa chọn thay thế*: Truyền `bus` như một tham số riêng cho Process (`func(ctx, bus)`). Tuy nhiên điều này làm thay đổi signature chuẩn của POP (`func(ctx) -> ctx`).
+2.  **YAML vs Code**:
+    *   *Ưu điểm*: FSM trong YAML tách biệt Logic khỏi Code (Data-driven). Có thể visualize, verify static mà không cần chạy code. Thay đổi luồng không cần deploy code lại (nếu process đã có sẵn).
+    *   *Nhược điểm*: Mất sự hỗ trợ của IDE (Jump to definition, Type hint). Theus giải quyết bằng Schema Validation (`specs/workflow.yaml` được validate lúc runtime).

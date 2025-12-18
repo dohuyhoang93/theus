@@ -1,4 +1,4 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: theus
 Version: 0.1.4
 Summary: Theus Agentic Framework (formerly POP SDK) - Industrial Grade Process-Oriented Programming
@@ -20,6 +20,18 @@ License-File: LICENSE
 Requires-Dist: pydantic>=2.0
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: typing-extensions>=4.0
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: keywords
+Dynamic: license-file
+Dynamic: project-url
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
 
 # Theus (formerly POP SDK)
 

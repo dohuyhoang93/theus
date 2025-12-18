@@ -14,23 +14,49 @@
 
 ## 🌟 Key Features
 
-### 🛡️ Safety & Security
-- **Context Locking ("The Vault")**: Prevents accidental state mutation from external code (`main.py`). Warning mode by default, Strict mode (crash) for CI.
-- **Frozen Inputs**: Process inputs are wrapped in `FrozenList`/`FrozenDict`. Side-effects are blocked at runtime.
-- **Strict Contracts**: Explicit `@process(inputs=[...], outputs=[...])` decorators prevent "State Spaghetti".
+# Theus SDK (V2.1)
 
-### ⚡ Developer Experience
-- **POP CLI**: Bootstrap new projects instantly with `pop init`.
-- **Hybrid Guard**: Friendly warnings for rapid dev, Strict enforcement for interaction.
-- **Zero-Dependency Core**: Pure Python. Compatible with PyTorch, TensorFlow, or any other library.
+> **Process-Oriented Programming (POP) SDK for Industrial Agents**
+> *Formerly known as POP SDK*
 
----
+Theus is a robust, clean-architecture framework for building deterministic, auditable, and resilient AI Agents. It implements the **POP Microkernel Architecture**, separating Data (Context) from Behavior (Process) and Orchestration (Workflow).
 
-## 📦 Installation
+## 🚀 What's New in V2.1?
+
+- **Microkernel Core**: Separated `POPEngine` from Orchestration Logic.
+- **Hybrid Workflow**: Combine Finite State Machines (FSM) with Linear Process Chains.
+- **Thread-Safe Concurrency**: `ThreadExecutor` for non-blocking I/O and background tasks.
+- **Industrial Safety**:
+    - **ContextGuard**: Prevents unauthorized memory mutations.
+    - **Transaction Rollback**: Atomically reverts state on process crash.
+    - **Audit System**: Runtime validation of Inputs/Outputs via Gates.
+- **CLI**: Rapidly scaffold projects with `theus init`.
+
+## 📚 Documentation
+
+- [Architecture Specification (V2.1)](Documents/SPECS/theus_v2_1_architecture.md)
+- [Configuration Guide (Workflow & Audit)](Documents/GUIDES/configuration.md)
+- [RELEASE NOTES (v0.2.0)](RELEASE_NOTES_v0.2.0.md)
+
+## 🛠 Installation
 
 ```bash
 pip install theus
 ```
+
+## ⚡ Quick Start
+
+Create a fully functional showcase project:
+```bash
+# 1. Create Skeleton
+theus init MyProject
+
+# 2. Run Demo
+cd MyProject
+python main.py
+```
+Interact with the CLI:
+`start` (Run Workflow), `hack` (Test Security), `crash` (Test Resilience), `rollback` (Test Transactions).
 
 ---
 

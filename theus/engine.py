@@ -13,7 +13,9 @@ from .config import AuditRecipe
 
 logger = logging.getLogger("POPEngine")
 
-class POPEngine:
+from .interfaces import IEngine
+
+class POPEngine(IEngine):
     def __init__(self, system_ctx: BaseSystemContext, strict_mode: Optional[bool] = None, audit_recipe: Optional[AuditRecipe] = None):
         self.ctx = system_ctx
         self.process_registry: Dict[str, Callable] = {}
@@ -44,6 +46,16 @@ class POPEngine:
         if not hasattr(func, '_pop_contract'):
             logger.warning(f"Process {name} does not have a contract decorator (@process). Safety checks disabled.")
         self.process_registry[name] = func
+
+    def get_process(self, name: str) -> Callable:
+        return self.process_registry.get(name)
+
+    def execute_process(self, process_name: str, context: Any = None) -> Any:
+        """
+        Implementation of IEngine.execute_process.
+        """
+        # POPEngine is stateful (holds self.ctx).
+        return self.run_process(process_name)
 
     def run_process(self, name: str, **kwargs):
         """
