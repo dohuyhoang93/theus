@@ -1,13 +1,9 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List, Any
-import sys
-import os
+from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
 
-sys.path.append(os.path.join(os.getcwd(), 'python_pop_sdk'))
-from pop import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
-
-@dataclass(frozen=True)
+@dataclass
 class MockGlobal(BaseGlobalContext):
     pass
 
@@ -56,7 +52,7 @@ class TestZombieProxy(unittest.TestCase):
         print(f"   Storage Type After Leak: {type(self.sys.domain_ctx.storage)}")
         
         # Check if it is indeed a TrackedList
-        from pop.structures import TrackedList
+        from theus.structures import TrackedList
         self.assertTrue(isinstance(self.sys.domain_ctx.storage, list), 
                         "Expected storage to hold unwrapped List (Zombie Fix working).")
         

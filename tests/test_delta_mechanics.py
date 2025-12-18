@@ -1,14 +1,10 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List, Dict
-import sys
-import os
-
-sys.path.append(os.path.join(os.getcwd(), 'python_pop_sdk'))
-from pop import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
+from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
 
 # --- Domain Mock ---
-@dataclass(frozen=True)
+@dataclass
 class MockGlobal(BaseGlobalContext):
     limit: int = 10
 

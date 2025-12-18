@@ -83,7 +83,7 @@ class POPEngine(IEngine):
                 allowed_outputs = set(contract.outputs)
                 
                 tx = Transaction(self.ctx)
-                guarded_ctx = ContextGuard(self.ctx, allowed_inputs, allowed_outputs, transaction=tx)
+                guarded_ctx = ContextGuard(self.ctx, allowed_inputs, allowed_outputs, transaction=tx, strict_mode=self.lock_manager.strict_mode)
                 
                 try:
                     result = func(guarded_ctx, **kwargs)

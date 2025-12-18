@@ -5,7 +5,7 @@ import os
 # Add parent directory to path to simulate package installation
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from pop import BaseGlobalContext, BaseDomainContext, BaseSystemContext, POPEngine, process
+from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, POPEngine, process
 
 # 1. Define Context
 @dataclass

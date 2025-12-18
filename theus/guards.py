@@ -8,13 +8,40 @@ class ContextGuard:
     A runtime proxy that enforces POP Contracts (Read/Write permissions)
     AND facilitates Transactional Mutation (Delta Logging).
     """
-    def __init__(self, target_obj: Any, allowed_inputs: Set[str], allowed_outputs: Set[str], path_prefix: str = "", transaction: Optional[Transaction] = None):
+    def __init__(self, target_obj: Any, allowed_inputs: Set[str], allowed_outputs: Set[str], path_prefix: str = "", transaction: Optional[Transaction] = None, strict_mode: bool = False):
         # Use object.__setattr__ to avoid recursion during init
         object.__setattr__(self, "_target_obj", target_obj)
         object.__setattr__(self, "_allowed_inputs", allowed_inputs)
         object.__setattr__(self, "_allowed_outputs", allowed_outputs)
         object.__setattr__(self, "_path_prefix", path_prefix)
         object.__setattr__(self, "_transaction", transaction)
+        object.__setattr__(self, "_strict_mode", strict_mode)
+        
+        # ZONE ENFORCEMENT (Inputs)
+        # Verify that no inputs belong to Forbidden Zones (SIGNAL, META)
+        from .zones import resolve_zone, ContextZone
+        import logging
+        logger = logging.getLogger("POP.ContextGuard")
+        
+        for inp in allowed_inputs:
+             # We only check the root key or full path?
+             # resolve_zone checks prefix. "domain.sig_x" -> "domain" (DATA).
+             # Wait, context layers. 
+             # If input is "sig_x" (Global), zone is SIGNAL.
+             # If input is "domain.sig_x", zone of "domain" is DATA?
+             # No, we need to check the LEAF.
+             # But validation here is on the STRING path.
+             # "domain.sig_x".
+             parts = inp.split('.')
+             leaf = parts[-1]
+             zone = resolve_zone(leaf)
+             
+             if zone in (ContextZone.SIGNAL, ContextZone.META):
+                 msg = f"Zone Policy Violation: '{inp}' ({zone.value}) cannot be declared as Input. Signals/Meta should not be dependencies."
+                 if strict_mode:
+                     raise ContractViolationError(msg)
+                 else:
+                     logger.warning(msg)
 
     def __getattr__(self, name: str):
         # 1. System/Magic Attribute Bypass
@@ -31,7 +58,7 @@ class ContextGuard:
              # domain_ctx -> "domain"
              next_prefix = name.replace("_ctx", "")
              # Pass transaction down
-             return ContextGuard(val, self._allowed_inputs, self._allowed_outputs, next_prefix, self._transaction)
+             return ContextGuard(val, self._allowed_inputs, self._allowed_outputs, next_prefix, self._transaction, self._strict_mode)
 
         # 3. Leaf / Primitive Attribute Logic
         full_path = f"{self._path_prefix}.{name}" if self._path_prefix else name

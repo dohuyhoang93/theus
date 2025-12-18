@@ -26,7 +26,8 @@ class DemoDomain(BaseModel):
     items: List[str] = Field(default_factory=list) # Data Queue
     
     # Error tracking
-    last_error: Optional[str] = None
+    # Error tracking (META Zone)
+    meta_last_error: Optional[str] = None
 
 # --- 3. System (Root Container) ---
 class DemoSystemContext(BaseSystemContext):
@@ -41,7 +42,11 @@ from src.context import DemoSystemContext
 
 # Decorator enforces Contract (Input/Output Safety)
 
-@process(inputs=[], outputs=['domain.status'])
+@process(
+    inputs=[], 
+    outputs=['domain.status'],
+    side_effects=['I/O']
+)
 def p_init(ctx: DemoSystemContext):
     print("   [p_init] Initializing System Resources...")
     ctx.domain_ctx.status = "READY"
@@ -50,7 +55,8 @@ def p_init(ctx: DemoSystemContext):
 
 @process(
     inputs=['domain.status', 'domain.items', 'domain.processed_count'],
-    outputs=['domain.status', 'domain.processed_count', 'domain.items']
+    outputs=['domain.status', 'domain.processed_count', 'domain.items'],
+    side_effects=['I/O']
 )
 def p_process(ctx: DemoSystemContext):
     print(f"   [p_process] Processing Batch (Current: {ctx.domain_ctx.processed_count})...")
@@ -65,7 +71,11 @@ def p_process(ctx: DemoSystemContext):
     
     return "Processed"
 
-@process(inputs=['domain.status'], outputs=['domain.status'])
+@process(
+    inputs=['domain.status'], 
+    outputs=['domain.status'],
+    side_effects=['I/O']
+)
 def p_finalize(ctx: DemoSystemContext):
     print("   [p_finalize] Finalizing and Cleaning up...")
     ctx.domain_ctx.status = "SUCCESS"
@@ -78,13 +88,23 @@ TEMPLATE_PROCESS_STRESS = """import time
 from theus import process
 from src.context import DemoSystemContext
 
-@process(inputs=[], outputs=['domain.status']) # Declared correctly
+@process(
+    inputs=[], 
+    outputs=['domain.status'], 
+    side_effects=['I/O'],
+    errors=['ValueError']
+) # Declared correctly
 def p_crash_test(ctx: DemoSystemContext):
     print("   [p_crash_test] About to crash...")
     time.sleep(0.5)
     raise ValueError("Simulated Process Crash!")
 
-@process(inputs=['domain.processed_count'], outputs=['domain.processed_count'])
+@process(
+    inputs=['domain.processed_count'], 
+    outputs=['domain.processed_count'],
+    side_effects=['I/O'],
+    errors=['RuntimeError']
+)
 def p_transaction_test(ctx: DemoSystemContext):
     print(f"   [p_transaction_test] ORIGINAL VALUE: {ctx.domain_ctx.processed_count}")
     print("   [p_transaction_test] Writing DIRTY DATA (9999)...")

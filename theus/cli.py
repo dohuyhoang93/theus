@@ -92,13 +92,34 @@ def gen_spec(target_dir: Path = Path.cwd()):
                 )
                 
                 if is_process:
-                    # Naively extract inputs/outputs if possible from AST (Hard without running)
-                    # For MVP, we just create the skeleton entry
-                    process_name = node.name
-                    discovered_recipes[process_name] = {
+                    # Extracts inputs/outputs/side_effects/errors from decorator
+                    skeleton = {
                         "inputs": [{"field": "TODO_FIELD", "level": "S", "min": 0}],
-                        "outputs": [{"field": "TODO_FIELD", "level": "A", "threshold": 3}]
+                        "outputs": [{"field": "TODO_FIELD", "level": "A", "threshold": 3}],
+                        "side_effects": [], # New V2 Feature
+                        "errors": []        # New V2 Feature
                     }
+
+                    # Heuristic: Parse Decorator Kwargs
+                    for d in node.decorator_list:
+                        if isinstance(d, ast.Call) and getattr(d.func, 'id', '') == 'process':
+                            for kw in d.keywords:
+                                if kw.arg in ('inputs', 'outputs'):
+                                    # We keep the generic TODO skeleton for I/O rules as they are complex rule objects
+                                    pass
+                                elif kw.arg == 'side_effects':
+                                    try:
+                                        skeleton['side_effects'] = ast.literal_eval(kw.value)
+                                    except:
+                                        skeleton['side_effects'] = ["__DYNAMIC__"]
+                                elif kw.arg == 'errors':
+                                    try:
+                                        skeleton['errors'] = ast.literal_eval(kw.value)
+                                    except:
+                                        skeleton['errors'] = ["__DYNAMIC__"]
+
+                    process_name = node.name
+                    discovered_recipes[process_name] = skeleton
                     print(f"   found process: {process_name}")
 
     if not discovered_recipes:

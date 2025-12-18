@@ -3,15 +3,12 @@ from dataclasses import dataclass, field
 from typing import List, Dict
 
 # Import from LOCAL SDK (Relative import or sys path hack needed if not installed)
-import sys
-import os
-sys.path.append(os.path.join(os.getcwd(), 'python_pop_sdk'))
 
-from pop import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
+from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
 
 # --- 1. Define Domain Logic (Bread Factory) ---
 
-@dataclass(frozen=True)
+@dataclass
 class BakeryConfig(BaseGlobalContext):
     flour_per_loaf: int = 2
     oven_capacity: int = 5

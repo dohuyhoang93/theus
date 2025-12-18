@@ -27,10 +27,10 @@ def test_fsm_transition_logic():
     
     # Expect: State updated, Action returned
     assert fsm.get_current_state() == "WORKING_STATE"
-    assert action == "p_do_heavy_work"
+    assert action == ["p_do_heavy_work"]
     
     # 3. Trigger DONE
     action2 = fsm.trigger("EVT_DONE")
     
     assert fsm.get_current_state() == "IDLE"
-    assert action2 is None # IDLE has no entry action defined
+    assert action2 == [] # IDLE has no entry action defined

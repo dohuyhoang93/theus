@@ -1,12 +1,8 @@
 import unittest
 from dataclasses import dataclass, field
-import sys
-import os
+from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
 
-sys.path.append(os.path.join(os.getcwd(), 'python_pop_sdk'))
-from pop import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
-
-@dataclass(frozen=True)
+@dataclass
 class MockGlobal(BaseGlobalContext):
     pass
 

@@ -1,5 +1,5 @@
 import unittest
-from pop import BaseGlobalContext, BaseDomainContext, BaseSystemContext, POPEngine, process, ContractViolationError
+from theus import BaseGlobalContext, BaseDomainContext, BaseSystemContext, POPEngine, process, ContractViolationError
 from dataclasses import dataclass, field
 from typing import List, Dict
 

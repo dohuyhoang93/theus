@@ -108,48 +108,66 @@ python -m theus schema gen --context-file src/context.py
 ## 📚 Manual Usage
 
 ### 1. Define Context (Data)
-Using Pydantic V2 for robust verification.
+Using Pydantic V2. Theus V2 introduces **Hybrid Context Zones** (Data, Signal, Meta) via naming conventions.
 
 ```python
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from theus import BaseSystemContext
 
-class MyGlobal(BaseModel):
-    counter: int = 0
+class AppGlobal(BaseModel):
+    # [DATA ZONE] Immutable Configuration
+    app_name: str = "MyAgent"
 
-class MySystem(BaseModel):
-    global_ctx: MyGlobal
-    # ... domain_ctx ...
+class AppDomain(BaseModel):
+    # [DATA ZONE] Business State (Persisted)
+    user_id: str = ""
+    status: str = "IDLE"
+
+    # [SIGNAL ZONE] Transient Events (Prefix: sig_ or cmd_)
+    sig_stop: bool = False
+    
+    # [META ZONE] Diagnostics (Prefix: meta_)
+    meta_last_error: Optional[str] = None
+
+class MySystem(BaseSystemContext):
+    def __init__(self):
+        self.global_ctx = AppGlobal()
+        self.domain_ctx = AppDomain()
 ```
 
 ### 2. Define Process (Logic)
+Declarative contracts now support **4 Semantic Axes**: Input, Output, Side-Effect, Error.
+
 ```python
 from theus import process
 
 @process(
-    inputs=['global.counter'], 
-    outputs=['global.counter']
+    inputs=['domain.user_id'], 
+    outputs=['domain.status', 'domain.meta_last_error'],
+    side_effects=['I/O'],      # New in V2: Declarative Side-Effect
+    errors=['ValueError']      # New in V2: Expected Errors
 )
-def increment(ctx):
-    # Valid: Declared in outputs
-    ctx.global_ctx.counter += 1
-    return "Incremented"
-
-@process(inputs=['global.counter'], outputs=[])
-def illegal_write(ctx):
-    # INVALID: Read-Only Input
-    # Raises ContractViolationError
-    ctx.global_ctx.counter += 1 
+def check_user(ctx):
+    try:
+        # Valid: Declared in outputs
+        ctx.domain_ctx.status = "CHECKING"
+        # ... perform DB check ...
+        return "Checked"
+    except ValueError as e:
+        ctx.domain_ctx.meta_last_error = str(e)
+        raise e
 ```
 
 ### 3. Run Engine
 ```python
 from theus import POPEngine
 
-system = MySystem(global_ctx=MyGlobal())
+system = MySystem()
 engine = POPEngine(system) # Default: Warning Mode
 
-engine.register_process("inc", increment)
-engine.run_process("inc")
+engine.register_process("check_user", check_user)
+engine.run_process("check_user")
 ```
 
 ---

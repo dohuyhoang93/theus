@@ -1,7 +1,7 @@
 import unittest
 import logging
-from pop import BaseGlobalContext, BaseDomainContext, BaseSystemContext, POPEngine, process
-from pop.locks import LockViolationError
+from theus import BaseGlobalContext, BaseDomainContext, BaseSystemContext, POPEngine, process
+from theus.locks import LockViolationError
 from dataclasses import dataclass, field
 
 @dataclass

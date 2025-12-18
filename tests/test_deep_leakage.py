@@ -1,13 +1,9 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List
-import sys
-import os
+from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
 
-sys.path.append(os.path.join(os.getcwd(), 'python_pop_sdk'))
-from pop import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
-
-@dataclass(frozen=True)
+@dataclass
 class MockGlobal(BaseGlobalContext):
     pass
 

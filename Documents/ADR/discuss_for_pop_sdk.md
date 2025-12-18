@@ -218,3 +218,4 @@ Dưới đây là phần phân tích kỹ thuật dựa trên mã nguồn thực
 2.  **YAML vs Code**:
     *   *Ưu điểm*: FSM trong YAML tách biệt Logic khỏi Code (Data-driven). Có thể visualize, verify static mà không cần chạy code. Thay đổi luồng không cần deploy code lại (nếu process đã có sẵn).
     *   *Nhược điểm*: Mất sự hỗ trợ của IDE (Jump to definition, Type hint). Theus giải quyết bằng Schema Validation (`specs/workflow.yaml` được validate lúc runtime).
+
