@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List
-from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
 
 @dataclass
 class MockGlobal(BaseGlobalContext):
@@ -34,7 +34,7 @@ def modify_via_slice(ctx):
 class TestSliceMutation(unittest.TestCase):
     def setUp(self):
         self.sys = MockSystem(MockGlobal(), MockDomain())
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         self.engine.register_process("p_slice", modify_via_slice)
 
     def test_slice_mutation(self):

@@ -219,3 +219,47 @@ Dưới đây là phần phân tích kỹ thuật dựa trên mã nguồn thực
     *   *Ưu điểm*: FSM trong YAML tách biệt Logic khỏi Code (Data-driven). Có thể visualize, verify static mà không cần chạy code. Thay đổi luồng không cần deploy code lại (nếu process đã có sẵn).
     *   *Nhược điểm*: Mất sự hỗ trợ của IDE (Jump to definition, Type hint). Theus giải quyết bằng Schema Validation (`specs/workflow.yaml` được validate lúc runtime).
 
+# 11. Phân tích lại Lỗ hổng "Contract Lười biếng" (Phiên bản đã được hiệu chỉnh)
+
+  Kết luận của bạn hoàn toàn chính xác: theus đã làm một việc xuất sắc trong việc bảo vệ tính toàn vẹn (Integrity) của dữ liệu, nhưng lập trình viên lười biếng vẫn có thể phá vỡ tính bảo mật (Confidentiality) và tính minh bạch
+  (Transparency) của hệ thống.
+
+  1. Về Nguy cơ Ghi (Write Risk): ĐÃ ĐƯỢC GIẢI QUYẾT
+
+  Phân tích ban đầu của tôi đã sai. Việc ContextGuard không cho phép ghi vào trường con (domain.field) khi chỉ có cha (domain) được khai báo trong outputs là một cơ chế bảo vệ cực kỳ mạnh mẽ.
+
+  Nó thể hiện một triết lý thiết kế đúng đắn: Quyền hạn không được kế thừa một cách ngầm định. Chỉ vì bạn có quyền vào một tòa nhà không có nghĩa là bạn có quyền sửa đổi đồ đạc trong đó.
+
+  Điều này có nghĩa là mối lo ngại lớn nhất - một process "lậu" âm thầm thay đổi trạng thái nghiệp vụ không liên quan - đã bị chặn đứng ở cấp độ engine. Tính toàn vẹn của data zone vẫn được đảm bảo.
+
+  2. Lỗ hổng thực sự nằm ở đâu? - Nguy cơ "Đọc Trộm" và "Phá vỡ Sự Minh bạch"
+
+  Mặc dù không thể ghi lung tung, "contract lười biếng" inputs=["domain_ctx"] vẫn tạo ra các vấn đề nghiêm trọng:
+
+   * Phá vỡ Tính Đóng gói và Bảo mật (Breaking Encapsulation & Confidentiality):
+       * Kịch bản: Một process tên là generate_welcome_email chỉ cần đọc domain_ctx.user.full_name. Tuy nhiên, lập trình viên khai báo inputs=["domain_ctx"].
+       * Hậu quả: Về mặt kỹ thuật, ContextGuard sẽ cho phép process này đọc tất cả mọi thứ bên trong domain_ctx, bao gồm cả những thông tin nhạy cảm như domain_ctx.user.password_hash hay domain_ctx.user.personal_id_number.
+       * Đây là một sự vi phạm trắng trợn nguyên tắc Quyền hạn Tối thiểu (Principle of Least Privilege). process đã được cấp quyền đọc nhiều hơn rất nhiều so với những gì nó thực sự cần, tạo ra một bề mặt tấn công hoặc rò rỉ thông tin
+         không cần thiết.
+
+   * Làm vô nghĩa Audit Log về "Read" (Blind Spot):
+       * Nếu hệ thống ghi log lại mọi hành vi truy cập dữ liệu, với contract lười biếng, log sẽ chỉ ghi nhận: "process: generate_welcome_email đã đọc domain_ctx".
+       * Log này gần như vô dụng. Nó không cho chúng ta biết process đã đọc cụ thể trường nào. Liệu nó có đọc trộm thông tin nhạy cảm hay không? Chúng ta không thể biết nếu không đọc lại code. Như bạn nói, nó tạo ra một "điểm mù"
+         (blind spot) cực lớn trong khả năng giám sát hệ thống.
+
+   * Phá vỡ Khả năng Phân tích Phụ thuộc (Dependency Analysis):
+       * Như đã nói ở phân tích trước, nó khiến việc xác định "ai đang dùng trường dữ liệu X?" trở nên bất khả thi ở quy mô lớn, gây khó khăn cực lớn cho việc bảo trì và tái cấu trúc sau này.
+
+  Cập nhật lại Ví dụ về Người Bảo vệ:
+
+  Người bảo vệ ContextGuard của Theus V2 giờ đây thông minh hơn:
+
+   * Khi Ghi: Anh ta có một bộ quy tắc rất nghiêm ngặt. "Giấy phép của anh ghi là 'sửa đổi trong phòng domain_ctx' à? Không đủ. Giấy phép phải ghi rõ số tủ, số ngăn kéo, ví dụ domain_ctx.user.status thì tôi mới cho anh động vào."
+   * Khi Đọc: Quy tắc của anh ta lại thoáng hơn. "Giấy phép của anh ghi là 'đọc trong phòng domain_ctx' à? Được rồi, anh được phép vào phòng đó và nhìn vào bất kỳ tủ hồ sơ nào anh muốn. Tôi sẽ không đi theo để xem anh đọc trộm cái gì."
+
+  Kết luận cuối cùng (đã hiệu chỉnh):
+
+  "Lập trình viên lười biếng" sẽ bị chặn đứng khi cố gắng phá hoại tính toàn vẹn của dữ liệu. Nhưng họ vẫn có thể thành công trong việc "đọc trộm" dữ liệu một cách không có kiểm soát và làm "nhiễu" biểu đồ phụ thuộc của hệ thống, phá
+  hoại tính bảo mật và tính minh bạch.
+
+  Do đó, các giải pháp về quy trình như Code Review và Linter tùy chỉnh để phát hiện các inputs quá rộng vẫn là cực kỳ cần thiết để đảm bảo một hệ thống theus thực sự an toàn trên mọi phương diện.

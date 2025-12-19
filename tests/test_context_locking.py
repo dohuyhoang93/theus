@@ -1,6 +1,6 @@
 import unittest
 import logging
-from theus import BaseGlobalContext, BaseDomainContext, BaseSystemContext, POPEngine, process
+from theus import BaseGlobalContext, BaseDomainContext, BaseSystemContext, TheusEngine, process
 from theus.locks import LockViolationError
 from dataclasses import dataclass, field
 
@@ -31,7 +31,7 @@ class TestContextLocking(unittest.TestCase):
         sys = MockSystem(global_ctx=glob, domain_ctx=dom)
         
         # Default strict_mode=False
-        engine = POPEngine(sys, strict_mode=False)
+        engine = TheusEngine(sys, strict_mode=False)
         engine.register_process("p_increment", p_increment)
 
         # 1. Unsafe Mutation (Should work but warn)
@@ -58,7 +58,7 @@ class TestContextLocking(unittest.TestCase):
         sys = MockSystem(global_ctx=glob, domain_ctx=dom)
         
         # Struct Mode = True
-        engine = POPEngine(sys, strict_mode=True)
+        engine = TheusEngine(sys, strict_mode=True)
         engine.register_process("p_increment", p_increment)
 
         # 1. Unsafe Mutation -> ERROR
@@ -87,7 +87,7 @@ class TestContextLocking(unittest.TestCase):
         # Mock Env Var to "1"
         with patch.dict(os.environ, {"POP_STRICT_MODE": "1"}):
             # Init without explicit strict_mode arg (should default to Env)
-            engine = POPEngine(sys)
+            engine = TheusEngine(sys)
             self.assertTrue(engine.lock_manager.strict_mode)
             
             # Verify it blocks mutation
@@ -96,7 +96,7 @@ class TestContextLocking(unittest.TestCase):
 
         # Mock Env Var to "0"
         with patch.dict(os.environ, {"POP_STRICT_MODE": "0"}):
-             engine = POPEngine(sys)
+             engine = TheusEngine(sys)
              self.assertFalse(engine.lock_manager.strict_mode)
              
              # Verify it allows mutation (with warning)

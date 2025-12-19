@@ -8,21 +8,25 @@ from .contracts import ProcessContract, ContractViolationError
 from .guards import ContextGuard
 from .delta import Transaction
 from .locks import LockManager
-from .audit import ContextAuditor, AuditInterlockError
+from .audit import ContextAuditor, AuditInterlockError, AuditBlockError
 from .config import AuditRecipe
 
-logger = logging.getLogger("POPEngine")
+logger = logging.getLogger("TheusEngine")
 
 from .interfaces import IEngine
 
-class POPEngine(IEngine):
+class TheusEngine(IEngine):
+    """
+    Theus Kernel (formerly POPEngine).
+    Manages Safety, Governance, and Orchestration for Process-Oriented Programming.
+    """
     def __init__(self, system_ctx: BaseSystemContext, strict_mode: Optional[bool] = None, audit_recipe: Optional[AuditRecipe] = None):
         self.ctx = system_ctx
         self.process_registry: Dict[str, Callable] = {}
         
         # Initialize Audit System (Industrial V2)
-        recipes = audit_recipe.definitions if audit_recipe else {}
-        self.auditor = ContextAuditor(recipes)
+        # BUGFIX: ContextAuditor expects AuditRecipe obj, not dict
+        self.auditor = ContextAuditor(audit_recipe) if audit_recipe else None
 
         # Resolve Strict Mode Logic
         if strict_mode is None:
@@ -47,6 +51,39 @@ class POPEngine(IEngine):
             logger.warning(f"Process {name} does not have a contract decorator (@process). Safety checks disabled.")
         self.process_registry[name] = func
 
+    def scan_and_register(self, package_path: str):
+        """
+        Auto-Discovery: Scans directory for modules and registers @process functions.
+        """
+        import importlib.util
+        import inspect
+
+        logger.info(f"🔎 Scanning for processes in: {package_path}")
+        
+        for root, dirs, files in os.walk(package_path):
+            if "__pycache__" in root: continue
+            
+            for file in files:
+                if file.endswith(".py") and not file.startswith("__"):
+                    module_path = os.path.join(root, file)
+                    spec = importlib.util.spec_from_file_location(file[:-3], module_path)
+                    if spec and spec.loader:
+                        try:
+                            module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
+                            
+                            # Scan module for decorated functions
+                            for name, obj in inspect.getmembers(module):
+                                if inspect.isfunction(obj) and hasattr(obj, '_pop_contract'):
+                                    # Use function name as register name
+                                    # Suggestion: Support alias in decorator later
+                                    logger.info(f"   + Found Process: {name}")
+                                    self.register_process(name, obj)
+                                    
+                        except Exception as e:
+                            logger.error(f"Failed to load module {file}: {e}")
+
+
     def get_process(self, name: str) -> Callable:
         return self.process_registry.get(name)
 
@@ -54,7 +91,7 @@ class POPEngine(IEngine):
         """
         Implementation of IEngine.execute_process.
         """
-        # POPEngine is stateful (holds self.ctx).
+        # Engine is stateful (holds self.ctx).
         return self.run_process(process_name)
 
     def run_process(self, name: str, **kwargs):
@@ -83,29 +120,37 @@ class POPEngine(IEngine):
                 allowed_outputs = set(contract.outputs)
                 
                 tx = Transaction(self.ctx)
-                guarded_ctx = ContextGuard(self.ctx, allowed_inputs, allowed_outputs, transaction=tx, strict_mode=self.lock_manager.strict_mode)
+                guarded_ctx = ContextGuard(
+                    self.ctx, 
+                    allowed_inputs, 
+                    allowed_outputs, 
+                    transaction=tx, 
+                    strict_mode=self.lock_manager.strict_mode,
+                    process_name=name # <--- Inject Process Name here
+                )
                 
                 try:
                     result = func(guarded_ctx, **kwargs)
-                    tx.commit()
-                    
+
                     # --- OUTPUT GATE (Quality Check) ---
-                    # Industrial Audit V2: Check outputs AFTER commit
-                    # Note: We check the committed data in self.ctx
-                    try:
-                        self.auditor.audit_output(name, self.ctx)
-                    except AuditInterlockError as e:
-                        # Serious failure implies production defect.
-                        # What to do? Rollback is impossible (tx committed).
-                        # We must Raise & Halt workflow.
-                        logger.critical(f"🛑 [OUTPUT GATE] Process '{name}' produced Defective Output: {e}")
-                        raise
+                    # MOVED: Check BEFORE Commit to allow safe Rollback (Shadow Audit).
+                    # We pass 'guarded_ctx' so Auditor sees the uncommitted mutations.
+                    if self.auditor:
+                        try:
+                            self.auditor.audit_output(name, guarded_ctx)
+                        except AuditInterlockError as e:
+                            logger.critical(f"🛑 [OUTPUT GATE] Process '{name}' blocked: {e}")
+                            raise # Will trigger Rollback in outer block
+
+                    # Everything OK -> Commit
+                    tx.commit()
 
                     return result
                     
                 except Exception as e:
                     tx.rollback()
-                    if isinstance(e, (ContractViolationError, AuditInterlockError)):
+                    # Pop Audit Exceptions should just propagate (after rollback)
+                    if isinstance(e, (ContractViolationError, AuditInterlockError, AuditBlockError)):
                          raise e
                     
                     error_name = type(e).__name__
@@ -144,5 +189,12 @@ class POPEngine(IEngine):
         """
         with self.lock_manager.unlock():
             yield self.ctx
+
+# Backward compatibility (Deprecated)
+class POPEngine(TheusEngine):
+    def __init__(self, *args, **kwargs):
+        import warnings
+        warnings.warn("POPEngine is deprecated. Use TheusEngine instead.", DeprecationWarning, stacklevel=2)
+        super().__init__(*args, **kwargs)
 
 

@@ -1,7 +1,7 @@
 
 import unittest
 from dataclasses import dataclass, field
-from theus.engine import POPEngine
+from theus.engine import TheusEngine
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
 from theus import process
 
@@ -40,7 +40,7 @@ class TestWorkflowV2(unittest.TestCase):
             global_ctx=BaseGlobalContext(),
             domain_ctx=MockDomain()
         )
-        self.engine = POPEngine(self.ctx)
+        self.engine = TheusEngine(self.ctx)
         self.engine.register_process("step_1", step_1)
         self.engine.register_process("step_2_crash", step_2_crash)
         self.engine.register_process("step_3_read", step_3_read)

@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List
-from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
 
 @dataclass
 class MockGlobal(BaseGlobalContext):
@@ -41,7 +41,7 @@ def unsafe_method_call(ctx):
 class TestMethodLeakage(unittest.TestCase):
     def setUp(self):
         self.sys = MockSystem(MockGlobal(), MockDomain())
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         self.engine.register_process("p_method", unsafe_method_call)
 
     def test_method_leak(self):

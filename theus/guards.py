@@ -1,14 +1,37 @@
+import logging
 from typing import Any, Set, Optional
 from .contracts import ContractViolationError
 from .delta import Transaction, DeltaEntry
 from .structures import TrackedList, TrackedDict, FrozenList, FrozenDict
+
+class ContextLoggerAdapter(logging.LoggerAdapter):
+    """
+    Auto-injects Process Name into logs.
+    Usage: ctx.log.info("msg", key=value) -> [ProcessName] msg {key=value}
+    """
+    def process(self, msg, kwargs):
+        process_name = self.extra.get('process_name', 'Unknown')
+        
+        # 1. Format Message Prefix
+        prefix = f"[{process_name}] "
+        
+        # 2. Handle Structured Kwargs (if any)
+        # We assume any extra kwargs are data fields
+        if kwargs:
+            data_str = " ".join([f"{k}={v}" for k, v in kwargs.items()])
+            msg = f"{prefix}{msg} {{{data_str}}}"
+            # Clear kwargs so they don't break standard logger
+            # (unless we use a JSON formatter, but here we assume standard console)
+            return msg, {}
+        else:
+            return f"{prefix}{msg}", kwargs
 
 class ContextGuard:
     """
     A runtime proxy that enforces POP Contracts (Read/Write permissions)
     AND facilitates Transactional Mutation (Delta Logging).
     """
-    def __init__(self, target_obj: Any, allowed_inputs: Set[str], allowed_outputs: Set[str], path_prefix: str = "", transaction: Optional[Transaction] = None, strict_mode: bool = False):
+    def __init__(self, target_obj: Any, allowed_inputs: Set[str], allowed_outputs: Set[str], path_prefix: str = "", transaction: Optional[Transaction] = None, strict_mode: bool = False, process_name: str = "Unknown"):
         # Use object.__setattr__ to avoid recursion during init
         object.__setattr__(self, "_target_obj", target_obj)
         object.__setattr__(self, "_allowed_inputs", allowed_inputs)
@@ -16,22 +39,18 @@ class ContextGuard:
         object.__setattr__(self, "_path_prefix", path_prefix)
         object.__setattr__(self, "_transaction", transaction)
         object.__setattr__(self, "_strict_mode", strict_mode)
+        object.__setattr__(self, "_process_name", process_name)
+        
+        # Context Logger
+        base_logger = logging.getLogger("POP_PROCESS")
+        adapter = ContextLoggerAdapter(base_logger, {'process_name': process_name})
+        object.__setattr__(self, "log", adapter)
         
         # ZONE ENFORCEMENT (Inputs)
         # Verify that no inputs belong to Forbidden Zones (SIGNAL, META)
         from .zones import resolve_zone, ContextZone
-        import logging
-        logger = logging.getLogger("POP.ContextGuard")
         
         for inp in allowed_inputs:
-             # We only check the root key or full path?
-             # resolve_zone checks prefix. "domain.sig_x" -> "domain" (DATA).
-             # Wait, context layers. 
-             # If input is "sig_x" (Global), zone is SIGNAL.
-             # If input is "domain.sig_x", zone of "domain" is DATA?
-             # No, we need to check the LEAF.
-             # But validation here is on the STRING path.
-             # "domain.sig_x".
              parts = inp.split('.')
              leaf = parts[-1]
              zone = resolve_zone(leaf)
@@ -41,24 +60,20 @@ class ContextGuard:
                  if strict_mode:
                      raise ContractViolationError(msg)
                  else:
-                     logger.warning(msg)
+                     base_logger.warning(msg)
 
     def __getattr__(self, name: str):
         # 1. System/Magic Attribute Bypass
-        # Allow Python internal attributes (e.g. __class__, _pytest_fixture)
         if name.startswith("_"):
              return getattr(self._target_obj, name)
 
         # 2. Navigation Logic (Layer Containers)
-        # We assume accessing a Layer Container (e.g. domain_ctx) is always allowed/safe
-        # so we can traverse deeper to check the actual leaf variable.
         if name.endswith("_ctx"):
              val = getattr(self._target_obj, name)
              # Logic: layer name inference. 
-             # domain_ctx -> "domain"
              next_prefix = name.replace("_ctx", "")
-             # Pass transaction down
-             return ContextGuard(val, self._allowed_inputs, self._allowed_outputs, next_prefix, self._transaction, self._strict_mode)
+             # Pass transaction AND process_name down
+             return ContextGuard(val, self._allowed_inputs, self._allowed_outputs, next_prefix, self._transaction, self._strict_mode, self._process_name)
 
         # 3. Leaf / Primitive Attribute Logic
         full_path = f"{self._path_prefix}.{name}" if self._path_prefix else name
@@ -70,9 +85,12 @@ class ContextGuard:
         
         is_allowed = (
             full_path in self._allowed_inputs or 
+            full_path in self._allowed_outputs or # Allow reading written outputs (e.g. for Audit)
             any(p in self._allowed_inputs for p in parent_paths) or
+            any(p in self._allowed_outputs for p in parent_paths) or # Allow reading inside outputs
             # Traversal Fix: Allow if this path leads to an allowed leaf (Prefix)
-            any(inp.startswith(full_path + ".") for inp in self._allowed_inputs)
+            any(inp.startswith(full_path + ".") for inp in self._allowed_inputs) or
+            any(out.startswith(full_path + ".") for out in self._allowed_outputs)
         )
         
         if not is_allowed:

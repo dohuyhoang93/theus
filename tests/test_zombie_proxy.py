@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List, Any
-from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
 
 @dataclass
 class MockGlobal(BaseGlobalContext):
@@ -40,7 +40,7 @@ class TestZombieProxy(unittest.TestCase):
     def setUp(self):
         self.sys = MockSystem(MockGlobal(), MockDomain())
         self.sys.domain_ctx.data = [1, 2, 3]
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         self.engine.register_process("p_leak", leak_proxy)
         self.engine.register_process("p_touch", touch_zombie)
 

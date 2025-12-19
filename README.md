@@ -1,4 +1,4 @@
-# Theus (formerly POP SDK)
+# Theus
 
 **The "Operating System" for AI Agents and Complex Systems.**
 
@@ -14,16 +14,34 @@
 
 ## 🌟 Key Features
 
-# Theus SDK (V2.1)
+# Theus Framework
 
-> **Process-Oriented Programming (POP) SDK for Industrial Agents**
-> *Formerly known as POP SDK*
+> **The Framework for Industrial Agents**
+> *Built on the Process-Oriented Programming (POP) Paradigm*
 
-Theus is a robust, clean-architecture framework for building deterministic, auditable, and resilient AI Agents. It implements the **POP Microkernel Architecture**, separating Data (Context) from Behavior (Process) and Orchestration (Workflow).
+Theus is an opinionated, clean-architecture framework for building deterministic, auditable, and resilient AI Agents. It implements the **POP Microkernel Architecture**, enforcing a strict separation of Data (Context), Behavior (Process), and Orchestration (Workflow).
 
-## 🚀 What's New in V2.1?
+```
+                                     [Y] SEMANTIC
+                             (Input, Output, SideEffect, Error)
+                                      ^
+                                      |
+                                      |
+                                      |                +------+------+
+                                      |               /|             /|
+                                      +--------------+ |  CONTEXT   + |----------> [Z] ZONE
+                                     /               | |  OBJECT    | |      (Data, Signal, Meta)
+                                    /                | +------------+ |
+                                   /                 |/             |/
+                                  /                  +------+------+
+                                 v
+                            [X] LAYER
+                     (Global, Domain, Local)
+```
 
-- **Microkernel Core**: Separated `POPEngine` from Orchestration Logic.
+## 🚀 Why Theus?
+
+- **Microkernel Core**: Separated `TheusEngine` from Orchestration Logic.
 - **Hybrid Workflow**: Combine Finite State Machines (FSM) with Linear Process Chains.
 - **Thread-Safe Concurrency**: `ThreadExecutor` for non-blocking I/O and background tasks.
 - **Industrial Safety**:
@@ -33,11 +51,9 @@ Theus is a robust, clean-architecture framework for building deterministic, audi
 - **CLI**: Rapidly scaffold projects with `theus init`.
 
 ## 📚 Documentation
-
-- [Architecture Specification (V2.1)](Documents/SPECS/theus_v2_1_architecture.md)
-- [POP Engineering Handbook (V2.1)](Documents/POP_Specification_v2_1.md)
-- [Configuration Guide (Workflow & Audit)](Documents/GUIDES/configuration.md)
-- [RELEASE NOTES (v0.2.0)](RELEASE_NOTES_v0.2.0.md)
+- [Architecture Specification](Documents/Architecture/02_Unified_Arch.md)
+- [POP Engineering Handbook](Documents/Handbook/00_Outline.md)
+- [Configuration Guide](Documents/Handbook/06_Production_Readiness.md)
 
 ## 🛠 Installation
 
@@ -47,25 +63,7 @@ pip install theus
 
 ## ⚡ Quick Start
 
-Create a fully functional showcase project:
-```bash
-# 1. Create Skeleton
-theus init MyProject
-
-# 2. Run Demo
-cd MyProject
-python main.py
-```
-Interact with the CLI:
-`start` (Run Workflow), `hack` (Test Security), `crash` (Test Resilience), `rollback` (Test Transactions).
-
----
-
-## 🚀 Quick Start (CLI)
-
 The fastest way to start is using the CLI tool.
-
-> **Note**: We recommend using `python -m theus.cli` to ensure compatibility across all operating systems.
 
 ```bash
 # 1. Initialize a new project
@@ -84,8 +82,6 @@ Arguments:
 
 ---
 
----
-
 ## 🛠️ Advanced CLI Tools
 
 Beyond initialization, Theus provides tools for Audit & Schema management.
@@ -98,7 +94,7 @@ python -m theus.cli audit gen-spec
 ```
 
 ### Schema Generation
-Generate Context Schema from your Pydantic models.
+Generate Context Schema from your Python definitions.
 
 ```bash
 python -m theus.cli schema gen --context-file src/context.py
@@ -116,18 +112,20 @@ python -m theus.cli audit inspect <process_name>
 ## 📚 Manual Usage
 
 ### 1. Define Context (Data)
-Using Pydantic V2. Theus V2 introduces **Hybrid Context Zones** (Data, Signal, Meta) via naming conventions.
+Using Python Dataclasses (Standard V2).
 
 ```python
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from theus import BaseSystemContext
+from dataclasses import dataclass
+from typing import Optional
+from theus import BaseSystemContext, BaseGlobalContext, BaseDomainContext
 
-class AppGlobal(BaseModel):
+@dataclass
+class AppGlobal(BaseGlobalContext):
     # [DATA ZONE] Immutable Configuration
     app_name: str = "MyAgent"
 
-class AppDomain(BaseModel):
+@dataclass
+class AppDomain(BaseDomainContext):
     # [DATA ZONE] Business State (Persisted)
     user_id: str = ""
     status: str = "IDLE"
@@ -138,10 +136,10 @@ class AppDomain(BaseModel):
     # [META ZONE] Diagnostics (Prefix: meta_)
     meta_last_error: Optional[str] = None
 
+@dataclass
 class MySystem(BaseSystemContext):
-    def __init__(self):
-        self.global_ctx = AppGlobal()
-        self.domain_ctx = AppDomain()
+    # Wrapper
+    pass
 ```
 
 ### 2. Define Process (Logic)
@@ -169,10 +167,10 @@ def check_user(ctx):
 
 ### 3. Run Engine
 ```python
-from theus import POPEngine
+from theus import TheusEngine
 
-system = MySystem()
-engine = POPEngine(system) # Default: Warning Mode
+system = MySystem(global_ctx=AppGlobal(), domain_ctx=AppDomain())
+engine = TheusEngine(system) # Default: Warning Mode
 
 engine.register_process("check_user", check_user)
 engine.run_process("check_user")

@@ -21,11 +21,16 @@ class StateMachine:
         # print(f"DEBUG: state_def for {self.current_state}: {state_def}")
         
         if not state_def:
-            # print(f"DEBUG: State {self.current_state} not found in {self.states.keys()}")
             return []
             
-        # Support 'on' or 'transitions' syntax
-        transitions = state_def.get("on") or state_def.get("transitions") or {}
+        # Support 'events' (Preferred Phase 2), 'on' (Legacy), 'transitions' (Alt)
+        # Fix for YAML 1.1: 'on' might be parsed as True (boolean)
+        raw_on = state_def.get("on")
+        if isinstance(raw_on, bool):
+             logger.warning(f"⚠️ FSM Warning: 'on' key parsed as Boolean {raw_on}. Use 'events' instead.")
+             raw_on = {}
+
+        transitions = state_def.get("events") or raw_on or state_def.get("transitions") or {}
         
         next_state_name = transitions.get(event)
         if not next_state_name:

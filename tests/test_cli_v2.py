@@ -41,7 +41,7 @@ class TestCLIV2(unittest.TestCase):
         
         # 2. Create a dummy process file
         process_code = """
-from pop.process import process
+from theus.process import process
 
 @process(inputs=['a'], outputs=['b'])
 def my_process(ctx):

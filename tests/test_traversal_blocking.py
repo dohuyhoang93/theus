@@ -1,6 +1,6 @@
 import unittest
 from dataclasses import dataclass, field
-from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
 
 @dataclass
 class MockGlobal(BaseGlobalContext):
@@ -36,7 +36,7 @@ def read_deep(ctx):
 class TestTraversal(unittest.TestCase):
     def setUp(self):
         self.sys = MockSystem(MockGlobal(), MockDomain())
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         self.engine.register_process("p_deep", read_deep)
 
     def test_deep_access(self):

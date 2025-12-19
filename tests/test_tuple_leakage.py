@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List, Tuple
-from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
 
 @dataclass
 class MockGlobal(BaseGlobalContext):
@@ -35,7 +35,7 @@ class TestTupleLeakage(unittest.TestCase):
         self.sys = MockSystem(MockGlobal(), MockDomain())
         # Ensure it's a tuple of lists
         self.sys.domain_ctx.immutable_container = ([1],)
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         self.engine.register_process("p_tuple", modify_tuple_element)
 
     def test_tuple_leak(self):

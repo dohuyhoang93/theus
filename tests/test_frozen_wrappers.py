@@ -1,5 +1,5 @@
 import unittest
-from theus import BaseGlobalContext, BaseDomainContext, BaseSystemContext, POPEngine, process, ContractViolationError
+from theus import BaseGlobalContext, BaseDomainContext, BaseSystemContext, TheusEngine, process, ContractViolationError
 from dataclasses import dataclass, field
 from typing import List, Dict
 
@@ -48,7 +48,7 @@ class TestFrozenWrappers(unittest.TestCase):
         glob = MockGlobal()
         self.dom = MockDomain()
         self.sys = MockSystem(global_ctx=glob, domain_ctx=self.dom)
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         
         self.engine.register_process("p_illegal_append", p_illegal_append)
         self.engine.register_process("p_illegal_setitem", p_illegal_setitem)

@@ -1,3 +1,2 @@
 [console_scripts]
-pop = theus.cli:main
 theus = theus.cli:main

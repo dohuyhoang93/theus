@@ -129,7 +129,7 @@ description: "Demonstrates FSM + Linear Chains"
 # FSM Definition
 states:
   IDLE:
-    "on": 
+    events: 
       CMD_START: "PROCESSING" # External Start Signal
       CMD_HACK: "TEST_HACK"   # Security Test
       CMD_CRASH: "TEST_CRASH" # Resilience Test
@@ -137,26 +137,26 @@ states:
 
   PROCESSING:
     entry: ["p_init", "p_process", "p_finalize"] # Linear Chain
-    "on":
+    events:
        EVT_CHAIN_DONE: "IDLE" # Auto-return when chain finishes
        EVT_CHAIN_FAIL: "IDLE" # Fallback on error
        CMD_RESET: "IDLE"
 
   TEST_HACK:
     entry: ["p_unsafe_write"]
-    "on":
+    events:
        EVT_CHAIN_DONE: "IDLE"
        EVT_CHAIN_FAIL: "IDLE" # Return even if failed
 
   TEST_TRANSACTION:
     entry: ["p_transaction_test"]
-    "on":
+    events:
        EVT_CHAIN_DONE: "IDLE"
        EVT_CHAIN_FAIL: "IDLE"
 
   TEST_CRASH:
     entry: ["p_crash_test"]
-    "on":
+    events:
        EVT_CHAIN_DONE: "IDLE"
        EVT_CHAIN_FAIL: "IDLE"
 """
@@ -193,7 +193,7 @@ class Color:
 # Configure Logging
 logging.basicConfig(level=logging.INFO, format=f'{Color.BLUE}%(message)s{Color.RESET}')
 
-from theus import POPEngine
+from theus import TheusEngine
 from theus.config import ConfigFactory
 from theus.orchestrator import WorkflowManager, SignalBus, ThreadExecutor
 
@@ -239,8 +239,14 @@ def main():
     print(f"1. Loading Audit Policy...")
     recipe = ConfigFactory.load_recipe(audit_path)
     
-    print(f"2. Initializing POPEngine...")
-    engine = POPEngine(sys_ctx, strict_mode=True, audit_recipe=recipe)
+    # 2. Start (Theus V2)
+    # -------------------
+    # This loop simulates the application runtime.
+    # In production, this might be an Infinite Loop or a Web Scraper Trigger.
+    
+    # Init Engine
+    print(f"2. Initializing TheusEngine...")
+    engine = TheusEngine(sys_ctx, strict_mode=True, audit_recipe=recipe)
     
     # Register Processes
     from src.processes.chain import p_init, p_process, p_finalize

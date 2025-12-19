@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List
-from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
 
 @dataclass
 class MockGlobal(BaseGlobalContext):
@@ -35,7 +35,7 @@ class TestDeepLeakage(unittest.TestCase):
         # Setup: [[1]]
         self.sys = MockSystem(MockGlobal(), MockDomain())
         self.sys.domain_ctx.matrix = [[1]]
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         self.engine.register_process("p_nested", nested_append)
 
     def test_nested_leak(self):

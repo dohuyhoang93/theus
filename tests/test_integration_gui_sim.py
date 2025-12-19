@@ -1,7 +1,7 @@
 import time
 import threading
 import pytest
-from theus import POPEngine, process
+from theus import TheusEngine, process
 from theus.orchestrator import ThreadExecutor, SignalBus, WorkflowManager
 from theus.context import BaseSystemContext
 
@@ -23,7 +23,7 @@ def test_simulated_gui_workflow():
     Verifies that the Main Thread is NOT blocked while the heavy job runs.
     """
     sys = MockSystem()
-    engine = POPEngine(sys)
+    engine = TheusEngine(sys)
     engine.register_process("p_heavy_job", p_heavy_job)
     
     scheduler = ThreadExecutor(max_workers=2)

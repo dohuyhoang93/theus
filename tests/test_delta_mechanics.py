@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass, field
 from typing import List, Dict
-from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
 
 # --- Domain Mock ---
 @dataclass
@@ -55,7 +55,7 @@ def crash_midway(ctx):
 class TestDeltaMechanics(unittest.TestCase):
     def setUp(self):
         self.sys = MockSystem(MockGlobal(), MockDomain())
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         self.engine.register_process("p_inc", simple_increment)
         self.engine.register_process("p_list", list_append)
         self.engine.register_process("p_crash", crash_midway)

@@ -4,7 +4,7 @@ from typing import List, Dict
 
 # Import from LOCAL SDK (Relative import or sys path hack needed if not installed)
 
-from theus import POPEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext, ContractViolationError
 
 # --- 1. Define Domain Logic (Bread Factory) ---
 
@@ -72,7 +72,7 @@ class TestGenericBakery(unittest.TestCase):
             global_ctx=BakeryConfig(),
             domain_ctx=BakeryState()
         )
-        self.engine = POPEngine(self.sys)
+        self.engine = TheusEngine(self.sys)
         self.engine.register_process("bake", bake_bread)
         self.engine.register_process("bad_read", bad_baker_read)
         self.engine.register_process("bad_write", bad_baker_write)
