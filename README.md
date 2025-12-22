@@ -1,4 +1,4 @@
-# Theus v2: Process-Oriented Operating System for Python
+# Theus: Process-Oriented Operating System for Python
 
 [![PyPI version](https://img.shields.io/pypi/v/theus.svg)](https://pypi.org/project/theus/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -29,6 +29,24 @@ State is no longer a "bag of variables". It is a 3D space defined by:
     *   **DATA:** Persistent Assets (Replayable).
     *   **SIGNAL:** Transient Events (Reset on Read).
     *   **META:** Observability (Logs/Traces).
+
+```
+                                     [Y] SEMANTIC
+                             (Input, Output, SideEffect, Error)
+                                      ^
+                                      |
+                                      |
+                                      |                +------+------+
+                                      |               /|             /|
+                                      +--------------+ |  CONTEXT   + |----------> [Z] ZONE
+                                     /               | |  OBJECT    | |      (Data, Signal, Meta)
+                                    /                | +------------+ |
+                                   /                 |/             |/
+                                  /                  +------+------+
+                                 v
+                            [X] LAYER
+                     (Global, Domain, Local)
+```
 
 ### 2. Zero-Trust Memory
 *   **Default Deny:** Processes cannot access ANY data unless explicitly declared in a `@process` Contract.
