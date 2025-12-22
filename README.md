@@ -211,9 +211,9 @@ states:
 
 ## 📚 Documentation
 
-*   **[POP Whitepaper v2.0](./docs/POP_Whitepaper_v2.0.md):** The formal theoretical basis.
-*   **[Theus Master Class](./docs/tutorials/en/):** 15-Chapter Zero-to-Hero Tutorial.
-*   **[AI Developer Guide](./docs/AI_DEVELOPER_GUIDE.md):** Prompt context for LLMs.
+*   **[POP Whitepaper v2.0](./Documents/POP_Whitepaper_v2.0.md):** The formal theoretical basis.
+*   **[Theus Master Class](./Documents/tutorials/en/):** 15-Chapter Zero-to-Hero Tutorial.
+*   **[AI Developer Guide](./Documents/AI_DEVELOPER_GUIDE.md):** Prompt context for LLMs.
 
 ---
 
