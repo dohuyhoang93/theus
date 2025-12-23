@@ -23,6 +23,7 @@ class TheusEngine(IEngine):
     def __init__(self, system_ctx: BaseSystemContext, strict_mode: Optional[bool] = None, audit_recipe: Optional[AuditRecipe] = None):
         self.ctx = system_ctx
         self.process_registry: Dict[str, Callable] = {}
+        self.workflow_cache: Dict[str, Any] = {} # Cache for parsed YAML workflows
         
         # Initialize Audit System (Industrial V2)
         # BUGFIX: ContextAuditor expects AuditRecipe obj, not dict
@@ -166,8 +167,13 @@ class TheusEngine(IEngine):
         """
         Thực thi Workflow YAML.
         """
-        with open(workflow_path, 'r', encoding='utf-8') as f:
-            workflow_def = yaml.safe_load(f) or {}
+        if workflow_path in self.workflow_cache:
+            workflow_def = self.workflow_cache[workflow_path]
+        else:
+            with open(workflow_path, 'r', encoding='utf-8') as f:
+                workflow_def = yaml.safe_load(f) or {}
+            self.workflow_cache[workflow_path] = workflow_def
+            logger.info(f"Loaded and cached workflow: {workflow_path}")
             
         steps = workflow_def.get('steps', [])
         logger.info(f"▶️ Starting Workflow: {workflow_path} ({len(steps)} steps)")
