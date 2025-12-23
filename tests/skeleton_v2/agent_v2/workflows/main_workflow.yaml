@@ -1,7 +1,0 @@
-name: "Main Workflow"
-description: "A standard loop for the agent."
-
-steps:
-  - p_hello
-  - p_hello
-  - p_hello
