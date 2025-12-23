@@ -222,6 +222,11 @@ def main():
     parser_schema_gen = schema_subs.add_parser("gen", help="Generate context_schema.yaml from Python Definitions.")
     parser_schema_gen.add_argument("--context-file", default="src/context.py", help="Path to Python context definition (default: src/context.py)")
 
+    # schema code
+    parser_schema_code = schema_subs.add_parser("code", help="Generate src/context.py from YAML Schema.")
+    parser_schema_code.add_argument("--schema-file", default="specs/context_schema.yaml", help="Path to YAML schema (default: specs/context_schema.yaml)")
+    parser_schema_code.add_argument("--out-file", default="src/context.py", help="Output Python file path (default: src/context.py)")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -251,7 +256,6 @@ def main():
             print(f"🔍 Scanning context definition: {args.context_file}")
             try:
                 schema_dict = generate_schema_from_file(args.context_file)
-                
                 output_path = Path("specs/context_schema.yaml")
                 output_path.parent.mkdir(exist_ok=True)
                 
@@ -263,6 +267,22 @@ def main():
                 
             except Exception as e:
                 print(f"❌ Failed to generate schema: {e}")
+
+        elif args.schema_command == "code":
+            from .schema_gen import generate_code_from_schema
+            print(f"🏗️  Generating Context Code from: {args.schema_file}")
+            try:
+                code_content = generate_code_from_schema(args.schema_file)
+                output_path = Path(args.out_file)
+                output_path.parent.mkdir(exist_ok=True)
+                
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(code_content)
+                    
+                print(f"✅ Generated Python Context at: {output_path}")
+                
+            except Exception as e:
+                print(f"❌ Failed to generate code: {e}")
 
     else:
         parser.print_help()

@@ -58,7 +58,7 @@ class AuditPolicy:
         self.recipe = recipe
         self.tracker = AuditTracker()
 
-    def evaluate(self, process_name: str, stage: str, ctx: Any):
+    def evaluate(self, process_name: str, stage: str, ctx: Any, extra_data: Dict = None):
         if not self.recipe: return
         
         proc_def = self.recipe.definitions.get(process_name)
@@ -70,15 +70,17 @@ class AuditPolicy:
         for rule in rules:
             try:
                 # 1. Resolve Value (Support Computed Paths e.g. tensor.mean())
-                actual_val = self._resolve_value(ctx, rule.target_field)
+                actual_val = self._resolve_value(ctx, rule.target_field, extra_data)
                 
                 # 2. Check Condition
                 if not self._check_condition(actual_val, rule.condition, rule.value):
                     # Violation!
                     count = self.tracker.record_violation(process_name, rule, actual_val)
                     self._handle_violation(process_name, rule, actual_val, count, stage)
-                
-                # NOTE: We DO NOT reset on Success (User req: Accumulate errors until threshold)
+                else:
+                    # Success -> Check policy to Reset
+                    if rule.reset_on_success:
+                        self.tracker.reset_counter(process_name, rule)
                 
             except AttributeError:
                 pass
@@ -129,8 +131,12 @@ class AuditPolicy:
         # Add regex/custom validators here
         return True
 
-    def _resolve_value(self, ctx: Any, path: str) -> Any:
-        # Support "domain.tensor.mean()"
+    def _resolve_value(self, ctx: Any, path: str, extra_data: Dict = None) -> Any:
+        # 1. Check extra_data (e.g. kwargs)
+        if extra_data and path in extra_data:
+            return extra_data[path]
+
+        # 2. Check Context (Support "domain.tensor.mean()")
         parts = path.split('.')
         current = ctx
         for p in parts:
@@ -148,7 +154,7 @@ class ContextAuditor:
 
     def audit_input(self, process_name: str, ctx: Any, input_args: Dict = None):
         if self.policy:
-            self.policy.evaluate(process_name, 'input', ctx)
+            self.policy.evaluate(process_name, 'input', ctx, extra_data=input_args)
 
     def audit_output(self, process_name: str, ctx: Any):
         if self.policy:

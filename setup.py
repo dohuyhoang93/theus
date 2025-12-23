@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="theus",
-    version="2.1.0",
+    version="2.1.1",
     description="Theus Agentic Framework - Industrial Grade Process-Oriented Programming (POP)",
     long_description=open("README.md", encoding="utf-8").read() if open("README.md", encoding="utf-8") else "",
     long_description_content_type="text/markdown",

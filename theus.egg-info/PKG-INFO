@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: theus
-Version: 2.1.0
+Version: 2.1.1
 Summary: Theus Agentic Framework - Industrial Grade Process-Oriented Programming (POP)
 Home-page: https://github.com/dohuyhoang93/theus
 Author: Do Huy Hoang
@@ -22,28 +22,37 @@ Requires-Dist: pydantic>=2.0
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: typing-extensions>=4.0
 
-# Theus
+# Theus: Process-Oriented Operating System for Python
 
-**The "Operating System" for AI Agents and Complex Systems.**
-
-[![PyPI version](https://badge.fury.io/py/theus.svg)](https://badge.fury.io/py/theus)
+[![PyPI version](https://img.shields.io/pypi/v/theus.svg)](https://pypi.org/project/theus/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Paper License: CC-BY 4.0](https://img.shields.io/badge/Paper--License-CC--BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
-**Theus (Process-Oriented Programming)** is a paradigm shift designed for building robust, stateful AI agents. Unlike OOP which encapsulates state and behavior, Theus **decouples** them completely to ensure:
-1.  **Transactional Integrity**: Every action is atomic.
-2.  **Safety by Default**: Inputs are immutable; outputs are strictly contracted.
-3.  **Observability**: Every state change is logged and reversible.
+> **"Data is the Asset. Code is the Liability. Theus protects the Asset."**
+
+Theus is a next-generation architectural framework that treats your application not as a collection of objects, but as a **deterministic workflow of processes**. It introduces the **Process-Oriented Programming (POP)** paradigm to solve the chaos of state management in complex systems like AI Agents, Core Banking, and Industrial Automation.
 
 ---
 
-## 🌟 Key Features
+## 🌪️ The Problem
+In modern software (OOP, EDA, Microservices), the biggest source of bugs is **State Management**:
+*   **Implicit Mutations:** Who changed `user.balance`? Was it the PaymentService or the RefundHandler?
+*   **Race Conditions:** Transient events corrupting persistent data.
+*   **Zombie State:** Old references pointing to stale data.
+*   **Audit Gaps:** We log *what* happened, but we can't mathematically prove *why* it was allowed.
 
-# Theus Framework
+## 🛡️ The Theus Solution
+Theus acts as a micro-kernel for your logic, enforcing strict architectural invariants at runtime:
 
-> **The Framework for Industrial Agents**
-> *Built on the Process-Oriented Programming (POP) Paradigm*
-
-Theus is an opinionated, clean-architecture framework for building deterministic, auditable, and resilient AI Agents. It implements the **POP Microkernel Architecture**, enforcing a strict separation of Data (Context), Behavior (Process), and Orchestration (Workflow).
+### 1. The 3-Axis Context Model
+State is no longer a "bag of variables". It is a 3D space defined by:
+*   **Layer:** `Global` (Config), `Domain` (Session), `Local` (Process).
+*   **Semantic:** `Input` (Read-only), `Output` (Write-only).
+*   **Zone:**
+    *   **DATA:** Persistent Assets (Replayable).
+    *   **SIGNAL:** Transient Events (Reset on Read).
+    *   **META:** Observability (Logs/Traces).
 
 ```
                                      [Y] SEMANTIC
@@ -63,171 +72,178 @@ Theus is an opinionated, clean-architecture framework for building deterministic
                      (Global, Domain, Local)
 ```
 
-## 🚀 Why Theus?
+### 2. Zero-Trust Memory
+*   **Default Deny:** Processes cannot access ANY data unless explicitly declared in a `@process` Contract.
+*   **Immutability:** Inputs are physically frozen (`FrozenList`, `FrozenDict`).
+*   **Isolation:** Signals cannot be used as Inputs for Business Logic (Architectural Boundary enforcement).
 
-- **Microkernel Core**: Separated `TheusEngine` from Orchestration Logic.
-- **Hybrid Workflow**: Combine Finite State Machines (FSM) with Linear Process Chains.
-- **Thread-Safe Concurrency**: `ThreadExecutor` for non-blocking I/O and background tasks.
-- **Industrial Safety**:
-    - **ContextGuard**: Prevents unauthorized memory mutations.
-    - **Transaction Rollback**: Atomically reverts state on process crash.
-    - **Audit System**: Runtime validation of Inputs/Outputs via Gates.
-- **CLI**: Rapidly scaffold projects with `theus init`.
+### 3. Industrial-Grade Audit
+*   **Active Defense:** Rules (`min`, `max`, `regex`) are enforced at Input/Output Gates.
+*   **Severity Levels:**
+    *   **S (Safety):** Emergency Stop.
+    *   **A (Abort):** Hard Stop Workflow.
+    *   **B (Block):** Rollback Transaction.
+    *   **C (Campaign):** Warning.
+*   **Resilience:** Configurable tolerance thresholds (e.g., "Allow 2 glitches, block on 3rd").
 
-## 📚 Documentation
-- [Architecture Specification](Documents/Architecture/02_Unified_Arch.md)
-- [POP Engineering Handbook](Documents/Handbook/00_Outline.md)
-- [Configuration Guide](Documents/Handbook/06_Production_Readiness.md)
+---
 
-## 🛠 Installation
+## 📦 Installation
+
+Theus requires **Python 3.12+** to leverage advanced typing and dataclasses.
 
 ```bash
 pip install theus
 ```
 
-## ⚡ Quick Start
-
-The fastest way to start is using the CLI tool.
-
-```bash
-# 1. Initialize a new project
-python -m theus.cli init my_agent
-
-# 2. Enter directory
-cd my_agent
-
-# 3. Run the skeleton agent
-python main.py
-```
-
-Arguments:
-- `python -m theus.cli init <name>`: Create a new project folder.
-- `python -m theus.cli init .`: Initialize in current directory.
-
 ---
 
-## 🛠️ Advanced CLI Tools
+## ⚡ Quick Start: Building a Bank
 
-Beyond initialization, Theus provides tools for Audit & Schema management.
+This example demonstrates Contracts, Zoning, and Transaction safety.
 
-### Audit Generation
-Start from code, generate the rules.
-
-```bash
-python -m theus.cli audit gen-spec
-```
-
-### Schema Generation
-Generate Context Schema from your Python definitions.
-
-```bash
-python -m theus.cli schema gen --context-file src/context.py
-```
-
-### Audit Inspection
-Inspect effective rules (Layers, Semantics) for a specific process.
-
-```bash
-python -m theus.cli audit inspect <process_name>
-```
-
----
-
-## 📚 Manual Usage
-
-### 1. Define Context (Data)
-Using Python Dataclasses (Standard V2).
-
+### 1. Define the Context (The Asset)
 ```python
-from dataclasses import dataclass
-from typing import Optional
-from theus import BaseSystemContext, BaseGlobalContext, BaseDomainContext
+from dataclasses import dataclass, field
+from theus.context import BaseSystemContext
 
 @dataclass
-class AppGlobal(BaseGlobalContext):
-    # [DATA ZONE] Immutable Configuration
-    app_name: str = "MyAgent"
-
-@dataclass
-class AppDomain(BaseDomainContext):
-    # [DATA ZONE] Business State (Persisted)
-    user_id: str = ""
-    status: str = "IDLE"
-
-    # [SIGNAL ZONE] Transient Events (Prefix: sig_ or cmd_)
-    sig_stop: bool = False
+class BankDomain:
+    # DATA ZONE: Persistent Assets
+    accounts: dict = field(default_factory=dict) # {user_id: balance}
+    total_reserves: int = 1_000_000
     
-    # [META ZONE] Diagnostics (Prefix: meta_)
-    meta_last_error: Optional[str] = None
+    # SIGNAL ZONE: Control Flow
+    sig_fraud_detected: bool = False
 
 @dataclass
-class MySystem(BaseSystemContext):
-    # Wrapper
-    pass
+class BankSystem(BaseSystemContext):
+    domain: BankDomain = field(default_factory=BankDomain)
 ```
 
-### 2. Define Process (Logic)
-Declarative contracts now support **4 Semantic Axes**: Input, Output, Side-Effect, Error.
-
+### 2. Define the Process (The Logic)
 ```python
-from theus import process
+from theus.contracts import process
 
 @process(
-    inputs=['domain.user_id'], 
-    outputs=['domain.status', 'domain.meta_last_error'],
-    side_effects=['I/O'],      # New in V2: Declarative Side-Effect
-    errors=['ValueError']      # New in V2: Expected Errors
+    # STRICT CONTRACT
+    inputs=['domain.accounts'],
+    outputs=['domain.accounts', 'domain.total_reserves', 'domain.sig_fraud_detected'],
+    errors=['ValueError']
 )
-def check_user(ctx):
-    try:
-        # Valid: Declared in outputs
-        ctx.domain_ctx.status = "CHECKING"
-        # ... perform DB check ...
-        return "Checked"
-    except ValueError as e:
-        ctx.domain_ctx.meta_last_error = str(e)
-        raise e
+def transfer(ctx, from_user: str, to_user: str, amount: int):
+    # 1. Input Validation
+    if amount <= 0:
+        raise ValueError("Amount must be positive")
+    
+    # 2. Business Logic (Operating on Shadow Copies)
+    # ctx.domain.accounts is a TrackedDict
+    sender_bal = ctx.domain.accounts.get(from_user, 0)
+    
+    if sender_bal < amount:
+        # Trigger Signal
+        ctx.domain.sig_fraud_detected = True
+        return "Failed: Insufficient Funds"
+
+    # 3. Mutation (Optimistic Write)
+    ctx.domain.accounts[from_user] -= amount
+    ctx.domain.accounts[to_user] = ctx.domain.accounts.get(to_user, 0) + amount
+    
+    # 4. Invariant Update
+    # (Note: reserves don't change in transfer, but we have write access just in case)
+    
+    return "Success"
 ```
 
-### 3. Run Engine
+### 3. Run with Safety (The Engine)
 ```python
-from theus import TheusEngine
+from theus.engine import TheusEngine
 
-system = MySystem(global_ctx=AppGlobal(), domain_ctx=AppDomain())
-engine = TheusEngine(system) # Default: Warning Mode
+# Setup Data
+sys_ctx = BankSystem()
+sys_ctx.domain.accounts = {"Alice": 1000, "Bob": 0}
 
-engine.register_process("check_user", check_user)
-engine.run_process("check_user")
+# Initialize Engine
+engine = TheusEngine(sys_ctx, strict_mode=True)
+
+# 🚀 PRO TIP: Auto-Discovery
+# Instead of registering manually: engine.register_process("transfer", transfer)
+# You can scan an entire directory (Theus will find all @process functions):
+# engine.scan_and_register("src/processes")
+
+engine.register_process("transfer", transfer)
+
+# Execute
+result = engine.run_process("transfer", from_user="Alice", to_user="Bob", amount=500)
+
+print(f"Result: {result}")
+print(f"Alice: {sys_ctx.domain.accounts['Alice']}") # 500
 ```
 
 ---
 
-## ⚙️ Configuration
+## 🛠️ CLI Tools
 
-You can control strictness via Environment Variables (supported in `.env` files):
+Theus provides a powerful CLI suite to accelerate development and maintain architectural integrity.
 
-| Variable | Values | Description |
-|----------|--------|-------------|
-| `THEUS_STRICT_MODE` | `1`, `true` | **Crash on Violation**: External code (Main Thread) cannot modify Context directly. |
-| | `0`, `false` | **Log Warning**: External code can modify context, but it logs a `LockViolationWarning`. |
+*   **`theus init <project_name>`**: Scaffolds a new project with the standard V2 structure (`src/`, `specs/`, `workflows/`).
+*   **`theus audit gen-spec`**: Scans your `@process` functions and automatically populates `specs/audit_recipe.yaml` with rule skeletons.
+*   **`theus audit inspect <process_name>`**: Inspects the effective audit rules, side effects, and error contracts for a specific process.
+*   **`theus schema gen`**: Infers and generates `specs/context_schema.yaml` from your Python Dataclass definitions.
 
-### Why Strict Mode? (The Vault)
-Theus enforces **Context Integrity**. 
-- In **Strict Mode (`1`)**, the Context is "Vaulted". Only registered Processes can modify it. Any attempt to modify `ctx.domain` from `main.py` without using `engine.edit()` will raise an error and **crash the agent**. This is recommended for Production/CI to prevent "State Spaghetti".
-- In **Warning Mode (`0`)**, violations are logged but permitted. This is useful for rapid prototyping.
+---
 
-(Legacy `POP_STRICT_MODE` is also supported for backward compatibility).
+## 🧠 Advanced Architecture
 
-### Safe External Mutation
-To modify context from `main.py` without triggering warnings/errors, use the explicit API:
+### The Transaction Engine
+Theus uses a **Hybrid Transaction Model**:
+*   **Scalars:** Updated in-place with an Undo Log (for speed).
+*   **Collections:** Updated via **Shadow Copy** (for safety).
+If a process crashes or is blocked by Audit, Theus rolls back the entire state instantly.
 
-```python
-with engine.edit() as ctx:
-    ctx.domain.my_var = 100
+### The Audit Recipe (`audit.yaml`)
+Decouple your business rules from your code.
+
+```yaml
+process_recipes:
+  transfer:
+    inputs:
+      - field: "amount"
+        max: 10000        # Max transfer limit
+        level: "B"        # Block transaction
+    outputs:
+      - field: "domain.total_reserves"
+        min: 0            # Reserves must never be negative
+        level: "S"        # Safety Interlock (Stop System)
+```
+
+### The Orchestrator (FSM)
+Manage complex flows using `workflow.yaml`:
+```yaml
+states:
+  IDLE:
+    events:
+      CMD_TX: "PROCESSING"
+  PROCESSING:
+    entry: "transfer"
+    events:
+      EVT_SUCCESS: "NOTIFY"
+      EVT_FAIL: "IDLE"
 ```
 
 ---
 
-## 📄 License
+## 📚 Documentation
 
-MIT License. See [LICENSE](LICENSE) for details.
+*   **[POP Whitepaper v2.0](./Documents/POP_Whitepaper_v2.0.md):** The formal theoretical basis.
+*   **[Theus Master Class](./Documents/tutorials/en/):** 15-Chapter Zero-to-Hero Tutorial.
+*   **[AI Developer Guide](./Documents/AI_DEVELOPER_GUIDE.md):** Prompt context for LLMs.
+
+---
+
+## ⚖️ License
+
+*   **Software:** [MIT License](https://opensource.org/licenses/MIT).
+*   **Whitepaper:** [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+**Maintained by:** [Hoàng Đỗ Huy](https://github.com/dohuyhoang93)

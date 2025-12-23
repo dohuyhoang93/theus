@@ -147,7 +147,9 @@ While Levels dictate the *action*, Thresholds dictate **WHEN** that action is ta
 *   **Use Case:**
     *   *Strict Mode:* `MaxThreshold=1`. Any violation triggers immediate action.
     *   *Resilient Mode:* `MaxThreshold=3`. Allows 2 glitches; triggers Safety Interlock only on the 3rd consecutive failure.
-*   **Auto-Reset Policy:** Configurable behavior (`reset_on_success`). Systems can choose to reset counters on success (default) or accumulate errors over time to detect flaky components.
+*   **Auto-Reset Policy:** Configurable behavior (`reset_on_success`).
+    *   *Default (False):* Violation counters do **NOT** reset on success. This allows the system to detect invalid behavior that occurs intermittently over a long period ("Flaky Components").
+    *   *Resilient Mode (True):* Resets counters after a successful run, forgiving past errors.
 
 By combining **Levels** (Action) with **Thresholds** (Timing), Theus provides a nuanced Risk Management strategy superior to simple "Fail-Fast" mechanisms.
 
@@ -187,7 +189,12 @@ states:
 
 ---
 
-## 5. Comparison: v1.0 vs v2.0
+## 5. Comparative Analysis & Positioning
+
+To understand the strategic value of Theus, we must evaluate it not just against its predecessor, but against the broader landscape of modern software frameworks.
+
+### 5.1. Evolution: POP v1.0 vs v2.0
+The transition from v1.0 (Experimental) to v2.0 (Industrial) represents a shift from "Convention" to "Enforcement".
 
 | Feature | POP v1.0 (pop-sdk) | POP v2.0 (Theus) |
 | :--- | :--- | :--- |
@@ -195,18 +202,68 @@ states:
 | **State Distinction** | Mixed (State & Events combined) | **Segregated** (Data vs. Signal vs. Meta) |
 | **Safety Mechanism** | Basic Contracts | **Context Guards & Zero Trust** |
 | **Orchestration** | Linear Step Sequence | **Reactive FSM (States & Events)** |
-| **Auditability** | Logs only | **Active Policy Enforcement (Rules)** |
-| **Philosophy** | "Organize code into steps" | "Enforce semantic safety via architecture" |
+| **Auditability** | Passive Logs | **Active Policy Enforcement (Rules)** |
+
+### 5.2. Industry Positioning: Theus vs. The World
+Theus occupies a unique niche for systems demanding **High Safety & Maintainability**.
+
+| Criteria | **LangChain / LangGraph** | **Temporal.io** | **Django / Spring** | **Theus (POP v2)** |
+| :--- | :--- | :--- | :--- | :--- |
+| **Primary Goal** | Prototyping Speed, LLM Chains | Durability, Long-running workflows | Web Serving, CRUD | **Safety, Determinism, Audit** |
+| **Philosophy** | Tooling-First (Batteries included) | Engine-First (Fault tolerance) | MVC Structure | **Process-First (State Rigor)** |
+| **State Mgmt** | Loose (Dict/Pydantic mix) | Event Sourcing (Implicit) | ORM (Database centric) | **3-Axis Context (Explicit)** |
+| **Safety** | Low (Reliance on dev discipline) | High (Replay guards) | Medium (Validation) | **Very High (Runtime Interlock)** |
+| **Best For** | Chatbots, Quick AI Apps | Microservices Orchestration | Standard Web Apps | **AI Agents, Core Banking, control Systems** |
+
+> **Key takeaway:** Theus trades initial setup speed (boilerplate) for long-term operational safety and auditability. It is an "Industrial Agent Operating System".
 
 ---
 
-## 6. Conclusion
+## 6. Architecture of Enforcement (The 7-Stage Pipeline)
+
+When `engine.run_process` is invoked, Theus does not simply call a function. It orchestrates a rigorous 7-stage pipeline to guarantee safety.
+
+1.  **Audit Input Gate:** Validates input arguments against the Audit Recipe (Fail-Fast).
+2.  **Context Locking:** Acquires lock to ensure thread safety (Optimistic or Pessimistic).
+3.  **Transaction Start:** Initializes state tracking (Shadow Copy or Delta Log).
+4.  **Guard Injection:** Wraps the Context in `ContextGuard`, restricting access based on the Process Contract.
+5.  **Execution:** Runs the pure process logic. All mutations are intercepted by the Guard.
+6.  **Audit Output Gate:** Validates the *proposed* state changes against strict Invariants (Rules).
+7.  **Commit/Rollback:** 
+    *   *Success:* Atomic merge of changes to the real Context.
+    *   *Failure:* Discard shadow state. System remains pristine.
+
+---
+
+## 7. Practical Integration Patterns
+
+Theus is designed to be the **Core Logic Layer** of a larger system.
+
+### 7.1. The 3-Layer Clean Architecture
+Recommended pattern for integrating Theus into Web Apps (FastAPI/Flask):
+
+1.  **Controller Layer (Outer):** Handles HTTP, Auth, JSON Validation.
+2.  **Theus Service Layer (Core):**
+    *   Loads Context.
+    *   Executes Process/Workflow.
+    *   Enforces Business Rules (Audit).
+3.  **Persistence Layer (Inner):** Database access (accessed via Domain Context or dedicated Adapters).
+
+### 7.2. The Hydration/Dehydration Cycle
+Since HTTP is stateless and Theus is stateful:
+1.  **Hydrate:** Load `ctx.domain` from DB based on `session_id`.
+2.  **Process:** Run Theus Engine in-memory.
+3.  **Dehydrate:** Serialize and save `ctx.domain` (Data Zone only) back to DB. Events (Signals) are discarded or logged to event bus.
+
+---
+
+## 8. Conclusion
 
 POP v2.0 represents the maturation of Process-Oriented Programming from a coding style to a robust architectural standard. With the **Theus** engine, the **3-Axis Context Model**, and **Stateful Orchestration**, developers can build systems that are inherently transparent, safe, and collaborative. By treating **State**, **Signals**, and **Metadata** as distinct architectural citizens, we eliminate entire classes of bugs related to concurrency and state management, paving the way for the next generation of reliable, AI-co-developed software.
 
 ---
 
-## References
+## 9. References
 
 1.  **Theus Project (GitHub):** https://github.com/dohuyhoang93/theus
 2.  **Theus on PyPI:** https://pypi.org/project/theus
