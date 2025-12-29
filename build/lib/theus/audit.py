@@ -140,11 +140,28 @@ class AuditPolicy:
         parts = path.split('.')
         current = ctx
         for p in parts:
+            # Handle Method Call if syntax is "name()"
             if p.endswith('()'):
                 method_name = p[:-2]
-                current = getattr(current, method_name)()
+                if isinstance(current, dict):
+                     # Rare case: dict has method? (e.g. keys(), values())
+                     # Or user meant accessing key "name()"? Assuming method call on dict object
+                     current = getattr(current, method_name)()
+                else:
+                     current = getattr(current, method_name)()
             else:
-                current = getattr(current, p)
+                # Handle Attribute vs Dict Key
+                if isinstance(current, dict):
+                    # Support "tensors.traces" -> tensors['traces']
+                    try:
+                        current = current[p]
+                    except KeyError:
+                         # Fallback: maybe it's a dict method like 'get'? 
+                         # But 'get' is attribute. 
+                         # If key missing, we can't resolve.
+                         raise AttributeError(f"Key '{p}' not found in dict path '{path}'")
+                else:
+                    current = getattr(current, p)
         return current
 
 class ContextAuditor:
