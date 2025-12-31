@@ -47,6 +47,10 @@ class TheusEngine(IEngine):
         if hasattr(self.ctx.domain_ctx, 'set_lock_manager'):
             self.ctx.domain_ctx.set_lock_manager(self.lock_manager)
 
+        # Flux Counters
+        self._flux_ops_count = 0
+        self._flux_max_ops = int(os.environ.get("THEUS_MAX_LOOPS", 10000))
+
     def register_process(self, name: str, func: Callable):
         if not hasattr(func, '_pop_contract'):
             logger.warning(f"Process {name} does not have a contract decorator (@process). Safety checks disabled.")
@@ -82,7 +86,9 @@ class TheusEngine(IEngine):
                                     self.register_process(name, obj)
                                     
                         except Exception as e:
-                            logger.error(f"Failed to load module {file}: {e}")
+                            logger.error(f"❌ [TheusEngine] Failed to load module {file}: {e}")
+                            import traceback
+                            traceback.print_exc() # Ensure visibility in console
 
 
     def get_process(self, name: str) -> Callable:
@@ -165,7 +171,7 @@ class TheusEngine(IEngine):
 
     def execute_workflow(self, workflow_path: str, **kwargs):
         """
-        Thực thi Workflow YAML.
+        Thực thi Workflow YAML (Flux Enhanced).
         """
         if workflow_path in self.workflow_cache:
             workflow_def = self.workflow_cache[workflow_path]
@@ -178,15 +184,97 @@ class TheusEngine(IEngine):
         steps = workflow_def.get('steps', [])
         logger.info(f"▶️ Starting Workflow: {workflow_path} ({len(steps)} steps)")
 
+        # Reset Flux Counters per run
+        self._flux_ops_count = 0
+
         for step in steps:
-            if isinstance(step, str):
-                self.run_process(step, **kwargs)
-            elif isinstance(step, dict):
-                process_name = step.get('process')
-                if process_name:
-                    self.run_process(process_name, **kwargs)
+            self._execute_step(step, **kwargs)
         
         return self.ctx
+
+    def _execute_step(self, step: Any, **kwargs):
+        """
+        Recursive Step Executor for Flux.
+        """
+        self._flux_ops_count += 1
+        if self._flux_ops_count > self._flux_max_ops:
+            raise RuntimeError(f"🚨 Flux Safety Trip: Exceeded {self._flux_max_ops} operations. Check for infinite loops.")
+
+        # Case 1: Simple String (Process Name)
+        if isinstance(step, str):
+            self.run_process(step, **kwargs)
+            return
+
+        # Case 2: Dictionary (Process or Flux Command)
+        if isinstance(step, dict):
+            # 2.1 Standard Process
+            if 'process' in step:
+                self.run_process(step['process'], **kwargs)
+                return
+
+            # 2.2 Flux: If / Else
+            if step.get('flux') == 'if':
+                condition = step.get('condition', 'False')
+                if self._resolve_condition(condition):
+                    # Then branch
+                    for child in step.get('then', []):
+                        self._execute_step(child, **kwargs)
+                else:
+                    # Else branch
+                    for child in step.get('else', []):
+                        self._execute_step(child, **kwargs)
+                return
+
+            # 2.3 Flux: While
+            if step.get('flux') == 'while':
+                condition = step.get('condition', 'False')
+                # Loop safety is handled by global _flux_ops_count
+                while self._resolve_condition(condition):
+                    for child in step.get('do', []):
+                        self._execute_step(child, **kwargs)
+                return
+
+            # 2.4 Flux: Run (Nested steps wrapper)
+            if step.get('flux') == 'run':
+                for child in step.get('steps', []):
+                    self._execute_step(child, **kwargs)
+                return
+                
+        # Fallback
+        logger.warning(f"⚠️ Unknown step format skipped: {step}")
+
+    def _resolve_condition(self, condition_str: str) -> bool:
+        """
+        Safe(r) Condition Evaluator.
+        Allows access to 'ctx', 'domain', 'global', 'system'.
+        """
+        # Prepare restricted locals
+        safe_locals = {
+            'ctx': self.ctx,
+            'domain': getattr(self.ctx, 'domain_ctx', None),
+            'global': getattr(self.ctx, 'global_ctx', None),
+            'system': getattr(self.ctx, 'system_ctx', None),
+            'len': len,
+            'int': int,
+            'float': float,
+            'str': str, 
+            'bool': bool
+        }
+        
+        # Also inject aliases if strict hierarchy not followed
+        if hasattr(self.ctx, 'global_ctx'):
+             safe_locals['global_ctx'] = self.ctx.global_ctx
+        if hasattr(self.ctx, 'domain_ctx'):
+             safe_locals['domain_ctx'] = self.ctx.domain_ctx
+
+        try:
+            # We use eval() but strictly limited logic should be in condition strings.
+            # Ideally, use a safer parser like simpleeval in V2.1.
+            # For now, we trust the Orchestrator YAML author (Dev/Ops).
+            return bool(eval(str(condition_str), {"__builtins__": {}}, safe_locals))
+        except Exception as e:
+            logger.error(f"❌ Condition Evaluation Failed: '{condition_str}' -> {e}")
+            return False
 
     @contextmanager
     def edit(self):

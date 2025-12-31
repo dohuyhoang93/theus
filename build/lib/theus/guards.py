@@ -141,7 +141,16 @@ class ContextGuard:
         full_path = f"{self._path_prefix}.{name}" if self._path_prefix else name
             
         # WRITE GUARD
-        if full_path not in self._allowed_outputs:
+        # Allow exact match OR child of allowed output (Hierarchical Permission)
+        parts = full_path.split('.')
+        parent_paths = ['.'.join(parts[:i]) for i in range(1, len(parts))]
+        
+        is_write_allowed = (
+            full_path in self._allowed_outputs or
+            any(p in self._allowed_outputs for p in parent_paths)
+        )
+        
+        if not is_write_allowed:
             raise ContractViolationError(
                 f"Illegal Write Violation: Process attempted to modify '{full_path}' "
                 f"but it was not declared in outputs=[...]."

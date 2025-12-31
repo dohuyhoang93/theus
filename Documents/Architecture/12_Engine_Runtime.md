@@ -57,9 +57,18 @@ Core của việc kiểm soát nằm ở **Ma trận An toàn 3 Trục** (Xem Ch
 
 ---
 
-## 12.3. Pipeline Thực thi Công nghiệp (The Industrial Pipeline)
+## 12.3. Pipeline Thực thi Công nghiệp (Flux Engine Upgrade)
 
-Mỗi khi bạn gọi lệnh chạy, Theus không chỉ "gọi hàm". Nó kích hoạt một dây chuyền 7 bước nghiêm ngặt.
+Trong phiên bản 2.1.4 (Flux Upgrade), Engine chuyển từ chế độ chạy danh sách tuyến tính (`Linear List`) sang chế độ thực thi đệ quy (`Recursive Execution`).
+
+```python
+def _execute_step(step):
+    if is_process(step): execute_process(step)
+    elif is_flux_if(step): resolve_condition_and_branch(step)
+    elif is_flux_while(step): loop_until_false(step)
+```
+
+Mỗi thao tác (Process) vẫn tuân thủ dây chuyền 7 bước bảo mật của Microkernel:
 (Lưu ý: Nếu không dùng Audit Recipe, Bước 2 và Bước 6 sẽ được bỏ qua - Zero Config Mode).
 
 1.  **Registry Lookup:** Tìm Process và Contract trong sổ cái.

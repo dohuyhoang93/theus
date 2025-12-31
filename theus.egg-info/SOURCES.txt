@@ -93,7 +93,6 @@ tests/test_fsm.py
 tests/test_generic_use_case.py
 tests/test_guard_zones.py
 tests/test_integration_gui_sim.py
-tests/test_mechanics_strict.py
 tests/test_method_leakage.py
 tests/test_migration_bulk.py
 tests/test_parser_limit.py
