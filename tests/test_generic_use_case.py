@@ -29,8 +29,8 @@ class BakerySystem(BaseSystemContext):
 # --- 2. Define Processes ---
 
 @process(
-    inputs=['domain.flour_stock', 'global.flour_per_loaf', 'domain.loaves_baked'],
-    outputs=['domain.flour_stock', 'domain.loaves_baked'],
+    inputs=['domain_ctx.flour_stock', 'global_ctx.flour_per_loaf', 'domain_ctx.loaves_baked'],
+    outputs=['domain_ctx.flour_stock', 'domain_ctx.loaves_baked'],
     errors=['ValueError']
 )
 def bake_bread(ctx: BakerySystem, quantity: int):
@@ -47,8 +47,8 @@ def bake_bread(ctx: BakerySystem, quantity: int):
     return f"Baked {quantity} loaves."
 
 @process(
-    inputs=['domain.flour_stock'], # Missing 'global.flour_per_loaf'
-    outputs=['domain.loaves_baked']
+    inputs=['domain_ctx.flour_stock'], # Missing 'global_ctx.flour_per_loaf'
+    outputs=['domain_ctx.loaves_baked']
 )
 def bad_baker_read(ctx: BakerySystem):
     # Tries to read global config without declaring input
@@ -56,8 +56,8 @@ def bad_baker_read(ctx: BakerySystem):
     pass
 
 @process(
-    inputs=['domain.flour_stock'],
-    outputs=[] # Missing 'domain.flour_stock'
+    inputs=['domain_ctx.flour_stock'],
+    outputs=[] # Missing 'domain_ctx.flour_stock'
 )
 def bad_baker_write(ctx: BakerySystem):
     # Tries to modify stock without declaring output
@@ -78,12 +78,18 @@ class TestGenericBakery(unittest.TestCase):
         self.engine.register_process("bad_write", bad_baker_write)
 
     def test_successful_flow(self):
-        print("\n[Bakery] Testing Valid Flow...")
-        res = self.engine.run_process("bake", quantity=10)
-        self.assertEqual(res, "Baked 10 loaves.")
-        self.assertEqual(self.sys.domain_ctx.loaves_baked, 10)
-        self.assertEqual(self.sys.domain_ctx.flour_stock, 80) # 100 - 20
-        print("   -> Success.")
+        try:
+            print("\n[Bakery] Testing Valid Flow...")
+            res = self.engine.run_process("bake", quantity=10)
+            self.assertEqual(res, "Baked 10 loaves.")
+            self.assertEqual(self.sys.domain_ctx.loaves_baked, 10)
+            self.assertEqual(self.sys.domain_ctx.flour_stock, 80) # 100 - 20
+            print("   -> Success.")
+        except Exception as e:
+            import traceback
+            with open("generic_trace.txt", "w") as f:
+                traceback.print_exc(file=f)
+            raise e
 
     def test_logic_error_handling(self):
         print("\n[Bakery] Testing Logic Error...")
@@ -94,14 +100,15 @@ class TestGenericBakery(unittest.TestCase):
 
     def test_contract_violation_read(self):
         print("\n[Bakery] Testing Read Violation...")
-        with self.assertRaises(ContractViolationError) as cm:
+        # Rust Engine raises PermissionError (built-in) for illegal access
+        with self.assertRaises((ContractViolationError, PermissionError)) as cm:
             self.engine.run_process("bad_read")
         self.assertIn("Illegal Read", str(cm.exception))
         print("   -> Caught Read Violation.")
 
     def test_contract_violation_write(self):
         print("\n[Bakery] Testing Write Violation...")
-        with self.assertRaises(ContractViolationError) as cm:
+        with self.assertRaises((ContractViolationError, PermissionError)) as cm:
             self.engine.run_process("bad_write")
         self.assertIn("Illegal Write", str(cm.exception))
         print("   -> Caught Write Violation.")

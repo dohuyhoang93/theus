@@ -1,80 +1,102 @@
-# Chapter 11: Workflow Manager & FSM - The Conductor v2
+# Chapter 11: Workflow Orchestration (FSM)
 
-Theus v2 does not just run isolated processes. It uses a **Finite State Machine (FSM)** to orchestrate complex workflows reacting to events.
+Theus v2 uses a **Finite State Machine (FSM)** to coordinate complex Agent behaviors. Instead of hardcoding `if/else` logic, you define a **Reactive Workflow** in YAML.
 
-## 1. Workflow Manager (WM)
-This is the highest-level shell of Theus.
-- **Engine:** Hands (Execute Process).
-- **SignalBus:** Ears (Listen to Events).
-- **FSM:** Brain (Decide where to go next).
+## 1. The Components
 
-## 2. Linear Mode vs FSM Mode
-Theus supports two orchestration modes.
+The orchestration layer consists of three parts:
+1.  **WorkflowManager:** The Conductor. It connects the Brain (FSM) with the Hands (Engine).
+2.  **SignalBus:** The Nervous System. It carries events (Signals) from processes/UI to the Manager.
+3.  **ThreadExecutor:** The Scheduler. It executes process chains in background threads to keep the main loop responsive.
 
-### Linear (Pipeline)
-Simple sequence A -> B -> C. No state logic needed.
+## 2. Defining a Workflow (YAML)
+
+Create a `workflow.yaml` file. The structure maps **States** to **Events**.
+
 ```yaml
-steps:
-  - "load_data"
-  - "process_data"
-```
+name: "FulfillmentWorkflow"
+start_state: "IDLE"
 
-### FSM (Reactive)
-Complex logic with states, loops, and event listeners.
-```yaml
 states:
   IDLE:
     events:
-      CMD_START_WORK: "PROCESSING"  # Hear START command -> Switch state
-      
+      CMD_START: "PROCESSING"  # Event -> Next State
+
   PROCESSING:
-    entry: ["process_step_1", "process_step_2"] # Enter state -> Run these processes
+    # Action: Run these processes immediately upon entering State
+    entry: 
+      - "p_validate_order"
+      - "p_charge_payment"
+    
     events:
-      EVT_STEP_DONE: "VERIFYING"    # Internal event emitted by process
-      EVT_ERROR: "RECOVERY"         # Error handling path
-      
-  VERIFYING:
-    entry: "process_verify_audit"
+      EVT_CHAIN_DONE: "SHIPPING"  # transitions after 'entry' chain success
+      EVT_CHAIN_FAIL: "ERROR_RECOVERY"
+
+  SHIPPING:
+    entry: ["p_ship_item"]
     events:
-      EVT_AUDIT_OK: "DONE"
-      EVT_AUDIT_FAIL: "RECOVERY"
-      
-  DONE:
-    entry: "process_notify_user"
+      EVT_CHAIN_DONE: "IDLE"
+
+  ERROR_RECOVERY:
+    entry: ["p_alert_admin", "p_refund"]
+    events:
+      EVT_CHAIN_DONE: "IDLE"
 ```
 
-## 3. Signal Bus & Events
-How to emit `EVT_STEP_DONE`?
-Your Process does it via the **Signal Zone**.
+## 3. Emitting Signals
+
+Your processes (Python functions) drive the flow by emitting signals or simply finishing successfully.
+
+- **Implicit Signal:** When an `entry` chain finishes, `WorkflowManager` automatically emits `EVT_CHAIN_DONE` (or `EVT_CHAIN_FAIL`).
+- **Explicit Signal:** You can emit custom signals from your code or UI.
 
 ```python
-@process(outputs=['domain.sig_evt_step_done'])
-def process_step_2(ctx):
-    # Work done...
-    ctx.domain.sig_evt_step_done = True # Emit Signal
+# From UI / Main Loop
+bus.emit("CMD_START")
+
+# From inside a Process (if needed)
+# ctx.domain.sig_custom_event = True 
+# (Theus Engine automatically converts Context Signals to Bus Events if configured)
 ```
 
-`WorkflowManager` listens to changes in Signal Zone. When `sig_evt_step_done` flips to True, it consults the FSM table and executes state transition.
+## 4. Running the Orchestrator
 
-## 4. Running Workflow Manager
+The best practice is to run the Orchestrator in a background thread so your Application (GUI/API) isn't blocked.
+
 ```python
-from theus.orchestrator import WorkflowManager, SignalBus
+from theus.orchestrator import WorkflowManager, SignalBus, ThreadExecutor
+from theus import TheusEngine
+import threading
 
+# 1. Setup
 bus = SignalBus()
-wm = WorkflowManager(engine, scheduler, bus)
+scheduler = ThreadExecutor(max_workers=2)
+# Engine setup (see Chapter 4) ...
+manager = WorkflowManager(engine, scheduler, bus)
 
-# 1. Load YAML
-wm.load_workflow(yaml_def)
+# 2. Load Workflow
+with open("specs/workflow.yaml") as f:
+    manager.load_workflow(yaml.safe_load(f))
 
-# 2. Start Loop (Usually in separate Thread or Main Loop)
-wm.run_workflow("MyFlow", context=None)
+# 3. Create a Non-Blocking Loop
+def orchestrator_loop():
+    while True:
+        try:
+            # Block for 0.1s waiting for signal
+            signal = bus.get(timeout=0.1)
+            manager.process_signal(signal)
+        except:
+            pass # Handle empty queue or exit signal
 
-# 3. Trigger externally
-bus.emit("CMD_START_WORK")
+# 4. Start Thread
+t = threading.Thread(target=orchestrator_loop, daemon=True)
+t.start()
+
+# 5. Interact
+bus.emit("CMD_START")
 ```
 
----
-**Exercise:**
-Create `workflow.yaml` with 2 states: `WAIT` and `RUN`.
-Create a process `trigger_run` to emit signal switching to `RUN`.
-Use `WorkflowManager` to run and observe state transition logs.
+## 5. Summary
+- **Declarative:** Logic is in YAML, not Python.
+- **Reactive:** System sleeps until a Signal arrives.
+- **Resilient:** Failures trigger `EVT_CHAIN_FAIL`, allowing you to define `ERROR_RECOVERY` states explicitly.

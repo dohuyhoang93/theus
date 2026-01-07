@@ -57,7 +57,7 @@ class TestContractLoopholes(unittest.TestCase):
         
         @process(inputs=[], outputs=[]) 
         def sneaky_reader(ctx):
-            # We did NOT declare 'domain.N_vector' in inputs
+            # We did NOT declare 'domain_ctx.N_vector' in inputs
             secret = ctx.domain_ctx.N_vector 
             print(f"   -> Stole secret value: {secret}")
             
@@ -73,7 +73,7 @@ class TestContractLoopholes(unittest.TestCase):
         """Loophole 2: Modifying a mutable object in-place (bypassing setattr)."""
         print("\n[Loophole 2] Testing Mutable Object Mutation...")
         
-        @process(inputs=['domain.short_term_memory'], outputs=[]) 
+        @process(inputs=['domain_ctx.short_term_memory'], outputs=[]) 
         def trojan_writer(ctx):
             # We declared it as INPUT (Read-Only intent usually), but not OUTPUT.
             # However, because it's a list, we can append to it.
@@ -116,7 +116,7 @@ class TestContractLoopholes(unittest.TestCase):
         @process(inputs=['domain'], outputs=['domain']) 
         def lazy_process(ctx):
             # If this runs, it means the developer successfully requested the entire 'domain' object
-            # and can now access 'domain.N_vector' without declaring it explicitly.
+            # and can now access 'domain_ctx.N_vector' without declaring it explicitly.
             # However, ContextGuard/ZoneEnforcement *should* likely block 'domain' as a valid path 
             # if it's treated as a Namespace, or allow it but then everything is open.
             # The goal here is to Assert what Theus DOES (likely allows it currently, which is the 'exploit').

@@ -9,10 +9,12 @@ class ContextZone(Enum):
     DATA = "data"     # Business State (Persistent, Auditable, Replayable)
     SIGNAL = "signal" # Transient Events/Commands (Ephemeral, No-Replay)
     META = "meta"     # Diagnostics/Observability (Read-Only for logic)
+    HEAVY = "heavy"   # Large/External Objects (Log-only, no copy, audit via introspection)
 
 # Prefix Definitions
 PREFIX_SIGNAL: Final = ("sig_", "cmd_")
 PREFIX_META: Final = ("meta_",)
+PREFIX_HEAVY: Final = ("heavy_",)
 
 def resolve_zone(key: str) -> ContextZone:
     """
@@ -21,6 +23,7 @@ def resolve_zone(key: str) -> ContextZone:
     Rules:
     - 'sig_*', 'cmd_*' -> SIGNAL
     - 'meta_*'         -> META
+    - 'heavy_*'        -> HEAVY
     - Others           -> DATA
     """
     if key.startswith(PREFIX_SIGNAL):
@@ -28,5 +31,9 @@ def resolve_zone(key: str) -> ContextZone:
     
     if key.startswith(PREFIX_META):
         return ContextZone.META
+    
+    if key.startswith(PREFIX_HEAVY):
+        return ContextZone.HEAVY
         
     return ContextZone.DATA
+

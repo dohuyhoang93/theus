@@ -35,7 +35,7 @@ class DomainContext(BaseDomainContext):
     current_observation: Any = None
 
 # 1. Define a dummy process
-@process(inputs=['global.initial_exploration_rate'], outputs=['domain.current_exploration_rate'])
+@process(inputs=['global_ctx.initial_exploration_rate'], outputs=['domain_ctx.current_exploration_rate'])
 def dummy_process(ctx: SystemContext):
     # Logic: Reset exploration rate to base
     base = ctx.global_ctx.initial_exploration_rate

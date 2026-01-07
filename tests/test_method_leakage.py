@@ -25,8 +25,8 @@ class MockSystem(BaseSystemContext):
     domain_ctx: MockDomain
 
 @process(
-    inputs=['domain.obj'],
-    outputs=['domain.obj'], # Even if declared as output, method call prevents interception?
+    inputs=['domain_ctx.obj'],
+    outputs=['domain_ctx.obj'], # Even if declared as output, method call prevents interception?
     errors=['ValueError']
 )
 def unsafe_method_call(ctx):

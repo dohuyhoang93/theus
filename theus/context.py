@@ -40,10 +40,10 @@ class LockedContextMixin:
     def to_dict(self, exclude_zones: List[ContextZone] = None) -> Dict[str, Any]:
         """
         Export context state to dictionary, filtering out specified zones.
-        Default exclusion: SIGNAL, META (if not specified).
+        Default exclusion: SIGNAL, META, HEAVY (if not specified).
         """
         if exclude_zones is None:
-            exclude_zones = [ContextZone.SIGNAL, ContextZone.META]
+            exclude_zones = [ContextZone.SIGNAL, ContextZone.META, ContextZone.HEAVY]
             
         data = {}
         for k, v in self.__dict__.items():

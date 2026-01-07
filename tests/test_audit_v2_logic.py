@@ -61,7 +61,7 @@ def test_cyclic_reset():
     # So checking NOW should show 0.
     assert policy.tracker.counters["p_cycle:score:min"] == 0, "Counter should reset after hitting threshold"
     
-    print("✅ Cyclic Reset Passed")
+    print("[OK] Cyclic Reset Passed")
 
 def test_dual_threshold_blocking():
     """Test Level B Block behavior."""
@@ -84,13 +84,13 @@ def test_dual_threshold_blocking():
     # 1. First Violation (Count=1 >= min_threshold 1) -> Warning
     # Should NOT raise exception yet
     policy.evaluate("p_block", "output", ctx)
-    print("✅ Warning Threshold Passed")
+    print("[OK] Warning Threshold Passed")
     
     # 2. Second Violation (Count=2 >= max_threshold 2) -> Block
     # Should RAISE AuditBlockError
     with pytest.raises(AuditBlockError):
         policy.evaluate("p_block", "output", ctx)
-    print("✅ Blocking Threshold Passed")
+    print("[OK] Blocking Threshold Passed")
 
 def test_computed_path():
     """Test checking tensor.mean()"""
@@ -102,7 +102,7 @@ def test_computed_path():
     
     with pytest.raises(AuditInterlockError):
         policy.evaluate("p_tensor", "output", ctx)
-    print("✅ Computed Path Passed")
+    print("[OK] Computed Path Passed")
 
 @dataclass
 class DumbObject:
@@ -148,7 +148,7 @@ def test_wrapper_pattern():
     policy.evaluate("p_wrap", "output", ctx)
     assert policy.tracker.counters["p_wrap:wrapper.count_zeros():max"] == 1
     
-    print("✅ Wrapper Pattern Passed")
+    print("[OK] Wrapper Pattern Passed")
 
 def test_audit_rollback_safety():
     """
@@ -199,8 +199,8 @@ def test_audit_rollback_safety():
         ctx.domain_ctx.my_tensor.data[0] = 999 
 
     p_unsafe._pop_contract = type("Contract", (), {
-        "inputs": ["domain.my_list", "domain.my_tensor"], # Canonical Paths
-        "outputs": ["domain.my_list", "domain.my_tensor"], 
+        "inputs": ["domain_ctx.my_list", "domain_ctx.my_tensor"], # Canonical Paths
+        "outputs": ["domain_ctx.my_list", "domain_ctx.my_tensor"], 
         "errors": []
     })
     
@@ -210,20 +210,20 @@ def test_audit_rollback_safety():
     try:
         engine.run_process("p_unsafe")
     except AuditBlockError:
-        print("✅ Correctly Caught Block Error")
+        print("[OK] Correctly Caught Block Error")
     except Exception as e:
         pytest.fail(f"Unexpected error: {e}")
 
     # 5. Verify Rollback
     # A. List should be empty (Rollback successful)
     assert len(ctx.domain_ctx.my_list) == 0, "List Structure Rollback FAILED! (New Pipeline Issue?)"
-    print("✅ List Structure Rollback OK")
-    print("✅ List Structure Rollback OK")
+    print("[OK] List Structure Rollback OK")
+    print("[OK] List Structure Rollback OK")
     
-    # B. Tensor should be 999 (Rollback FAILED due to Shared Memory)
-    # This confirms our warning to the user.
-    assert ctx.domain_ctx.my_tensor.data[0] == 999, "Complex Object Rollback SHOULD fail (Shared Memory Check)"
-    print("✅ Complex Object Side-Effect Confirmed")
+    # B. Tensor should be 0 (Rollback SUCCESS due to Deep Tracking)
+    # Theus v2 ContextGuard now wraps nested lists (via .data access), ensuring tracking.
+    assert ctx.domain_ctx.my_tensor.data[0] == 0, "Complex Object Rollback FAILED! (Deep Tracking should have handled this)"
+    print("[OK] Complex Object Rollback Succeeded (Deep Tracking Active)")
 
 if __name__ == "__main__":
     test_cyclic_reset()

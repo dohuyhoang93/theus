@@ -21,16 +21,16 @@ class MockContext(BaseSystemContext):
     domain_ctx: MockDomain = field(default_factory=MockDomain)
 
 # --- Mock Processes ---
-@process(inputs=['domain.user'], outputs=['domain.user.balance'])
+@process(inputs=['domain_ctx.user'], outputs=['domain_ctx.user.balance'])
 def step_1(ctx):
     ctx.domain_ctx.user.balance += 50 # 150
 
-@process(inputs=['domain.user'], outputs=['domain.user.balance'], errors=['ValueError'])
+@process(inputs=['domain_ctx.user'], outputs=['domain_ctx.user.balance'], errors=['ValueError'])
 def step_2_crash(ctx):
     ctx.domain_ctx.user.balance = 0 # Try to wipe balance
     raise ValueError("Simulated Crash")
 
-@process(inputs=['domain.user'], outputs=[])
+@process(inputs=['domain_ctx.user'], outputs=[])
 def step_3_read(ctx):
     pass # Just to ensure we can continue
 

@@ -1,0 +1,19 @@
+[package]
+name = "theus_core"
+version = "2.2.0"
+edition = "2021"
+authors = ["Do Huy Hoang <dohuyhoangvn93@gmail.com>"]
+description = "Theus Rust Core Microkernel"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "theus_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23.3", features = ["extension-module"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.10"

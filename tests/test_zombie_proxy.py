@@ -19,8 +19,8 @@ class MockSystem(BaseSystemContext):
 
 # Process 1: Leaks the Proxy
 @process(
-    inputs=['domain.data', 'domain.storage'],
-    outputs=['domain.storage']
+    inputs=['domain_ctx.data', 'domain_ctx.storage'],
+    outputs=['domain_ctx.storage']
 )
 def leak_proxy(ctx):
     tracked_list = ctx.domain_ctx.data
@@ -29,8 +29,8 @@ def leak_proxy(ctx):
 
 # Process 2: Accesses the Zombie
 @process(
-    inputs=['domain.storage'],
-    outputs=['domain.storage']
+    inputs=['domain_ctx.storage'],
+    outputs=['domain_ctx.storage']
 )
 def touch_zombie(ctx):
     ctx.domain_ctx.storage.append(999)

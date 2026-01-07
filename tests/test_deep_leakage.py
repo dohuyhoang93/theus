@@ -17,8 +17,8 @@ class MockSystem(BaseSystemContext):
     domain_ctx: MockDomain
 
 @process(
-    inputs=['domain.matrix'],
-    outputs=['domain.matrix'],
+    inputs=['domain_ctx.matrix'],
+    outputs=['domain_ctx.matrix'],
     errors=['ValueError']  # For crash test
 )
 def nested_append(ctx):

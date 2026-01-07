@@ -40,14 +40,15 @@ class TrackedList(MutableSequence):
         
         # Log Logic: path[index]
         entry_path = f"{self._path}[{index}]"
-        self._tx.log(DeltaEntry(entry_path, "SET", value, old_val))
+        # Rust Transaction.log(path, op, value, old_value, target, key)
+        self._tx.log(entry_path, "SET", value, old_val, None, None) 
 
     def __delitem__(self, index):
         old_val = self._data[index]
         del self._data[index]
         
         entry_path = f"{self._path}[{index}]"
-        self._tx.log(DeltaEntry(entry_path, "REMOVE", None, old_val))
+        self._tx.log(entry_path, "REMOVE", None, old_val, None, None)
 
     def __len__(self):
         return len(self._data)
@@ -55,20 +56,20 @@ class TrackedList(MutableSequence):
     def insert(self, index, value):
         self._data.insert(index, value)
         # Log INSERT is complex for paths, but we simplify to "INSERT" op
-        self._tx.log(DeltaEntry(f"{self._path}", "INSERT", (index, value)))
+        self._tx.log(f"{self._path}", "INSERT", (index, value))
 
     # --- Optimizations / Overrides ---
     def append(self, value):
         self._data.append(value)
-        self._tx.log(DeltaEntry(self._path, "APPEND", value))
+        self._tx.log(self._path, "APPEND", value)
         
     def extend(self, values):
         self._data.extend(values)
-        self._tx.log(DeltaEntry(self._path, "EXTEND", values))
+        self._tx.log(self._path, "EXTEND", values)
         
     def pop(self, index=-1):
         val = self._data.pop(index)
-        self._tx.log(DeltaEntry(self._path, "POP", index, val))
+        self._tx.log(self._path, "POP", index, val)
         return val
         
     def __repr__(self):
@@ -82,7 +83,7 @@ class TrackedDict(MutableMapping):
     """
     A smart wrapper around a dict that logs all mutations.
     """
-    def __init__(self, shadow_dict: Dict, transaction: Transaction, path: str):
+    def __init__(self, shadow_dict: Dict, transaction: Any, path: str):
         self._data = shadow_dict
         self._tx = transaction
         self._path = path
@@ -108,13 +109,12 @@ class TrackedDict(MutableMapping):
         old_val = self._data.get(key)
         self._data[key] = value
         
-        entry_path = f"{self._path}.{key}" # Dot notation for dict keys? Or ['key']?
         # Let's use dot for string keys, bracket for others? 
         # For simplicity in POP (which implies JSON-like context), keys are usually strings.
         entry_path = f"{self._path}.{key}" if isinstance(key, str) else f"{self._path}[{key}]"
         
-        op = "UPDATE" if old_val is not None else "ADD"
-        self._tx.log(DeltaEntry(entry_path, "SET", value, old_val))
+        # op = "UPDATE" if old_val is not None else "ADD" # This is now handled by the SET operation itself
+        self._tx.log(entry_path, "SET", value, old_val, None, None)
 
     def __delitem__(self, key):
         old_val = self._data[key]

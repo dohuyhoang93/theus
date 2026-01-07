@@ -18,8 +18,8 @@ class MockSystem(BaseSystemContext):
     domain_ctx: MockDomain
 
 @process(
-    inputs=['domain.matrix'],
-    outputs=['domain.matrix']
+    inputs=['domain_ctx.matrix'],
+    outputs=['domain_ctx.matrix']
 )
 def modify_via_slice(ctx):
     # Slice the first 2 elements

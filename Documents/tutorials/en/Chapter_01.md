@@ -6,7 +6,7 @@ In modern software development (AI Agents, Automation, Banking), the biggest cha
 **Theus v2** is not just a library; it is a miniature **Operating System** for your processes, forcing you to adhere to the **3-Axis Context Model**:
 1.  **Layer:** Where does the data live? (Global/Domain/Local).
 2.  **Semantic:** What is the data used for? (Input/Output).
-3.  **Zone:** How is the data guarded? (Data/Signal/Meta).
+3.  **Zone:** How is the data guarded? (Data/Signal/Meta/Heavy).
 
 ## 2. Why POP v2?
 Traditional models (OOP, FP) lack a crucial piece: **Runtime Architectural Control.**
@@ -22,17 +22,28 @@ Traditional models (OOP, FP) lack a crucial piece: **Runtime Architectural Contr
 4.  **Workflow FSM:** The conductor coordinating flow based on events.
 
 ## 4. Installation
-Theus v2 requires Python 3.12+ and adheres to modern Typing standards.
+Theus v2 requires Python 3.10+ and Rust (for strict mode core).
 
+### Option 1: User (Production)
 ```bash
-# Install from source
-pip install -e .
+pip install theus
 ```
 
+### Option 2: Developer (Source)
+We use **Maturin** to build the Rust Core.
+
+```bash
+# 1. Install Maturin
+pip install maturin
+
+# 2. Build & Install (Dev Mode)
+maturin develop
+```
 ---
 **Exercise Chapter 1:**
 Forget the old way of coding. Imagine your system is a factory.
 - What are the raw materials (Input)?
 - What are the products (Output)?
 - What are the sirens/alarms (Signal)?
+- What are the heavy raw materials like steel beams (Heavy)?
 In Chapter 2, we will build the "warehouse" (Context) for this factory.

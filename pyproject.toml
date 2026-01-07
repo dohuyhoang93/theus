@@ -1,5 +1,43 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
+[project]
+name = "theus"
+version = "2.2.0"
+description = "Theus Agentic Framework - Industrial Grade Process-Oriented Programming (POP)"
+authors = [{name = "Do Huy Hoang", email = "dohuyhoangvn93@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["ai", "agent", "pop", "process-oriented", "transactional", "state-management", "microkernel"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "typing-extensions>=4.0",
+]
 
+[project.urls]
+Homepage = "https://github.com/dohuyhoang93/theus"
+Repository = "https://github.com/dohuyhoang93/theus"
+Issues = "https://github.com/dohuyhoang93/theus/issues"
+
+[project.scripts]
+theus = "theus.cli:main"
+
+[tool.maturin]
+# "mixed" means we include both Python source code and Rust binary extension
+features = ["pyo3/extension-module"]
+python-source = "."
+module-name = "theus_core"

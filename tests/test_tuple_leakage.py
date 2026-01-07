@@ -18,8 +18,8 @@ class MockSystem(BaseSystemContext):
     domain_ctx: MockDomain
 
 @process(
-    inputs=['domain.immutable_container'],
-    outputs=['domain.immutable_container'],
+    inputs=['domain_ctx.immutable_container'],
+    outputs=['domain_ctx.immutable_container'],
     errors=['ValueError']
 )
 def modify_tuple_element(ctx):

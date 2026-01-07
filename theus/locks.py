@@ -17,6 +17,8 @@ class LockManager:
     - Unsafe code runs with WARNING (Default).
     - Unsafe code fails with ERROR (Strict Mode).
     """
+    LockViolationError = LockViolationError # Expose for consistent import
+
     def __init__(self, strict_mode: bool = False):
         self.strict_mode = strict_mode
         self._mutex = threading.Lock() # Protects the state

@@ -19,23 +19,23 @@ class MockSystem(BaseSystemContext):
 
 # --- Processes ---
 
-@process(inputs=['domain.data_list'], outputs=[])
+@process(inputs=['domain_ctx.data_list'], outputs=[])
 def p_illegal_append(ctx):
     ctx.domain_ctx.data_list.append(4)
 
-@process(inputs=['domain.data_list'], outputs=[])
+@process(inputs=['domain_ctx.data_list'], outputs=[])
 def p_illegal_setitem(ctx):
     ctx.domain_ctx.data_list[0] = 99
 
-@process(inputs=['domain.data_dict'], outputs=[])
+@process(inputs=['domain_ctx.data_dict'], outputs=[])
 def p_illegal_dict_set(ctx):
     ctx.domain_ctx.data_dict["b"] = 2
 
-@process(inputs=['domain.data_list'], outputs=['domain.data_list'])
+@process(inputs=['domain_ctx.data_list'], outputs=['domain_ctx.data_list'])
 def p_legal_append(ctx):
     ctx.domain_ctx.data_list.append(5)
 
-@process(inputs=['domain.nested_list'], outputs=[])
+@process(inputs=['domain_ctx.nested_list'], outputs=[])
 def p_illegal_nested_modify(ctx):
     # This should return a FrozenList inside a FrozenList
     inner_list = ctx.domain_ctx.nested_list[0]

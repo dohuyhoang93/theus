@@ -1,115 +1,116 @@
-# 🤖 Theus Framework v2: AI Developer Context & Guidelines
+# 🤖 Theus Framework v2.2: AI Coding Standards & Agent Guidelines
 
-**Target Audience:** AI Assistants (GPT-4, Claude 3.5, Gemini) & Human Developers.
-**Purpose:** Rapid understanding of architectural invariants, coding standards, and safety constraints within Theus v2.
+**Target Audience:** AI Assistants (GPT-4, Claude 3.5, Gemini, Copilot) & Autonomous Agents.
+**Purpose:** Rapid understanding of "Rust-First" Architectural Invariants, Strict Mode Constraints, and FSM/Heavy Zone patterns in Theus v2.2.
 
 ---
 
-## 1. Core Philosophy: The 3-Axis Context Model
+## 1. Core Philosophy: The Microkernel OS
+Theus is NOT a library; it is a **Process-Oriented Operating System (Rust Microkernel)**.
+Your code (`@process`) does not own data. It requests temporary, guarded access to a global **Context**.
 
-Theus v2 is a **Process-Oriented Operating System** for your code. It revolves around a strictly structured Context:
-
-### The 3 Axes (Mental Model)
-1.  **Layer (Scope):** `Global` (Config) / `Domain` (Session) / `Local` (Ephemeral).
-2.  **Semantic (Role):** `Input` (Read) / `Output` (Write).
+### The 3+1 Axis Context Model
+Every data point is defined by 3 axes. You MUST respect them:
+1.  **Layer (Scope):** `Global` (Config/Env) / `Domain` (Session/User) / `Local` (Ephemeral).
+2.  **Semantic (Role):** `Input` (Read-only) / `Output` (Read-Write).
 3.  **Zone (Policy):**
-    *   **DATA:** Persistent Assets. Transactional. Replayable.
-    *   **SIGNAL (`sig_`, `cmd_`):** Transient Events. Reset on Read/Rollback. **Non-Replayable**.
-    *   **META (`meta_`):** Observability only.
+    *   **DATA:** Normal Business State. Transactional (Undo/Redo).
+    *   **SIGNAL (`sig_`, `cmd_`):** Communication. Transient. Reset on Read. **Non-Transactional**.
+    *   **META (`meta_`):** Observability/Metrics.
+    *   **HEAVY (`heavy_`):** **[NEW]** High-Perf Tensors/Blobs. Bypasses Transaction Log (No Undo).
 
-**CRITICAL INVARIANT:** Never mutate the `Context` directly outside of a registered `@process`. The Engine will raise `ContextLockedError`.
-
----
-
-## 2. Architectural Components
-
-### The Kernel (`TheusEngine`)
-*   **Role:** Safe Execution Environment.
-*   **Pipeline:** `Audit Input` -> `Lock` -> `Guard` -> `Tx Start` -> `Exec` -> `Audit Output` -> `Commit/Rollback`.
-*   **Safety:** Zero Trust. Wraps Context in a `ContextGuard` proxy.
-
-### The Orchestrator (`WorkflowManager`)
-*   **Role:** Reactive Flow Control (FSM).
-*   **Mechanism:** Listens to `SignalBus`. If a process sets `ctx.domain.sig_done = True`, the Manager triggers the next state.
-
-### The Unit of Work (`@process`)
-*   **Decorator:** `@process` is MANDATORY.
-*   **Contract:** Must define explicit `inputs` and `outputs`.
+**CRITICAL INVARIANT:** Never mutate Context directly. Always use the injected `ctx` (ContextGuard).
 
 ---
 
-## 3. Coding Standards & Patterns (v2)
+## 2. Strict Mode (Default: ON)
+Theus v2.2 enforces `strict_mode=True`. Violating these rules causes `PyPermissionError` or `Rust Panic`.
 
-### A. Defining a Process
-**DO:**
+### Rule 1: Explicit Contracts
+Every process MUST be decorated with `@process` and declare exact `inputs/outputs`.
 ```python
-@process(
-    inputs=['domain.items'],           # Only DATA zone allowed in inputs
-    outputs=['domain.total', 'domain.sig_done'], # Output can be anything
-    errors=['ValueError']
-)
-def add_item(ctx, item: dict):
-    # ctx is a ContextGuard (Proxy)
-    ctx.domain.items.append(item)      # TrackedList (Shadow Copy)
-    ctx.domain.total += item['price']  # Optimistic Write
-    ctx.domain.sig_done = True         # Signal trigger
+# ✅ CORRECT
+@process(inputs=['domain.user_id'], outputs=['domain.profile'])
+def fetch_profile(ctx): ...
+
+# ❌ WRONG (Result: Panic or PermissionError)
+def fetch_profile(ctx): ... 
 ```
 
-**DON'T (Theus v2 Strict Rules):**
-*   **NO SIGNAL INPUTS:** Never put `sig_...` in `inputs`. Signals are for Orchestrators, not Process logic.
-*   **NO ZOMBIES:** Do not assign `x = ctx.domain.items` and use `x` after the process returns.
-*   **NO RETURN CTX:** Return business values or `None`.
+### Rule 2: Immutable Inputs
+Attributes declared in `inputs` are **Read-Only**.
+```python
+# ❌ WRONG (PermissionError: Illegal Write)
+ctx.domain.user_id = "new_id" 
+```
 
-### B. Transaction Safety
-Theus uses a **Hybrid Transaction Model**:
-1.  **Scalars (int, str):** Optimistic Write + Undo Log.
-2.  **Structures (list, dict):** Shadow Copy (Copy-on-Write).
+### Rule 3: No Control Plane Inputs
+You CANNOT declare `inputs=['sig_start']`. Signals are processed by the **Orchestrator**, not passed as data to processes.
 
----
-
-## 4. The Audit System (Industrial Policy)
-
-Governance is defined in `AuditRecipe` (YAML), not code.
-
-| Level | Exception | Action | Use Case |
-| :--- | :--- | :--- | :--- |
-| **S** (Safety) | `AuditInterlockError` | **Emergency Stop** | Physical/System limit violation. |
-| **A** (Abort) | `AuditInterlockError` | **Hard Stop** | Critical Logic failure. |
-| **B** (Block) | `AuditBlockError` | **Rollback** | Business Rule rejection (e.g. Insufficient Funds). |
-| **C** (Campaign)| (None) | **Log Warning** | Monitoring. |
-
-**Rule Spec:**
-*   `min_threshold`: Count to start warning.
-*   **`max_threshold`**: Count to trigger Action (S/A/B).
-*   `reset_on_success`: Configurable (Default: False in current codebase - accumulates errors).
+### Rule 4: No Private Access
+Accessing `ctx._internal` or `ctx.target._data` is BLOCKED.
 
 ---
 
-## 5. Testing Guidelines
+## 3. Optimization: The HEAVY Zone
+For AI workloads (Images, Tensors, Embeddings), use the `HEAVY` zone to avoid RAM explosion.
 
-*   **Mocking:** Use `MockSystemContext` and `TheusEngine` for integration tests.
-*   **Policy Testing:** Verify that `AuditBlockError` is raised when rules are violated.
-*   **Zombie Testing:** Ensure no variables hold references to Context lists after execution.
+**Mechanism:**
+-   Prefix variable with `heavy_` (e.g., `heavy_frame`, `heavy_weights`).
+-   Theus **Process** writes directly to memory (Zero-Copy).
+-   **No Undo:** If transaction fails, `heavy_` variables are NOT reverted (Dirty Write).
+-   **Use Case:** Only for data > 1MB where eventual consistency > atomicity.
+
+```python
+@process(inputs=[], outputs=['domain.heavy_frame'])
+def capture_camera(ctx):
+    # Fast write, no undo log overhead
+    ctx.domain.heavy_frame = np.zeros((1080, 1920, 3)) 
+```
+
+---
+
+## 4. Orchestration: Native FSM
+Logic flow is defined in **YAML**, not Python. Theus Engine uses a Rust-based Finite State Machine.
+
+**Do NOT write loops manually.**
+Define `workflow.yaml`:
+```yaml
+states:
+  IDLE:
+    events:
+      CMD_START: "PROCESSING"
+  PROCESSING:
+    entry: ["p_step1", "p_step2"]
+    events:
+      EVT_CHAIN_DONE: "DONE"
+      EVT_CHAIN_FAIL: "ERROR"
+```
 
 ---
 
-## 6. Project Structure (Navigation)
+## 5. Coding Patterns for AI Agents
 
-*   `theus/engine.py`: Kernel & Execution Pipeline.
-*   `theus/guards.py`: `ContextGuard` & `Zone` enforcement logic.
-*   `theus/audit.py`: Policy enforcement & Tracker.
-*   `theus/orchestrator/`: `fsm.py` (StateMachine) & `manager.py`.
-*   `specs/`: `context_schema.yaml`, `audit_recipe.yaml`, `workflow.yaml`.
+### A. Implementing a Feature
+1.  **Schema First:** Check `specs/context_schema.yaml`. Add fields if needed.
+2.  **Define Process:** Create `src/processes/my_feature.py`.
+3.  **Decorate:** Apply `@process` with Strict inputs/outputs.
+4.  **Register:** Add to `src/processes/__init__.py`.
+5.  **YAML:** Add state/transition to `specs/workflow.yaml`.
 
----
-
-## 7. Workflow for AI (How to generate code)
-
-1.  **Check Schema:** Read `specs/context_schema.yaml` to understand the 3-Axis Data Model.
-2.  **Check Workflow:** Read `specs/workflow.yaml` to see where the process fits in the FSM.
-3.  **Draft Contract:** Identify strict Inputs (Data only) and Outputs.
-4.  **Implement:** Write `@process` with strict typing.
-5.  **Verify Zone:** Ensure no Signal is used as Input. Ensure `meta_` is used only for logging.
+### B. Handling Structures (Lists/Dicts)
+Theus returns `TrackedList` or `FrozenList`.
+*   **DO NOT** do `if type(x) == list`. Use `isinstance(x, list)`.
+*   **DO NOT** assign context lists to global variables (Zombie References).
 
 ---
-*Generated by Theus Architect Agent (v2.0)*
+
+## 6. Navigation (Project Structure)
+*   **`src/`**: Rust Core (Do not touch unless modifying Kernel).
+*   **`theus/`**: Python Wrapper & CLI.
+*   **`specs/`**: The "Source of Truth" for Logic (YAMLs).
+*   **`demo/`**: Best practice implementation reference.
+*   **`pyproject.toml`**: Build config (Maturin).
+
+---
+*Generated by Theus Architect Agent (v2.2)*

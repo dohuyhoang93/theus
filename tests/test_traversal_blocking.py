@@ -21,7 +21,7 @@ class MockSystem(BaseSystemContext):
     domain_ctx: MockDomain
 
 @process(
-    inputs=['domain.config.val'],
+    inputs=['domain_ctx.config.val'],
     outputs=[]
 )
 def read_deep(ctx):
@@ -47,7 +47,7 @@ class TestTraversal(unittest.TestCase):
             print(f"   Success! Value: {val}")
         except ContractViolationError as e:
             print(f"   Caught Expected Error: {e}")
-            self.fail("Traversal Mocked! Guard prevented accessing intermediate path 'domain.config' despite leaf being allowed.")
+            self.fail("Traversal Mocked! Guard prevented accessing intermediate path 'domain_ctx.config' despite leaf being allowed.")
 
 if __name__ == "__main__":
     unittest.main()

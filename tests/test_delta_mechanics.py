@@ -21,8 +21,8 @@ class MockSystem(BaseSystemContext):
 
 # --- Processes ---
 @process(
-    inputs=['domain.count'],
-    outputs=['domain.count']
+    inputs=['domain_ctx.count'],
+    outputs=['domain_ctx.count']
 )
 def simple_increment(ctx):
     # Valid scalar update
@@ -30,8 +30,8 @@ def simple_increment(ctx):
     return "Incremented"
 
 @process(
-    inputs=['domain.items'],
-    outputs=['domain.items']
+    inputs=['domain_ctx.items'],
+    outputs=['domain_ctx.items']
 )
 def list_append(ctx):
     # Valid list update
@@ -39,8 +39,8 @@ def list_append(ctx):
     return "Appended"
 
 @process(
-    inputs=['domain.count', 'domain.items'],
-    outputs=['domain.count', 'domain.items'],
+    inputs=['domain_ctx.count', 'domain_ctx.items'],
+    outputs=['domain_ctx.count', 'domain_ctx.items'],
     errors=['ValueError']
 )
 def crash_midway(ctx):

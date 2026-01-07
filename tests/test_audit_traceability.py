@@ -44,7 +44,7 @@ class TestAuditTraceability(unittest.TestCase):
         dummy_process._pop_contract = type('obj', (object,), {
              # We must allow outputting to score so audit runs
              'inputs': [], 
-             'outputs': ['domain.score'], 
+             'outputs': ['domain_ctx.score'], 
              'errors': []
         })
         
@@ -54,11 +54,14 @@ class TestAuditTraceability(unittest.TestCase):
         try:
             engine.run_process("test_msg")
             self.fail("Should have blocked!")
-        except AuditBlockError as e:
-            msg = str(e)
-            print(f"Caught Error: {msg}")
-            self.assertIn("Score must be high enough to pass!", msg)
-            pass
+        except Exception as e:
+            print(f"Caught Type: {type(e)}")
+            print(f"Caught Error: {e}")
+            if isinstance(e, AuditBlockError):
+                 msg = str(e)
+                 self.assertIn("Score must be high enough to pass!", msg)
+            else:
+                 raise e
 
 if __name__ == "__main__":
     unittest.main()

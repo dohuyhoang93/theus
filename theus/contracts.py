@@ -1,6 +1,7 @@
 from typing import List, Optional, Callable, Dict
 import functools
 import inspect
+import traceback
 
 class ContractViolationError(Exception):
     """Raised when a Process violates its declared POP Contract."""
@@ -33,6 +34,16 @@ def process(inputs: List[str], outputs: List[str], side_effects: List[str] = Non
             if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
                 filtered_kwargs = kwargs
             
-            return func(system_ctx, *args, **filtered_kwargs)
+            try:
+                return func(system_ctx, *args, **filtered_kwargs)
+            except Exception as e:
+                # DEBUG: Log traceback
+                try:
+                    with open("debug_trace.txt", "a") as f:
+                        f.write(f"ERROR in {func.__name__}:\n")
+                        traceback.print_exc(file=f)
+                except:
+                    pass
+                raise e
         return wrapper
     return decorator

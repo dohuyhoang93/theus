@@ -24,11 +24,12 @@ Theus acts as a micro-kernel for your logic, enforcing strict architectural inva
 ### 1. The 3-Axis Context Model
 State is no longer a "bag of variables". It is a 3D space defined by:
 *   **Layer:** `Global` (Config), `Domain` (Session), `Local` (Process).
-*   **Semantic:** `Input` (Read-only), `Output` (Write-only).
+*   **Semantic:** `Input` (Read-only), `Output` (Write-only), `SideEffect` (env), `Error`.
 *   **Zone:**
     *   **DATA:** Persistent Assets (Replayable).
     *   **SIGNAL:** Transient Events (Reset on Read).
     *   **META:** Observability (Logs/Traces).
+    *   **HEAVY:** High-Perf Tensors/Blobs (Zero-Copy, Non-Transactional).
 
 ```
                                      [Y] SEMANTIC
@@ -39,7 +40,7 @@ State is no longer a "bag of variables". It is a 3D space defined by:
                                       |                +------+------+
                                       |               /|             /|
                                       +--------------+ |  CONTEXT   + |----------> [Z] ZONE
-                                     /               | |  OBJECT    | |      (Data, Signal, Meta)
+                                     /               | |  OBJECT    | |      (Data, Signal, Meta, Heavy)
                                     /                | +------------+ |
                                    /                 |/             |/
                                   /                  +------+------+
@@ -81,10 +82,10 @@ This example demonstrates Contracts, Zoning, and Transaction safety.
 ### 1. Define the Context (The Asset)
 ```python
 from dataclasses import dataclass, field
-from theus.context import BaseSystemContext
+from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
 
 @dataclass
-class BankDomain:
+class BankDomain(BaseDomainContext):
     # DATA ZONE: Persistent Assets
     accounts: dict = field(default_factory=dict) # {user_id: balance}
     total_reserves: int = 1_000_000
@@ -94,7 +95,8 @@ class BankDomain:
 
 @dataclass
 class BankSystem(BaseSystemContext):
-    domain: BankDomain = field(default_factory=BankDomain)
+    domain_ctx: BankDomain = field(default_factory=BankDomain)
+    global_ctx: BaseGlobalContext = field(default_factory=BaseGlobalContext)
 ```
 
 ### 2. Define the Process (The Logic)
@@ -103,8 +105,8 @@ from theus.contracts import process
 
 @process(
     # STRICT CONTRACT
-    inputs=['domain.accounts'],
-    outputs=['domain.accounts', 'domain.total_reserves', 'domain.sig_fraud_detected'],
+    inputs=['domain_ctx.accounts'],
+    outputs=['domain_ctx.accounts', 'domain_ctx.total_reserves', 'domain_ctx.sig_fraud_detected'],
     errors=['ValueError']
 )
 def transfer(ctx, from_user: str, to_user: str, amount: int):
@@ -113,20 +115,16 @@ def transfer(ctx, from_user: str, to_user: str, amount: int):
         raise ValueError("Amount must be positive")
     
     # 2. Business Logic (Operating on Shadow Copies)
-    # ctx.domain.accounts is a TrackedDict
-    sender_bal = ctx.domain.accounts.get(from_user, 0)
+    sender_bal = ctx.domain_ctx.accounts.get(from_user, 0)
     
     if sender_bal < amount:
         # Trigger Signal
-        ctx.domain.sig_fraud_detected = True
+        ctx.domain_ctx.sig_fraud_detected = True
         return "Failed: Insufficient Funds"
 
     # 3. Mutation (Optimistic Write)
-    ctx.domain.accounts[from_user] -= amount
-    ctx.domain.accounts[to_user] = ctx.domain.accounts.get(to_user, 0) + amount
-    
-    # 4. Invariant Update
-    # (Note: reserves don't change in transfer, but we have write access just in case)
+    ctx.domain_ctx.accounts[from_user] -= amount
+    ctx.domain_ctx.accounts[to_user] = ctx.domain_ctx.accounts.get(to_user, 0) + amount
     
     return "Success"
 ```
@@ -137,14 +135,13 @@ from theus.engine import TheusEngine
 
 # Setup Data
 sys_ctx = BankSystem()
-sys_ctx.domain.accounts = {"Alice": 1000, "Bob": 0}
+sys_ctx.domain_ctx.accounts = {"Alice": 1000, "Bob": 0}
 
 # Initialize Engine
 engine = TheusEngine(sys_ctx, strict_mode=True)
 
 # 🚀 PRO TIP: Auto-Discovery
-# Instead of registering manually: engine.register_process("transfer", transfer)
-# You can scan an entire directory (Theus will find all @process functions):
+# Instead of registering manually, you can scan an entire directory:
 # engine.scan_and_register("src/processes")
 
 engine.register_process("transfer", transfer)
@@ -153,7 +150,7 @@ engine.register_process("transfer", transfer)
 result = engine.run_process("transfer", from_user="Alice", to_user="Bob", amount=500)
 
 print(f"Result: {result}")
-print(f"Alice: {sys_ctx.domain.accounts['Alice']}") # 500
+print(f"Alice: {sys_ctx.domain_ctx.accounts['Alice']}") # 500
 ```
 
 ---
@@ -162,10 +159,10 @@ print(f"Alice: {sys_ctx.domain.accounts['Alice']}") # 500
 
 Theus provides a powerful CLI suite to accelerate development and maintain architectural integrity.
 
-*   **`theus init <project_name>`**: Scaffolds a new project with the standard V2 structure (`src/`, `specs/`, `workflows/`).
-*   **`theus audit gen-spec`**: Scans your `@process` functions and automatically populates `specs/audit_recipe.yaml` with rule skeletons.
-*   **`theus audit inspect <process_name>`**: Inspects the effective audit rules, side effects, and error contracts for a specific process.
-*   **`theus schema gen`**: Infers and generates `specs/context_schema.yaml` from your Python Dataclass definitions.
+*   **`python -m theus.cli init <project_name>`**: Scaffolds a new project with the standard V2 structure (`src/`, `specs/`, `workflows/`).
+*   **`python -m theus.cli audit gen-spec`**: Scans your `@process` functions and automatically populates `specs/audit_recipe.yaml` with rule skeletons.
+*   **`python -m theus.cli audit inspect <process_name>`**: Inspects the effective audit rules, side effects, and error contracts for a specific process.
+*   **`python -m theus.cli schema gen`**: Infers and generates `specs/context_schema.yaml` from your Python Dataclass definitions.
 
 ---
 
@@ -176,6 +173,12 @@ Theus uses a **Hybrid Transaction Model**:
 *   **Scalars:** Updated in-place with an Undo Log (for speed).
 *   **Collections:** Updated via **Shadow Copy** (for safety).
 If a process crashes or is blocked by Audit, Theus rolls back the entire state instantly.
+
+### The Heavy Zone (Optimization)
+For AI workloads (Images, Tensors) > 1MB, use `heavy_` variables.
+*   **Behavior:** Writes bypass the Transaction Log (Zero-Copy).
+*   **Trade-off:** Changes to Heavy data are **NOT** reverted on Rollback.
+
 
 ### The Audit Recipe (`audit.yaml`)
 Decouple your business rules from your code.
