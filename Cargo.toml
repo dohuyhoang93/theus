@@ -1,6 +1,6 @@
 [package]
 name = "theus_core"
-version = "2.2.0"
+version = "2.2.1"
 edition = "2021"
 authors = ["Do Huy Hoang <dohuyhoangvn93@gmail.com>"]
 description = "Theus Rust Core Microkernel"

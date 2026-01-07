@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "theus"
-version = "2.2.0"
+version = "2.2.1"
 description = "Theus Agentic Framework - Industrial Grade Process-Oriented Programming (POP)"
 authors = [{name = "Do Huy Hoang", email = "dohuyhoangvn93@gmail.com"}]
 readme = "README.md"
@@ -39,5 +39,6 @@ theus = "theus.cli:main"
 [tool.maturin]
 # "mixed" means we include both Python source code and Rust binary extension
 features = ["pyo3/extension-module"]
-python-source = "."
+# Python package lives in the theus/ subfolder
+python-packages = ["theus"]
 module-name = "theus_core"
