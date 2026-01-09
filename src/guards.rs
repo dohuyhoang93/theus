@@ -12,13 +12,13 @@ pub struct ContextGuard {
     allowed_inputs: Vec<String>,
     allowed_outputs: Vec<String>,
     path_prefix: String,
-    tx: Py<Transaction>, 
+    tx: Option<Py<Transaction>>, 
     is_admin: bool,
     strict_mode: bool,
 }
 
 impl ContextGuard {
-    pub fn new_internal(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, tx: Py<Transaction>, is_admin: bool, strict_mode: bool) -> PyResult<Self> {
+    pub fn new_internal(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, tx: Option<Py<Transaction>>, is_admin: bool, strict_mode: bool) -> PyResult<Self> {
          // Strict Mode: Check for Forbidden Input Zones
          if strict_mode {
              for inp in &inputs {
@@ -81,15 +81,22 @@ impl ContextGuard {
              return Ok(val);
         }
 
+        // Check if Transaction is present
+        // If NO Transaction (strict_mode=False), return raw value immediately
+        let tx = match &self.tx {
+            Some(t) => t,
+            None => return Ok(val),
+        };
+
         if type_name == "list" {
-             let tx_bound = self.tx.bind(py);
+             let tx_bound = tx.bind(py);
              let shadow = tx_bound.borrow_mut().get_shadow(py, val.clone_ref(py), Some(full_path.clone()))?; 
              
              let can_write = self.check_permissions(&full_path, true).is_ok();
              let shadow_list = shadow.bind(py).downcast::<PyList>()?.clone().unbind();
 
              if can_write {
-                 let tracked = TrackedList::new(shadow_list, self.tx.clone_ref(py), full_path);
+                 let tracked = TrackedList::new(shadow_list, tx.clone_ref(py), full_path);
                  return Ok(Py::new(py, tracked)?.into_py(py));
              } else {
                  let frozen = FrozenList::new(shadow_list);
@@ -98,14 +105,14 @@ impl ContextGuard {
         }
 
         if type_name == "dict" {
-             let tx_bound = self.tx.bind(py);
+             let tx_bound = tx.bind(py);
              let shadow = tx_bound.borrow_mut().get_shadow(py, val.clone_ref(py), Some(full_path.clone()))?; 
              
              let can_write = self.check_permissions(&full_path, true).is_ok();
              let shadow_dict = shadow.bind(py).downcast::<PyDict>()?.clone().unbind();
 
              if can_write {
-                 let tracked = TrackedDict::new(shadow_dict, self.tx.clone_ref(py), full_path);
+                 let tracked = TrackedDict::new(shadow_dict, tx.clone_ref(py), full_path);
                  return Ok(Py::new(py, tracked)?.into_py(py));
              } else {
                  let frozen = FrozenDict::new(shadow_dict);
@@ -113,7 +120,7 @@ impl ContextGuard {
              }
         }
         
-        let tx_bound = self.tx.bind(py);
+        let tx_bound = tx.bind(py);
         let shadow = tx_bound.borrow_mut().get_shadow(py, val.clone_ref(py), Some(full_path.clone()))?; 
 
         Ok(Py::new(py, ContextGuard {
@@ -121,7 +128,7 @@ impl ContextGuard {
             allowed_inputs: self.allowed_inputs.clone(),
             allowed_outputs: self.allowed_outputs.clone(),
             path_prefix: full_path,
-            tx: self.tx.clone_ref(py),
+            tx: Some(tx.clone_ref(py)),
             is_admin: self.is_admin,
             strict_mode: self.strict_mode,
         })?.into_py(py))
@@ -132,7 +139,7 @@ impl ContextGuard {
 impl ContextGuard {
     #[new]
     #[pyo3(signature = (target, inputs, outputs, tx, is_admin=false, strict_mode=false))]
-    fn new(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, tx: Py<Transaction>, is_admin: bool, strict_mode: bool) -> PyResult<Self> {
+    fn new(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, tx: Option<Py<Transaction>>, is_admin: bool, strict_mode: bool) -> PyResult<Self> {
         Self::new_internal(target, inputs, outputs, tx, is_admin, strict_mode)
     }
 
@@ -182,8 +189,9 @@ impl ContextGuard {
         
         // HEAVY Zone Optimization: Skip Transaction Logging for heavy data (Tensors, Blobs)
         if zone != ContextZone::Heavy {
-            let mut tx_ref = self.tx.bind(py).borrow_mut();
-            tx_ref.log_internal(
+            if let Some(tx) = &self.tx {
+                let mut tx_ref = tx.bind(py).borrow_mut();
+                tx_ref.log_internal(
                 full_path.clone(),
                 "SET".to_string(),
                 Some(value.clone_ref(py)),
@@ -191,6 +199,7 @@ impl ContextGuard {
                 Some(self.target.clone_ref(py)),
                 Some(name.clone())
             );
+            } // End if let Some(tx)
         }
         
         self.target.bind(py).setattr(name.as_str(), value)?;
@@ -258,15 +267,17 @@ impl ContextGuard {
 
         // HEAVY Zone Optimization
         if zone != ContextZone::Heavy {
-            let mut tx_ref = self.tx.bind(py).borrow_mut();
-            tx_ref.log_internal(
-                full_path.clone(),
-                "SET_ITEM".to_string(), 
-                Some(value_to_set.clone_ref(py)),
-                old_val,
-                Some(self.target.clone_ref(py)),
-                Some(key.to_string())
-            );
+            if let Some(tx) = &self.tx {
+                let mut tx_ref = tx.bind(py).borrow_mut();
+                tx_ref.log_internal(
+                    full_path.clone(),
+                    "SET_ITEM".to_string(), 
+                    Some(value_to_set.clone_ref(py)),
+                    old_val,
+                    Some(self.target.clone_ref(py)),
+                    Some(key.to_string())
+                );
+            }
         }
 
         target.set_item(key, value_to_set)?;

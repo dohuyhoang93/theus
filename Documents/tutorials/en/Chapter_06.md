@@ -1,43 +1,35 @@
 # Chapter 6: Transaction & Delta - The Time Machine v2
 
-In Theus v2, the Transaction concept is upgraded to ensure absolute data integrity (ACID-like) right in Python memory.
+In Theus v2, the Transaction concept is handled by the **Rust Core**, ensuring absolute data integrity (ACID-like) with optimized performance.
 
-## 1. Two Transaction Strategies
-Theus uses a Hybrid Approach to optimize performance:
+## 1. Core Philosophy: Why we "Hold" the Context?
+You might wonder: *"Why does Theus keep a reference to the entire context instead of just copying what I asked for?"*
 
-### 1.1. Optimistic Concurrency (For Scalar: int, str, bool)
-When you assign `ctx.domain.counter = 10`:
-- **Action:** Theus overwrites 10 to the Real Context **immediately** (In-place update).
-- **Insurance:** Simultaneously, Theus logs to `DeltaLog`: *"Old value of counter was 5"*.
-- **Rollback:** If error, Theus reads Log backwards and restores old values.
-- **Benefit:** Extremely fast for simple variables.
+The answer lies in **Safety** and **Atomicity**.
+*   **Preventing Contract Cheating:** If we only copied the declared `outputs`, a malicious or buggy process could secretly modify a variable it *didn't* declare (Side Effect). By wrapping the entire context in a Transaction, Theus ensures that *all* writes go to a temporary "Shadow State". Only declared outputs are committed back; undeclared changes are discarded.
+*   **Atomic Rollback:** To guarantee that a system state is either "All New" or "All Old", Theus creates a sandbox. If a process crashes halfway, the Sandbox is destroyed, and the original system remains untouched.
 
-### 1.2. Shadow Copy (For Collection: list, dict)
-When you modify `ctx.domain.items`:
-- **Action:** Theus creates a replica (Shadow) of that list.
-- **Operation:** All your `append`, `pop` commands happen on this Shadow. The original List knows nothing.
-- **Commit:** If success, Theus swaps the Shadow content into the Original List.
-- **Rollback:** If error, Shadow is discarded. Original List remains pristine.
-- **Benefit:** Safe for complex data structures, prevents "half-modified" lists.
+## 2. Two Transaction Strategies (Hybrid Engine)
+Theus uses a Hybrid Approach to optimize performance automatically:
 
-## 2. Automatic Commit & Rollback
-You never have to call `commit()` or `rollback()` manually. The Engine handles it.
+### 2.1. Optimistic Concurrency (Scalar: int, str, bool)
+When you assign `ctx.counter = 10`:
+- **Action:** In-place update (Fast).
+- **Insurance:** Theus logs the *Inverse Operation* to `DeltaLog` ("Old value was 5").
+- **Rollback:** Reads log backwards to restore state.
 
-```python
-try:
-    # 1. Start Tx
-    # 2. Run Process
-    # 3. Audit Output -> If OK -> Commit
-except Exception:
-    # 4. Rollback
-```
+### 2.2. Shadow Copy (Collection: list, dict)
+When you modify `ctx.items`:
+- **Action:** Theus creates a replica (Shadow).
+- **Operation:** You work on the Shadow.
+- **Commit:** Content is swapped back to original if success.
+- **Rollback:** Shadow is dropped. Original is safe.
 
-## 3. Signal Zone in Transaction
-An interesting point of Theus v2: **Signals are also affected by Transaction**.
-- If you set flag `sig_alarm = True`.
-- Then Process crashes -> Rollback.
-- `sig_alarm` will automatically revert to `False` (or old value).
-This ensures no "False Alarms" from a failed process.
+## 3. The Audit Log: Transient & Ephemeral
+A critical design choice in Theus is that **Transaction Logs are Ephemeral**.
+*   **While Running:** The log exists to track every change.
+*   **After Success:** The log is **discarded** (Dropped).
+*   **Why?** Storing full data history (especially for AI Tensors) would explode memory instanty. Theus is designed to be "Audit-Aware" (counting violations) rather than a full "Time-Travel Database" for storage.
 
 ---
 **Advanced Sabotage Exercise:**

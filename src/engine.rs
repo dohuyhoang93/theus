@@ -73,7 +73,12 @@ impl Engine {
         }
         
         // Transaction (New PyClass)
-        let tx = Py::new(py, Transaction::new())?;
+        // [FIX] Conditional Initialization: Only create Transaction if strict_mode is TRUE
+        let tx = if self.strict_mode {
+            Some(Py::new(py, Transaction::new())?)
+        } else {
+            None
+        };
 
         let func_bound = func.bind(py);
         let contract = func_bound.getattr("_pop_contract")
@@ -89,7 +94,7 @@ impl Engine {
             self.ctx.clone_ref(py), 
             inputs, 
             outputs, 
-            tx.clone_ref(py),
+            tx.as_ref().map(|t| t.clone_ref(py)),
             false, // Process Guard is NOT admin
             self.strict_mode,
         )?;
@@ -99,8 +104,10 @@ impl Engine {
         let result = match func_bound.call(args, kwargs) {
             Ok(res) => res.unbind(),
             Err(e) => {
-                let tx_bound = tx.bind(py);
-                tx_bound.borrow_mut().rollback(py)?; 
+                if let Some(tx) = &tx {
+                     let tx_bound = tx.bind(py);
+                     tx_bound.borrow_mut().rollback(py)?; 
+                } 
                 
                 // Check if error is declared or is a ContractViolationError
                 let err_type = e.get_type(py).name()?.to_string();
@@ -133,21 +140,25 @@ impl Engine {
                 self.ctx.clone_ref(py),
                 vec![], // inputs ignored in admin
                 vec![], // outputs ignored in admin
-                tx.clone_ref(py),
+                tx.as_ref().map(|t| t.clone_ref(py)),
                 true, // IS ADMIN
                 self.strict_mode,
             )?;
             let audit_guard = Py::new(py, audit_guard_struct)?;
 
             if let Err(e) = policy.evaluate(py, &process_name, "output", audit_guard.bind(py), None) {
-                 let tx_bound = tx.bind(py);
-                 tx_bound.borrow_mut().rollback(py)?;
-                 return Self::raise_audit_error(py, e);
+                  if let Some(tx) = &tx {
+                      let tx_bound = tx.bind(py);
+                      tx_bound.borrow_mut().rollback(py)?;
+                  }
+                  return Self::raise_audit_error(py, e);
             }
         }
         
-        let tx_bound = tx.bind(py);
-        tx_bound.borrow_mut().commit(py)?;
+        if let Some(tx) = &tx {
+             let tx_bound = tx.bind(py);
+             tx_bound.borrow_mut().commit(py)?;
+        }
 
         Ok(result)
     }

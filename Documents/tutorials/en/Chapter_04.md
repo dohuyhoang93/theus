@@ -1,6 +1,6 @@
 # Chapter 4: TheusEngine - Operating the Machine
 
-TheusEngine v2 is a complex machine with multiple layers of protection. Understanding its execution flow makes debugging easier.
+TheusEngine v2 is a high-performance Rust machine. Understanding its execution flow makes debugging easier.
 
 ## 1. Initializing Standard v2 Engine
 ```python
@@ -17,33 +17,33 @@ engine = TheusEngine(sys_ctx, strict_mode=True)
 ```
 
 ## 2. The Execution Pipeline
-When you call `engine.run_process("add_product", name="TV", price=500)`, what actually happens?
+When you call `engine.run_process("add_product", product_name="TV", price=500)`, what actually happens?
 
 1.  **Audit Input Gate:**
-    - Engine calls `ContextAuditor`.
-    - Checks if input arguments (`name`, `price`) violate any Audit Rules (if Recipe exists).
+    - Rust calls `AuditPolicy`.
+    - Checks if input arguments (`product_name`, `price`) violate any Audit Rules.
     - If `Level S` violation -> **Stop Immediately**.
 
 2.  **Context Locking:**
-    - If running multi-threaded, Engine **Locks** the entire Context to ensure Atomic Execution.
+    - Engine **Locks** the entire Context (Mutex) to ensure Atomic Execution (Thread Safe).
 
 3.  **Transaction Start:**
-    - Engine snapshots the current state (or prepares Shadow Copy mechanism).
+    - Rust creates a `Transaction` in RAM.
 
 4.  **Guard Injection:**
-    - Engine creates a `ContextGuard` wrapping the real Context.
-    - Grants permissions (Keys) based on the Process Contract.
+    - Rust creates a `ContextGuard` wrapping the real Context.
+    - Grants permissions (Keys) based on the Process Contract (`inputs`/`outputs`).
 
 5.  **Execution:**
-    - Your code runs. All changes happen on the Draft (Shadow/Delta).
+    - Your Python code runs. All changes (`+= price`) happen on the Guard/Transaction logic (Shadow Copy).
 
 6.  **Audit Output Gate:**
-    - Process finishes, but not Committed yet.
-    - Engine checks the result on the Draft. E.g., "After adding, does `total_value` exceed 1 billion?".
-    - If violation -> **Rollback**.
+    - Process finishes.
+    - Rust checks the result. E.g., "After adding, does `total_value` exceed limit?".
+    - If violation -> **Rollback Transaction**.
 
 7.  **Commit/Rollback:**
-    - If everything OK -> Apply Draft to Real Context (Commit).
+    - If everything OK -> Apply changes to Real Context.
     - Unlock Context.
 
 ## 3. Running It
@@ -51,12 +51,13 @@ When you call `engine.run_process("add_product", name="TV", price=500)`, what ac
 engine.register_process("add_product", add_product)
 
 try:
-    engine.run_process("add_product", name="Iphone", price=1000)
-    print("Success!", sys_ctx.domain.items)
+    # Use 'product_name' to avoid collision with internal 'name' argument
+    engine.run_process("add_product", product_name="Iphone", price=1000)
+    print("Success!", sys_ctx.domain_ctx.items)
 except Exception as e:
     print(f"Failed: {e}")
 ```
 
 ---
 **Exercise:**
-Write a `main.py`. Run the process. Try printing `sys_ctx.domain.sig_restock_needed` after execution to see if the Signal was updated.
+Write a `main.py`. Run the process. Try printing `sys_ctx.domain_ctx.sig_restock_needed` after execution to see if the Signal was updated.

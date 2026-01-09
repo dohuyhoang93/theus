@@ -1,52 +1,55 @@
-# Chapter 14: Testing - Strategy v2
+# Chapter 14: Testing Strategy (Unit & Integration)
 
-With Theus v2, you don't just test code logic, you test **Policy** and **Config** too.
+With Theus v2, you test **Code (Logic)** and **Policy (Rules)** separately.
 
-## 1. Unit Test Logic (Process)
-Test `@process` function independently, without Engine.
+## 1. Unit Test Logic (Process Isolation)
+Since processes are just functions, test them directly. mocking the Context.
+
 ```python
 class TestLogic(unittest.TestCase):
-    def test_add_product(self):
+    def test_add_product_logic(self):
         # 1. Setup Mock Context
-        ctx = MockContext(domain=MockDomain(items=[]))
+        # You can use Real Context classes too, just don't attach Engine if not needed
+        ctx = WarehouseContext()
         
-        # 2. Call function directly (bypass Engine)
-        # Note: Need to mock ContextGuard if function uses complex Guard logic
-        add_product(ctx, name="A", price=10)
+        # 2. Call function directly (bypass Engine/Guard for pure logic test)
+        result = add_product(ctx, product_name="TestTV", price=10)
         
-        # 3. Assert
-        self.assertEqual(len(ctx.domain.items), 1)
+        # 3. Assert State
+        self.assertEqual(len(ctx.domain_ctx.items), 1)
+        self.assertEqual(result, "Added")
 ```
 
 ## 2. Integration Test Policy (Engine + Audit)
-Test if Audit Rules block correctly.
+Test if Audit Rules block correctly (The "Safety Net").
+
 ```python
 class TestPolicy(unittest.TestCase):
     def setUp(self):
         # Load Real Recipe
         recipe = ConfigFactory.load_recipe("audit.yaml")
-        self.engine = TheusEngine(sys_ctx, audit_recipe=recipe)
+        ctx = WarehouseContext()
+        self.engine = TheusEngine(ctx, audit_recipe=recipe, strict_mode=True)
         self.engine.register_process("add", add_product)
         
-    def test_price_block(self):
+    def test_price_blocking_policy(self):
         # Rule: Price >= 0 (Level B)
         with self.assertRaises(AuditBlockError):
-            self.engine.run_process("add", name="B", price=-5)
+            self.engine.run_process("add", product_name="BadTV", price=-5)
             
-    def test_safety_interlock(self):
+    def test_safety_interlock_policy(self):
         # Rule: Total Value < 1 billion (Level S)
-        # Setup context near overflow
-        self.engine.ctx.domain.total_value = 999_999_999
+        # Setup context near overflow (using edit() backdoor)
+        with self.engine.edit() as safe_ctx:
+             safe_ctx.domain_ctx.total_value = 999_999_999
         
         with self.assertRaises(AuditInterlockError):
-             self.engine.run_process("add", name="C", price=100)
+             self.engine.run_process("add", product_name="OverflowTV", price=100)
 ```
 
 ## 3. Test FSM Workflow
-Test state transition flow.
-- Use `WorkflowManager` and simulate emitting Signals.
-- Assert that `current_state` moves correctly from `IDLE` -> `PROCESSING`.
+Test state transition flow using `WorkflowManager` in a headless mode (no threads), just `manager.process_signal(sig)` sequentially in tests.
 
 ---
 **Exercise:**
-Write coverage tests for both Logic (Process) and Policy (Audit) of the warehouse app. Ensure every line in `audit.yaml` is triggered at least once.
+Write coverage tests for `add_product`. Ensure every line in `audit.yaml` is triggered.

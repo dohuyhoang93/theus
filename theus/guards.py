@@ -1,7 +1,15 @@
 import logging
 from typing import Any, Set, Optional
 from .contracts import ContractViolationError
-from .delta import Transaction, DeltaEntry
+from .delta import DeltaEntry  # Keep Python DeltaEntry for logging
+
+# Use Rust Transaction for proper HEAVY zone detection
+try:
+    from theus_core import Transaction
+except ImportError:
+    # Fallback to Python if Rust core not available
+    from .delta import Transaction
+
 from .structures import TrackedList, TrackedDict, FrozenList, FrozenDict
 
 class ContextLoggerAdapter(logging.LoggerAdapter):
@@ -105,6 +113,11 @@ class ContextGuard:
         val = getattr(self._target_obj, name)
         
         if self._transaction:
+            # OPTIMIZATION: If strict_mode is False, skip Transaction overhead entirely.
+            # This prevents History Accumulation (Container Leak) and Shadow Copying.
+            if not self._strict_mode:
+                 return val
+
             # Check if this specific leaf path is declared as Output (Writeable)
             # Logic: If it's in Outputs, it's Mutable. If it's only in Inputs, it's Immutable.
             # CAUTION: 'full_path' might be a parent of the output. 
@@ -118,7 +131,8 @@ class ContextGuard:
             )
 
             # Get or Create Shadow
-            shadow = self._transaction.get_shadow(val)
+            # NOTE: Pass path so Rust core can check HEAVY zone
+            shadow = self._transaction.get_shadow(val, full_path)
             
             # Wrap based on permissions
             if isinstance(shadow, list):

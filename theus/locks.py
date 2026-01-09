@@ -4,7 +4,7 @@ import threading
 from contextlib import contextmanager
 from typing import Literal, Optional
 
-logger = logging.getLogger("POP.LockManager")
+logger = logging.getLogger("Theus.LockManager")
 
 class LockViolationError(Exception):
     """Raised when a Context modification occurs outside of a Transaction in Strict Mode."""
@@ -47,8 +47,9 @@ class LockManager:
             logger.error(full_msg)
             raise LockViolationError(full_msg)
         else:
-            # Rust-style Warning
-            logger.warning(full_msg)
+            # Rust-style Warning -> Silent for Training Performance
+            # Switched to DEBUG to avoid spamming audit logs in non-strict mode
+            logger.debug(full_msg)
             
     @contextmanager
     def unlock(self):

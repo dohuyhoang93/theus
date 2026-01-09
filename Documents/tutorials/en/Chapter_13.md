@@ -1,58 +1,86 @@
-# Chapter 13: Web Integration - Theus as a Service
+# Chapter 13: Service Layer Pattern (FastAPI Integration)
 
-Theus is designed to be the robust Backend Service for modern Web/APIs.
+Theus is designed to be the "Iron Core" Service Layer for modern Web APIs.
+This aligns with **Domain-Driven Design (DDD)** and **Clean Architecture**.
 
-## 1. 3-Layer Architecture (Clean Architecture)
+## 1. 3-Layer Architecture Setup
 
-- **Layer 1: Controller (FastAPI/Flask)**
-    - Receive HTTP Request.
-    - Basic JSON validation (Pydantic).
-    - Call Theus Engine.
+Think of your codebase in 3 layers:
 
-- **Layer 2: Service (Theus Engine)**
-    - **Input Gate:** Complex Business Validation.
-    - **Transaction:** Ensure Integrity.
-    - **Process:** Execute Logic.
+1.  **FastAPI (Controller):** Handles HTTP, JSON Parsing, Authentication (User Identity).
+2.  **Theus (Service/Model):** Handles Business Logic, Transactionality, Safety Checks.
+3.  **Context/DB (Persistence):** Storage.
 
-- **Layer 3: Persistence (Database)**
-    - Save Context to DB (Snapshot).
+## 2. The Dependency Injection Pattern
+We recommend injecting the `TheusEngine` using FastAPI's Dependency Injection.
 
-## 2. Dependency Injection (FastAPI)
+### Step 1: `dependencies.py`
 ```python
-from fastapi import FastAPI, Depends
 from theus.engine import TheusEngine
+from my_app.context import SystemContext
+from my_app.config import load_recipes
+
+_engine = None
+
+def get_engine() -> TheusEngine:
+    global _engine
+    if not _engine:
+        # Initialize Context & Engine ONCE (Singleton)
+        ctx = SystemContext(...)
+        recipe = load_recipes("audit.yaml")
+        _engine = TheusEngine(ctx, audit_recipe=recipe, strict_mode=True)
+    return _engine
+```
+
+### Step 2: `main.py` (FastAPI)
+```python
+from fastapi import FastAPI, Depends, HTTPException
+from pydantic import BaseModel
+from theus.engine import TheusEngine
+from theus.audit import AuditBlockError, AuditInterlockError
+from .dependencies import get_engine
 
 app = FastAPI()
 
-# Singleton Engine (or Per-Request depending on strategy)
-_engine = None
-def get_engine():
-    global _engine
-    if not _engine:
-        # Init Engine, Load Recipes...
-        _engine = TheusEngine(...) 
-    return _engine
+class OrderRequest(BaseModel):
+    item_id: str
+    quantity: int
 
-@app.post("/order")
-def create_order(item_id: str, engine: TheusEngine = Depends(get_engine)):
+@app.post("/orders")
+def create_order(req: OrderRequest, engine: TheusEngine = Depends(get_engine)):
     try:
-        # Call Process. All business logic is inside Theus.
-        # Controller is just a courier.
-        result = engine.run_process("create_order", item_id=item_id)
-        return {"status": "success", "order": result}
+        # 1. Delegate Logic to Theus
+        # Note: We pass Pydantic models (req) directly if Process supports it, 
+        # or unpack args.
+        result = engine.run_process("create_order", item_id=req.item_id, qty=req.quantity)
+        
+        return {"status": "success", "order_id": result}
+        
+    except AuditBlockError as e:
+        # 2. Map Policy Violations to 400 Bad Request
+        raise HTTPException(status_code=400, detail=str(e))
         
     except AuditInterlockError as e:
-        # Map Theus error to HTTP 400/500
-        return {"error": "Policy Violation", "detail": str(e)}, 400
+        # 3. Map Safety Violations to 500 or 503
+        # (Log critical alert here)
+        raise HTTPException(status_code=503, detail="System Safety Interlock Triggered")
 ```
 
-## 3. Stateless HTTP vs Stateful Context
-HTTP is Stateless. Theus Context is Stateful.
-How to combine?
-- **Hydration:** At start of Request, load Context from DB (by SessionID/UserID) into Theus.
-- **Run:** Run Theus Process.
-- **Dehydration:** At end of Request, save Context (Data Zone) back to DB.
+## 3. Stateless vs Stateful
+Web APIs are Stateless. Theus Context is Stateful.
+**Strategy: Context Hydration.**
+
+In `create_order` process:
+1.  **Read:** Load user data from DB into `ctx.domain_ctx` (if not cached).
+2.  **Process:** Logic.
+3.  **Write:** Save `ctx.domain_ctx` back to DB.
+
+Ideally, wrap the `engine.run_process` call in a DB Transaction scope to ensure Theus Commit aligns with DB Commit.
 
 ---
 **Exercise:**
-Write a simple FastAPI receiving `POST /add-product` and calling `add_product` process of Theus. Handle try/except to return appropriate HTTP error codes.
+Build a "Bank API".
+- Endpoint: `POST /transfer`.
+- Theus Process: `transfer_funds`.
+- Audit Rule: `balance` cannot be negative (Level B).
+- Try sending a request that drains account. Verify you get HTTP 400.

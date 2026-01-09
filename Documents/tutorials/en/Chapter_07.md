@@ -3,33 +3,33 @@
 Working with Lists and Dicts in a Transactional environment is where most "Gotchas" occur. This chapter helps you avoid them.
 
 ## 1. TrackedList & TrackedDict
-When you access `ctx.domain.items` (declared in `outputs`), Theus does not return a normal list. It returns `TrackedList`.
+When you access `ctx.domain_ctx.items` (declared in `outputs`), Theus does not return a normal list. It returns `TrackedList`.
 This is a "Smart Wrapper" wrapping the Shadow Copy.
 
-**Rule:** Never check `type(ctx.domain.items) == list`. Use `isinstance(..., list)`.
+**Rule:** Never check `type(ctx.domain_ctx.items) == list`. Use `isinstance(..., list)`.
 
 ## 2. The "Zombie Proxy" Hazard
 This is the most common newbie mistake.
 
 ```python
 # WRONG CODE
-my_temp = ctx.domain.items  # Save reference of TrackedList to outside variable
+my_temp = ctx.domain_ctx.items  # Save reference of TrackedList to outside variable
 # ... Process ends, Transaction Commit/Rollback ...
 
 # In another Process or next run:
-my_temp.append("Ghost") # ERROR!
+my_temp.append("Ghost") # ERROR! Reference is Stale/Detached.
 ```
 
 **Why?**
 When Transaction ends, the Shadow Copy that `my_temp` holds is either:
 - Merged into original (Commit).
 - Or destroyed (Rollback).
-`my_temp` now points to void or Stale Data. Theus v2 has mechanisms to detect and block usage of Zombie Proxies, but it's best not to create them.
+`my_temp` now points to void or Stale Data. Theus v2 (Strict Mode) actively blocks modification of stale proxies, but it's best not to create them.
 
-**Advice:** Always access directly `ctx.domain.items` when needed. Do not cache it in local variables for too long.
+**Advice:** Always access directly `ctx.domain_ctx.items` when needed. Do not cache it in local variables for too long.
 
 ## 3. FrozenList (Immutable)
-If you only `inputs=['domain.items']` (no output):
+If you only `inputs=['domain_ctx.items']` (no output):
 - You get `FrozenList`.
 - `FrozenList` still shares data with original list (to save RAM), but it blocks all Write APIs.
 - This is how Theus saves performance: No Copy needed if you only Read.

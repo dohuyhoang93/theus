@@ -1,19 +1,19 @@
 # Theus V2.2 Architecture Specification: The Iron Core (Rust Microkernel)
 
-## 1. Tầm nhìn (Vision)
-Chuyển dịch từ "Hybrid Framework" sang **"Process-Oriented Operating System"**.
-Theus v2.2 sử dụng **Rust Microkernel** để đảm bảo tính đúng đắn (Correctness), an toàn bộ nhớ (Memory Safety) và hiệu năng cực độ (Zero-Copy Heavy Zone) cho các ứng dụng AI Agent.
+## 1. Vision
+Transition from a "Hybrid Framework" to a **"Process-Oriented Operating System"**.
+Theus v2.2 utilizes a **Rust Microkernel** to ensure Correctness, Memory Safety, and Extreme Performance (Zero-Copy Heavy Zone) for AI Agent applications.
 
-## 2. Kiến trúc Tổng quan (High-Level Architecture)
+## 2. High-Level Architecture
 
 ```mermaid
 graph TD
-    UserCode[User Main / GUI] -->|Signals| RustFSM
+    UserCode[User Main / GUI] -->|Signals| PyFSM
     
-    subgraph "Layer 2: Orchestrator (Native Rust)"
-        RustFSM[Finite State Machine]
-        Flux[Flux Engine]
-        Registry[Process Registry]
+    subgraph "Layer 2: Orchestrator (Python + Rust)"
+        PyFSM[Python State Machine Manager]
+        Flux[Rust Flux Engine]
+        Registry[Rust Process Registry]
     end
     
     subgraph "Layer 1: Kernel (Theus Core)"
@@ -29,47 +29,48 @@ graph TD
         Zones[Data / Signal / Meta / Heavy]
     end
     
-    RustFSM -->|Triggers| Engine
+    PyFSM -->|Triggers| Flux
+    Flux -->|Executes Steps| Engine
     Engine -->|Mutates| Context
     Flux -->|Control Flow| Engine
 ```
 
-## 3. Các thay đổi cốt lõi so với V2.1
+## 3. Core Changes in V2.2
 
-### A. Từ Python Engine sang Rust Kernel
--   **V2.1:** `POPEngine` (Python) quản lý logic, gọi Rust module hỗ trợ.
--   **V2.2:** `theus_core::Engine` (Rust) nắm toàn quyền vòng đời. Python `TheusEngine` chỉ là wrapper mỏng.
--   **Lợi ích:** Loại bỏ hoàn toàn khả năng "bypass" từ Python (nếu bật Strict Mode).
+### A. From Python Engine to Rust Kernel
+-   **V2.1:** `POPEngine` (Python) managed logic, calling Rust modules for support.
+-   **V2.2:** `theus_core::Engine` (Rust) controls the entire lifecycle. Python `TheusEngine` is just a thin wrapper.
+-   **Benefit:** Native performance and elimination of Python-side bypasses (when Strict Mode is ON).
 
-### B. Strict Mode (Industrial Security)
--   **V2.1:** Khuyến nghị (Convention).
--   **V2.2:** Cưỡng chế (Enforcement).
-    -   **Immutable Inputs:** Input được bọc trong `FrozenDict` (Rust).
-    -   **Control Plane Guard:** Cấm dùng `sig_` làm input cho Data Process.
-    -   **Private Audit:** Cấm truy cập `_internal` attributes.
+### B. Strict Mode & "Training Mode"
+-   **V2.1:** Safety was a convention.
+-   **V2.2:** Safety is ENFORCED by default (`strict_mode=True`), but OPTIONAL for performance.
+    -   **Production (Strict=True):** Enforces Immutable Inputs, Shadow Copies, and Contract Auditing. Guaranteed Rollback.
+    -   **Training (Strict=False):** Disables the entire Transaction Layer. Zero Overhead, Native Speed, No Rollback. (New in 2.2.2).
 
-### C. Native FSM (Determinism)
--   **V2.1:** Python loop đọc YAML và gọi hàm.
--   **V2.2:** Rust State Machine nằm ngay trong Kernel.
-    -   Trạng thái chuyển đổi là Atomic.
-    -   Rollback cấp độ Workflow (Chain Rollback).
+### C. Flux Engine (Rust Orchestration)
+-   **V2.1:** Python loop read YAML and called functions.
+-   **V2.2:** The **Flux Logic** (Steps, If/Else, Loops) is moved to Rust Kernel.
+    -   **Flux Engine:** Python only hands over the config; Rust acts as the stepper.
+    -   **FSM Manager:** High-level State logic remains in Python for flexibility.
 
 ### D. Heavy Zone (AI Optimization)
--   **V2.1:** Mọi dữ liệu đều qua Transaction Log (Copy-on-Write). Gây crash với Tensor 500MB+.
--   **V2.2:** Zone đặc biệt `HEAVY` (`heavy_` prefix).
-    -   **Zero-Copy:** Ghi trực tiếp vào RAM.
-    -   **Non-Transactional:** Không Undo được (chấp nhận mất dữ liệu Heavy khi lỗi để đổi lấy tốc độ).
+-   **V2.1:** All data passed through Transaction Log (Copy-on-Write). Crashed with 500MB+ Tensors.
+-   **V2.2:** Special Zone `HEAVY` (`heavy_` prefix).
+    -   **Zero-Copy:** Writes directly to RAM, bypassing Transaction Log.
+    -   **Non-Transactional:** "Heavy" data cannot be rolled back (Trade-off: Speed > Safety for Blobs).
 
-## 4. Danh mục Thành phần (Updated Inventory)
+## 4. Component Inventory (Updated)
 
-| Thành phần | Ngôn ngữ | Chức năng (Role) | Thay đổi v2.2 |
+| Component | Language | Role | Change in v2.2 |
 | :--- | :--- | :--- | :--- |
-| **Engine** | Rust | Kernel điều phối. | Chuyển từ Python sang Rust hoàn toàn. |
-| **Transaction**| Rust | Quản lý Commit/Rollback. | Thêm logic `log_internal` conditional (bỏ qua Heavy). |
-| **Guard** | Rust | Proxy bảo vệ Context. | Thêm logic `resolve_zone` và `Strict Mode`. |
-| **FSM** | Rust | Máy trạng thái. | Thay thế `manager.py`. |
-| **Registry** | Rust | Tra cứu hàm Process. | Global Registry map string -> function ptr. |
+| **Engine** | Rust | Kernel Coordinator. | Python -> Rust Migration (Execution Layer). |
+| **Transaction**| Rust | Commit/Rollback Manager. | Added `strict_mode=False` bypass logic. |
+| **Guard** | Rust | Context Proxy/Protector. | Added `heavy_` skip logic. |
+| **Flux** | Rust | Workflow Stepper. | Replaces Python step iterator. |
+| **FSM Manager**| Python | State Machine Logic. | Remains in Python (High-level Control). |
+| **Registry** | Rust | Function Lookup. | Global Registry mapping string -> function ptr. |
 
-## 5. Lộ trình tiếp theo (Roadmap v3.0)
-1.  **Distributed Context:** Đồng bộ trạng thái giữa nhiều Node qua mạng (Raft Protocol).
-2.  **WASM Target:** Biên dịch Theus Core sang WebAssembly để chạy trên Browser (Edge AI).
+## 5. Roadmap v3.0
+1.  **Distributed Context:** Synchronize state across nodes via Raft Protocol.
+2.  **WASM Target:** Compile Theus Core to WebAssembly for Browser-based Agents (Edge AI).

@@ -13,7 +13,28 @@ permissions:
   contents: read
 
 jobs:
+  lint_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Install dependencies
+        run: |
+          pip install .
+          pip install pytest
+      - name: Run Clippy
+        run: cargo clippy -- -D warnings
+      - name: Run Rust Tests
+        run: cargo test
+      # - name: Run Python Tests
+      #   run: pytest tests/  <-- Uncomment when tests are added
+
   linux:
+    needs: lint_and_test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -37,6 +58,7 @@ jobs:
           path: dist
 
   windows:
+    needs: lint_and_test
     runs-on: windows-2022
     strategy:
       matrix:
@@ -60,6 +82,7 @@ jobs:
           path: dist
 
   macos:
+    needs: lint_and_test
     runs-on: macos-latest
     strategy:
       matrix:

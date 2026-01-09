@@ -179,6 +179,15 @@ For AI workloads (Images, Tensors) > 1MB, use `heavy_` variables.
 *   **Behavior:** Writes bypass the Transaction Log (Zero-Copy).
 *   **Trade-off:** Changes to Heavy data are **NOT** reverted on Rollback.
 
+### 🚀 High Performance Training (New in v2.2)
+For Pure Training Loops (Simulations/Games) where Transaction safety is overkill:
+```python
+engine = TheusEngine(sys_ctx, strict_mode=False)
+```
+*   **Effect:** Completely disables Rust Transaction Layer (Zero Overhead).
+*   **Performance:** Native Python execution speed.
+*   **Trade-off:** No Rollback protection.
+
 
 ### The Audit Recipe (`audit.yaml`)
 Decouple your business rules from your code.
@@ -214,9 +223,9 @@ states:
 
 ## 📚 Documentation
 
-*   **[POP Whitepaper v2.0](./Documents/POP_Whitepaper_v2.0.md):** The formal theoretical basis.
-*   **[Theus Master Class](./Documents/tutorials/en/):** 15-Chapter Zero-to-Hero Tutorial.
-*   **[AI Developer Guide](./Documents/AI_DEVELOPER_GUIDE.md):** Prompt context for LLMs.
+*   **[POP Whitepaper v2.0](https://github.com/dohuyhoang93/theus/tree/main/Documents/POP_Whitepaper_v2.0.md):** The formal theoretical basis.
+*   **[Theus Master Class](https://github.com/dohuyhoang93/theus/tree/main/Documents/tutorials/en/):** 15-Chapter Zero-to-Hero Tutorial.
+*   **[AI Developer Guide](https://github.com/dohuyhoang93/theus/tree/main/Documents/AI_DEVELOPER_GUIDE.md):** Prompt context for LLMs.
 
 ---
 

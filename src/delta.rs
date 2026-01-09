@@ -1,4 +1,8 @@
 use pyo3::prelude::*;
+use std::sync::{Mutex, OnceLock};
+use std::collections::HashSet;
+
+static LOGGED_HEAVY_PATHS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 
 #[derive(Debug)]
@@ -76,8 +80,15 @@ impl Transaction {
         if let Some(ref p) = path {
             let leaf = p.split('.').next_back().unwrap_or(p);
             if crate::zones::resolve_zone(leaf) == crate::zones::ContextZone::Heavy {
-                // Log explicitly that we're skipping copy for HEAVY zone
-                eprintln!("[Theus] HEAVY zone: skipping shadow copy for '{}'", p);
+                // Log explicitly that we're skipping copy for HEAVY zone (ONCE per path)
+                let set_mutex = LOGGED_HEAVY_PATHS.get_or_init(|| Mutex::new(HashSet::new()));
+                if let Ok(mut set) = set_mutex.lock() {
+                    if !set.contains(p) {
+                         eprintln!("[Theus] HEAVY zone: skipping shadow copy for '{}' (Logged once)", p);
+                         set.insert(p.to_string());
+                    }
+                }
+                
                 self.shadow_cache.insert(id, (original.clone_ref(py), original.clone_ref(py)));
                 return Ok(original);
             }
