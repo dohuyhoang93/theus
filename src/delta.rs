@@ -153,6 +153,11 @@ impl Transaction {
                  }
             }
         }
+        
+        // [FIX] Clean up references immediately to prevent memory leak via reference cycles
+        self.shadow_cache.clear();
+        self.log.clear();
+        
         Ok(())
     }
 
