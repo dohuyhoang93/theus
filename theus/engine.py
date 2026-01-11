@@ -122,7 +122,7 @@ class TheusEngine(RustEngine, IEngine):
 
     def execute_workflow(self, workflow_path: str, **kwargs):
         """
-        Thực thi Workflow YAML (Flux Enhanced).
+        Execute YAML Workflow (Flux Enhanced).
         """
         if workflow_path in self.workflow_cache:
             workflow_def = self.workflow_cache[workflow_path]

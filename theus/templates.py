@@ -44,7 +44,7 @@ from src.context import DemoSystemContext
 
 @process(
     inputs=[], 
-    outputs=['domain.status'],
+    outputs=['domain_ctx.status'],
     side_effects=['I/O']
 )
 def p_init(ctx: DemoSystemContext):
@@ -54,8 +54,8 @@ def p_init(ctx: DemoSystemContext):
     return "Initialized"
 
 @process(
-    inputs=['domain.status', 'domain.items', 'domain.processed_count'],
-    outputs=['domain.status', 'domain.processed_count', 'domain.items'],
+    inputs=['domain_ctx.status', 'domain_ctx.items', 'domain_ctx.processed_count'],
+    outputs=['domain_ctx.status', 'domain_ctx.processed_count', 'domain_ctx.items'],
     side_effects=['I/O']
 )
 def p_process(ctx: DemoSystemContext):
@@ -72,8 +72,8 @@ def p_process(ctx: DemoSystemContext):
     return "Processed"
 
 @process(
-    inputs=['domain.status'], 
-    outputs=['domain.status'],
+    inputs=['domain_ctx.status'], 
+    outputs=['domain_ctx.status'],
     side_effects=['I/O']
 )
 def p_finalize(ctx: DemoSystemContext):
@@ -90,7 +90,7 @@ from src.context import DemoSystemContext
 
 @process(
     inputs=[], 
-    outputs=['domain.status'], 
+    outputs=['domain_ctx.status'], 
     side_effects=['I/O'],
     errors=['ValueError']
 ) # Declared correctly
@@ -100,8 +100,8 @@ def p_crash_test(ctx: DemoSystemContext):
     raise ValueError("Simulated Process Crash!")
 
 @process(
-    inputs=['domain.processed_count'], 
-    outputs=['domain.processed_count'],
+    inputs=['domain_ctx.processed_count'], 
+    outputs=['domain_ctx.processed_count'],
     side_effects=['I/O'],
     errors=['RuntimeError']
 )
@@ -159,17 +159,144 @@ states:
     events:
        EVT_CHAIN_DONE: "IDLE"
        EVT_CHAIN_FAIL: "IDLE"
+
+# --- FLUX EXAMPLES (Advanced Logic) ---
+#   COMPLEX_STATE:
+#     entry:
+#       - flux: run
+#         steps:
+#           - "p_step1"
+#           - flux: if
+#             condition: "ctx.domain_ctx.processed_count > 50"
+#             then:
+#               - "p_step2_high_load"
+#             else:
+#               - "p_step2_normal"
+#           - flux: while
+#             condition: "len(ctx.domain_ctx.items) > 0"
+#             do:
+#               - "p_process_item"
+#     events:
+#       EVT_CHAIN_DONE: "IDLE"
+
 """
 
-TEMPLATE_AUDIT_RECIPE = """process_recipes:
+TEMPLATE_AUDIT_RECIPE = """# ================================================================
+# THEUS AUDIT RECIPE (specs/audit_recipe.yaml)
+# ================================================================
+# This file defines RULES for validating process Inputs/Outputs.
+# The Audit Layer acts as an Industrial QA Gate.
+#
+# --- SEVERITY LEVELS ---
+# S (Shutdown)  : Critical. Process halts immediately. System may restart.
+# A (Alert)     : Severe. Process fails, workflow stops. Human review needed.
+# B (Block)     : Moderate. Transaction rolls back, but workflow can continue.
+# C (Caution)   : Minor. Logged as warning. No interruption.
+# I (Info)      : Purely informational. For monitoring/metrics.
+#
+# --- SUPPORTED CONDITIONS (Rust Core) ---
+# min      : Value >= limit (numeric)
+# max      : Value <= limit (numeric)
+# eq       : Value == string (string comparison)
+# neq      : Value != string (string comparison)
+# min_len  : len(value) >= limit (for list/string)
+# max_len  : len(value) <= limit (for list/string)
+#
+# --- DUAL THRESHOLD MECHANISM ---
+# min_threshold : Counter value to START issuing warnings (Yellow Zone).
+# max_threshold : Counter value to TRIGGER the action per Level (Red Zone).
+# reset_on_success: If true, counter resets to 0 after a successful check.
+#
+# Example: min_threshold: 2, max_threshold: 5
+#   - 0-1 violations: Silent.
+#   - 2-4 violations: Warning logged.
+#   - 5+  violations: Action triggered (e.g., Block for Level B).
+# ================================================================
+
+process_recipes:
+
+  # --- BASIC EXAMPLE (Active) ---
   p_process:
+    inputs:
+      - field: "domain_ctx.status"
+        eq: "READY"               # Must be exactly "READY" to proceed
+        level: "B"                # Block if status is wrong
+        message: "Process requires status to be READY."
+    outputs:
+      - field: "domain_ctx.processed_count"
+        min: 0                    # Output must be non-negative
+        level: "C"                # Just a warning
+
+  p_unsafe_write:
+    # No audit rules needed here. ContextGuard catches illegal writes first.
+    # This placeholder exists purely for documentation purposes.
     inputs: []
     outputs: []
 
-  p_unsafe_write:
-    # No rules needed, ContextGuard catches it before Audit runs.
-    # But we define it to act as policy placeholder.
-    inputs: []
+  # --- ADVANCED EXAMPLES (Commented) ---
+
+  # Example 1: Dual Threshold with Accumulating Counter
+  # -------------------------------------------------------
+  # p_login_attempt:
+  #   inputs:
+  #     - field: "domain_ctx.user_id"
+  #       min_len: 3              # User ID must be at least 3 chars
+  #       level: "B"
+  #   outputs:
+  #     - field: "domain_ctx.failed_attempts"
+  #       max: 5                  # Max 5 failed attempts
+  #       level: "A"              # ALERT severity
+  #       min_threshold: 3        # Start warning at 3 failures
+  #       max_threshold: 5        # Trigger Alert at 5 failures
+  #       reset_on_success: false # DO NOT reset on success (accumulate!)
+  #       message: "Too many failed login attempts. Account locked."
+
+  # Example 2: Inheritance (Reuse common rules)
+  # -------------------------------------------------------
+  # _base_financial:             # Prefix '_' for abstract/base template
+  #   inputs:
+  #     - field: "domain_ctx.amount"
+  #       min: 0.01
+  #       level: "B"
+  #   outputs:
+  #     - field: "domain_ctx.balance"
+  #       min: 0
+  #       level: "A"
+  #       message: "Balance cannot go negative!"
+  #
+  # p_transfer:
+  #   inherits: "_base_financial"  # Inherits all input/output rules
+  #   side_effects: ["database", "notification"]
+  #   errors: ["InsufficientFundsError", "TransferLimitExceeded"]
+
+  # Example 3: Multiple Conditions on Same Field (Range Check)
+  # -------------------------------------------------------
+  # p_set_age:
+  #   inputs:
+  #     - field: "domain_ctx.age"
+  #       min: 0                  # Rule 1: Must be >= 0
+  #       max: 120                # Rule 2: Must be <= 120
+  #       level: "B"              # Both share Level B
+  #       message: "Age must be between 0 and 120."
+
+  # Example 4: String Length Validation
+  # -------------------------------------------------------
+  # p_set_username:
+  #   inputs:
+  #     - field: "domain_ctx.username"
+  #       min_len: 3              # At least 3 characters
+  #       max_len: 20             # At most 20 characters
+  #       level: "B"
+  #       message: "Username must be 3-20 characters."
+
+  # Example 5: Not Equal Check (Blacklist)
+  # -------------------------------------------------------
+  # p_set_status:
+  #   inputs:
+  #     - field: "domain_ctx.status"
+  #       neq: "LOCKED"           # Status must NOT be "LOCKED"
+  #       level: "A"
+  #       message: "Cannot proceed while status is LOCKED."
 """
 
 TEMPLATE_MAIN = """# === THEUS V2.1 SHOWCASE DEMO ===
@@ -230,7 +357,7 @@ def orchestrator_loop(manager, bus, stop_event):
 
 def main():
     basedir = os.path.dirname(os.path.abspath(__file__))
-    workflow_path = os.path.join(basedir, "specs", "workflow.yaml")
+    workflow_path = os.path.join(basedir, "workflows", "workflow.yaml")
     audit_path = os.path.join(basedir, "specs", "audit_recipe.yaml")
 
     print_header()
@@ -248,16 +375,9 @@ def main():
     print(f"2. Initializing TheusEngine...")
     engine = TheusEngine(sys_ctx, strict_mode=True, audit_recipe=recipe)
     
-    # Register Processes
-    from src.processes.chain import p_init, p_process, p_finalize
-    from src.processes.stress import p_unsafe_write, p_crash_test, p_transaction_test
-    
-    engine.register_process("p_init", p_init)
-    engine.register_process("p_process", p_process)
-    engine.register_process("p_finalize", p_finalize)
-    engine.register_process("p_unsafe_write", p_unsafe_write)
-    engine.register_process("p_crash_test", p_crash_test)
-    engine.register_process("p_transaction_test", p_transaction_test)
+    # Auto-discover and register all @process functions
+    processes_path = os.path.join(basedir, "src", "processes")
+    engine.scan_and_register(processes_path)
     
     # Orchestrator
     scheduler = ThreadExecutor(max_workers=2)

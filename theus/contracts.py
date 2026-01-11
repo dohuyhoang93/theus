@@ -16,7 +16,7 @@ class ProcessContract:
 
 def process(inputs: List[str], outputs: List[str], side_effects: List[str] = None, errors: List[str] = None):
     """
-    Decorator để định nghĩa một POP Process với I/O Contract rõ ràng.
+    Decorator to define a POP Process with explicit I/O Contract.
     """
     def decorator(func: Callable):
         func._pop_contract = ProcessContract(inputs, outputs, side_effects, errors)

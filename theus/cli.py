@@ -40,7 +40,7 @@ def init_project(project_name: str, target_dir: Path):
         "src/processes/__init__.py": "",
         "src/processes/chain.py": TEMPLATE_PROCESS_CHAIN,
         "src/processes/stress.py": TEMPLATE_PROCESS_STRESS,
-        "specs/workflow.yaml": TEMPLATE_WORKFLOW,
+        "workflows/workflow.yaml": TEMPLATE_WORKFLOW,
         "specs/context_schema.yaml": "# Define your Data Contract here\n",
         "specs/audit_recipe.yaml": TEMPLATE_AUDIT_RECIPE
     }
