@@ -1,0 +1,56 @@
+name: "Hybrid Industrial Workflow"
+description: "Demonstrates FSM + Linear Chains"
+
+# FSM Definition
+states:
+  IDLE:
+    events: 
+      CMD_START: "PROCESSING" # External Start Signal
+      CMD_HACK: "TEST_HACK"   # Security Test
+      CMD_CRASH: "TEST_CRASH" # Resilience Test
+      CMD_ROLLBACK: "TEST_TRANSACTION" # Transaction Test
+
+  PROCESSING:
+    entry: ["p_init", "p_process", "p_finalize"] # Linear Chain
+    events:
+       EVT_CHAIN_DONE: "IDLE" # Auto-return when chain finishes
+       EVT_CHAIN_FAIL: "IDLE" # Fallback on error
+       CMD_RESET: "IDLE"
+
+  TEST_HACK:
+    entry: ["p_unsafe_write"]
+    events:
+       EVT_CHAIN_DONE: "IDLE"
+       EVT_CHAIN_FAIL: "IDLE" # Return even if failed
+
+  TEST_TRANSACTION:
+    entry: ["p_transaction_test"]
+    events:
+       EVT_CHAIN_DONE: "IDLE"
+       EVT_CHAIN_FAIL: "IDLE"
+
+  TEST_CRASH:
+    entry: ["p_crash_test"]
+    events:
+       EVT_CHAIN_DONE: "IDLE"
+       EVT_CHAIN_FAIL: "IDLE"
+
+# --- FLUX EXAMPLES (Advanced Logic) ---
+#   COMPLEX_STATE:
+#     entry:
+#       - flux: run
+#         steps:
+#           - "p_step1"
+#           - flux: if
+#             condition: "ctx.domain_ctx.processed_count > 50"
+#             then:
+#               - "p_step2_high_load"
+#             else:
+#               - "p_step2_normal"
+#           - flux: while
+#             condition: "len(ctx.domain_ctx.items) > 0"
+#             do:
+#               - "p_process_item"
+#     events:
+#       EVT_CHAIN_DONE: "IDLE"
+
