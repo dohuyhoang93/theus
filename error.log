@@ -1,0 +1,189 @@
+    Checking theus_core v2.2.5 (C:\Users\dohoang\projects\EmotionAgent\theus_framework)
+warning: unused import: `PyTypeError`
+ --> src\guards.rs:2:43
+  |
+2 | use pyo3::exceptions::{PyPermissionError, PyTypeError};
+  |                                           ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+  --> src\engine.rs:93:28
+   |
+93 |         let guard_struct = ContextGuard::new_internal(
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+97 |             tx.as_ref().map(|t| t.clone_ref(py)),
+   |             ------------------------------------ argument #4 of type `std::string::String` is missing
+   |
+note: associated function defined here
+  --> src\guards.rs:23:12
+   |
+23 |     pub fn new_internal(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, path_prefix: String, tx: Option<Py<Transaction>>, is...
+   |            ^^^^^^^^^^^^                                                              -------------------
+help: provide the argument
+   |
+93 ~         let guard_struct = ContextGuard::new_internal(
+94 +             self.ctx.clone_ref(py),
+95 +             inputs,
+96 +             outputs,
+97 +             /* std::string::String */,
+98 +             tx.as_ref().map(|t| t.clone_ref(py)),
+99 +             self.strict_mode,
+100+             false,
+101~         )?;
+   |
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> src\engine.rs:139:38
+    |
+139 |             let audit_guard_struct = ContextGuard::new_internal(
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+143 |                 tx.as_ref().map(|t| t.clone_ref(py)),
+    |                 ------------------------------------ argument #4 of type `std::string::String` is missing
+    |
+note: associated function defined here
+   --> src\guards.rs:23:12
+    |
+ 23 |     pub fn new_internal(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, path_prefix: String, tx: Option<Py<Transaction>>, is...
+    |            ^^^^^^^^^^^^                                                              -------------------
+help: provide the argument
+    |
+139 ~             let audit_guard_struct = ContextGuard::new_internal(
+140 +                 self.ctx.clone_ref(py),
+141 +                 vec![],
+142 +                 vec![],
+143 +                 /* std::string::String */,
+144 +                 tx.as_ref().map(|t| t.clone_ref(py)),
+145 +                 self.strict_mode,
+146 +                 true,
+147 ~             )?;
+    |
+
+error[E0599]: the method `clone` exists for enum `std::option::Option<pyo3::Py<Transaction>>`, but its trait bounds were not satisfied
+    --> src\guards.rs:92:25
+     |
+  92 |                 self.tx.clone()
+     |                         ^^^^^ method cannot be called on `std::option::Option<pyo3::Py<Transaction>>` due to unsatisfied trait bounds
+     |
+    ::: C:\Users\dohoang\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\core\src\option.rs:594:1
+     |
+ 594 | pub enum Option<T> {
+     | ------------------ doesn't satisfy `std::option::Option<pyo3::Py<Transaction>>: Clone`
+     |
+    ::: C:\Users\dohoang\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-0.23.5\src\instance.rs:1069:1
+     |
+1069 | pub struct Py<T>(NonNull<ffi::PyObject>, PhantomData<T>);
+     | ---------------- doesn't satisfy `pyo3::Py<Transaction>: Clone`
+     |
+     = note: the following trait bounds were not satisfied:
+             `pyo3::Py<Transaction>: Clone`
+             which is required by `std::option::Option<pyo3::Py<Transaction>>: Clone`
+
+error[E0277]: `&PyTuple` cannot be converted to a Python object
+   --> src\guards.rs:300:35
+    |
+300 |         self.target.bind(py).call(args, kwargs).map(|v| v.unbind())
+    |                              ---- ^^^^ the trait `IntoPyObject<'_>` is not implemented for `&PyTuple`
+    |                              |
+    |                              required by a bound introduced by this call
+    |
+    = note: `IntoPyObject` is automatically implemented by the `#[pyclass]` macro
+    = note: if you do not wish to have a corresponding Python type, implement it manually
+    = note: if you do not own `&PyTuple` you can perform a manual conversion to one of the types in `pyo3::types::*`
+    = help: the following other types implement trait `IntoPyObject<'py>`:
+              &&'a T
+              &&OsStr
+              &&Path
+              &&str
+              &'a (T0, T1)
+              &'a (T0, T1, T2)
+              &'a (T0, T1, T2, T3)
+              &'a (T0, T1, T2, T3, T4)
+            and 149 others
+note: required by a bound in `pyo3::types::PyAnyMethods::call`
+   --> C:\Users\dohoang\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-0.23.5\src\types\any.rs:439:12
+    |
+437 |     fn call<A>(&self, args: A, kwargs: Option<&Bound<'py, PyDict>>) -> PyResult<Bound<'py, PyAny>>
+    |        ---- required by a bound in this associated function
+438 |     where
+439 |         A: IntoPyObject<'py, Target = PyTuple>;
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `PyAnyMethods::call`
+
+error[E0308]: mismatched types
+   --> src\guards.rs:300:41
+    |
+300 |         self.target.bind(py).call(args, kwargs).map(|v| v.unbind())
+    |                              ----       ^^^^^^ expected `Option<&Bound<'_, PyDict>>`, found `Option<&PyDict>`
+    |                              |
+    |                              arguments to this method are incorrect
+    |
+    = note: expected enum `std::option::Option<&pyo3::Bound<'_, PyDict>>`
+               found enum `std::option::Option<&PyDict>`
+note: method defined here
+   --> C:\Users\dohoang\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-0.23.5\src\types\any.rs:437:8
+    |
+437 |     fn call<A>(&self, args: A, kwargs: Option<&Bound<'py, PyDict>>) -> PyResult<Bound<'py, PyAny>>
+    |        ^^^^
+
+error[E0277]: the trait bound `&PyTuple: PyFunctionArgument<'_, '_>` is not satisfied
+   --> src\guards.rs:299:42
+    |
+299 |     fn __call__(&self, py: Python, args: &pyo3::types::PyTuple, kwargs: Option<&pyo3::types::PyDict>) -> PyResult<PyObject> {
+    |                                          ^ the trait `PyClass` is not implemented for `&PyTuple`
+    |
+    = help: the following other types implement trait `PyClass`:
+              ContextGuard
+              ContextZone
+              DeltaEntry
+              Engine
+              FrozenDict
+              FrozenList
+              StateMachine
+              TheusTensorGuard
+            and 3 others
+    = note: required for `&PyTuple` to implement `FromPyObject<'_>`
+    = note: required for `&PyTuple` to implement `FromPyObjectBound<'_, '_>`
+    = note: required for `&PyTuple` to implement `PyFunctionArgument<'_, '_>`
+note: required by a bound in `extract_argument`
+   --> C:\Users\dohoang\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-0.23.5\src\impl_\extract_argument.rs:119:8
+    |
+113 | pub fn extract_argument<'a, 'py, T>(
+    |        ---------------- required by a bound in this function
+...
+119 |     T: PyFunctionArgument<'a, 'py>,
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `extract_argument`
+
+error[E0277]: the trait bound `&PyDict: PyFunctionArgument<'_, '_>` is not satisfied
+   --> src\guards.rs:299:73
+    |
+299 |     fn __call__(&self, py: Python, args: &pyo3::types::PyTuple, kwargs: Option<&pyo3::types::PyDict>) -> PyResult<PyObject> {
+    |                                                                         ^^^^^^ the trait `PyClass` is not implemented for `&PyDict`
+    |
+    = help: the following other types implement trait `PyClass`:
+              ContextGuard
+              ContextZone
+              DeltaEntry
+              Engine
+              FrozenDict
+              FrozenList
+              StateMachine
+              TheusTensorGuard
+            and 3 others
+    = note: required for `&PyDict` to implement `FromPyObject<'_>`
+    = note: required for `&PyDict` to implement `FromPyObjectBound<'_, '_>`
+    = note: required for `&PyDict` to implement `PyFunctionArgument<'_, '_>`
+note: required by a bound in `extract_optional_argument`
+   --> C:\Users\dohoang\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pyo3-0.23.5\src\impl_\extract_argument.rs:137:8
+    |
+130 | pub fn extract_optional_argument<'a, 'py, T>(
+    |        ------------------------- required by a bound in this function
+...
+137 |     T: PyFunctionArgument<'a, 'py>,
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `extract_optional_argument`
+
+Some errors have detailed explanations: E0061, E0277, E0308, E0599.
+For more information about an error, try `rustc --explain E0061`.
+warning: `theus_core` (lib) generated 1 warning
+error: could not compile `theus_core` (lib) due to 7 previous errors; 1 warning emitted

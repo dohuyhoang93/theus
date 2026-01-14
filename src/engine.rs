@@ -94,6 +94,7 @@ impl Engine {
             self.ctx.clone_ref(py), 
             inputs, 
             outputs, 
+            "".to_string(),
             tx.as_ref().map(|t| t.clone_ref(py)),
             false, // Process Guard is NOT admin
             self.strict_mode,
@@ -140,6 +141,7 @@ impl Engine {
                 self.ctx.clone_ref(py),
                 vec![], // inputs ignored in admin
                 vec![], // outputs ignored in admin
+                "".to_string(),
                 tx.as_ref().map(|t| t.clone_ref(py)),
                 true, // IS ADMIN
                 self.strict_mode,

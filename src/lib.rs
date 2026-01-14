@@ -5,6 +5,7 @@ mod delta;
 mod audit;
 mod engine;
 mod guards;
+mod tensor_guard;
 mod zones;
 mod structures;
 mod registry;
@@ -15,7 +16,9 @@ mod fsm;
 fn theus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<engine::Engine>()?;
     m.add_class::<delta::Transaction>()?;
+    m.add_class::<delta::DeltaEntry>()?;
     m.add_class::<guards::ContextGuard>()?; 
+    m.add_class::<tensor_guard::TheusTensorGuard>()?; // Tier 2 Guard
     m.add_class::<zones::ContextZone>()?;
     m.add_class::<structures::TrackedList>()?;
     m.add_class::<structures::TrackedDict>()?;
@@ -24,3 +27,4 @@ fn theus_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<fsm::StateMachine>()?;
     Ok(())
 }
+

@@ -62,7 +62,7 @@ def main():
     print_header()
     sys_ctx = DemoSystemContext()
     
-    print(f"1. Loading Audit Policy...")
+    print("1. Loading Audit Policy...")
     recipe = ConfigFactory.load_recipe(audit_path)
     
     # 2. Start (Theus V2)
@@ -71,7 +71,7 @@ def main():
     # In production, this might be an Infinite Loop or a Web Scraper Trigger.
     
     # Init Engine
-    print(f"2. Initializing TheusEngine...")
+    print("2. Initializing TheusEngine...")
     engine = TheusEngine(sys_ctx, strict_mode=True, audit_recipe=recipe)
     
     # Auto-discover and register all @process functions

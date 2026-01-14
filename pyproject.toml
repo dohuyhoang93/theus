@@ -4,23 +4,27 @@ build-backend = "maturin"
 
 [project]
 name = "theus"
-version = "2.2.4"
-description = "Theus Agentic Framework - Industrial Grade Process-Oriented Programming (POP)"
+version = "2.2.6"
+description = "Reliable, Rust-Powered Agentic AI Framework with Transactional Memory."
 authors = [{name = "Do Huy Hoang", email = "dohuyhoangvn93@gmail.com"}]
 readme = "README.md"
-requires-python = ">=3.8"
-keywords = ["ai", "agent", "pop", "process-oriented", "transactional", "state-management", "microkernel"]
+requires-python = ">=3.9"
+keywords = ["ai", "agents", "rust", "memory", "transactional", "safety", "pop", "framework"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Monitoring",
 ]
 dependencies = [
     "pydantic>=2.0",

@@ -178,14 +178,14 @@ def inspect_process(process_name: str, target_dir: Path = Path.cwd()):
         for r in recipe.output_rules:
             print(f"   - {r.target_field}: {r.condition} {r.value} [Level: {r.level}]")
 
-        print(f"\\n⚡ SIDE EFFECTS:")
+        print("\\n⚡ SIDE EFFECTS:")
         if recipe.side_effects:
             for s in recipe.side_effects:
                 print(f"   - {s}")
         else:
             print("   (None declared)")
 
-        print(f"\\n🚫 EXPECTED ERRORS:")
+        print("\\n🚫 EXPECTED ERRORS:")
         if recipe.errors:
             for e in recipe.errors:
                 print(f"   - {e}")

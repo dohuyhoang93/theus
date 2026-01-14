@@ -54,21 +54,19 @@ class TestTrackedStructures(unittest.TestCase):
 
     def test_list_compliance(self):
         shadow = [3, 1, 2]
-        l = TrackedList(shadow, self.tx, "root")
-        
-        # Test sort
-        l.sort()
-        self.assertEqual(list(l), [1, 2, 3])
+        tracked_list = TrackedList(shadow, self.tx, "root")
+        tracked_list.sort()
+        self.assertEqual(list(tracked_list), [1, 2, 3])
         self.assertEqual(self.tx.delta_log[-1].op, "SORT")
         
         # Test reverse
-        l.reverse()
-        self.assertEqual(list(l), [3, 2, 1])
+        tracked_list.reverse()
+        self.assertEqual(list(tracked_list), [3, 2, 1])
         self.assertEqual(self.tx.delta_log[-1].op, "REVERSE")
         
         # Test clear
-        l.clear()
-        self.assertEqual(len(l), 0)
+        tracked_list.clear()
+        self.assertEqual(len(tracked_list), 0)
         self.assertEqual(self.tx.delta_log[-1].op, "CLEAR")
 
 if __name__ == '__main__':
