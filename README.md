@@ -10,10 +10,10 @@
 
 ## 🧭 **Where do I start?**
 
-Theus is vast. Use our **[Interactive Documentation Map](https://github.com/dohuyhoang93/theus/tree/main/Documents/00_Start_Here_Map.md)** to find your path:
-*   🚀 **I want to build an Agent now:** [Go to Quickstart](https://github.com/dohuyhoang93/theus/tree/main/Documents/AI_DEVELOPER_GUIDE.md)
-*   🏗️ **I want to check architecture:** [Go to Specs](https://github.dohuyhoang93/theus/tree/main/Documents/Architecture/theus_v2_2_architecture.md)
-*   🎓 **I want to learn from scratch:** [Go to Tutorials](https://github.com/dohuyhoang93/theus/tree/main/Documents/tutorials/en/Chapter_01.md)
+Theus is vast. Use our **[Interactive Documentation Map](https://github.com/dohuyhoang93/theus/blob/main/Documents/00_Start_Here_Map.md)** to find your path:
+*   🚀 **I want to build an Agent now:** [Go to Quickstart](https://github.com/dohuyhoang93/theus/blob/main/Documents/AI_DEVELOPER_GUIDE.md)
+*   🏗️ **I want to check architecture:** [Go to Specs](https://github.com/dohuyhoang93/theus/blob/main/Documents/Architecture/theus_v2_2_architecture.md)
+*   🎓 **I want to learn from scratch:** [Go to Tutorials](https://github.com/dohuyhoang93/theus/blob/main/Documents/tutorials/en/Chapter_01.md)
 
 ---
 
@@ -237,9 +237,9 @@ states:
 
 ## 📚 Documentation
 
-*   **[POP Whitepaper v2.0](https://github.com/dohuyhoang93/theus/tree/main/Documents/POP_Whitepaper_v2.0.md):** The formal theoretical basis.
+*   **[POP Whitepaper v2.0](https://github.com/dohuyhoang93/theus/blob/main/Documents/POP_Whitepaper_v2.0.md):** The formal theoretical basis.
 *   **[Theus Master Class](https://github.com/dohuyhoang93/theus/tree/main/Documents/tutorials/en/):** 15-Chapter Zero-to-Hero Tutorial.
-*   **[AI Developer Guide](https://github.com/dohuyhoang93/theus/tree/main/Documents/AI_DEVELOPER_GUIDE.md):** Prompt context for LLMs.
+*   **[AI Developer Guide](https://github.com/dohuyhoang93/theus/blob/main/Documents/AI_DEVELOPER_GUIDE.md):** Prompt context for LLMs.
 
 ---
 

@@ -43,9 +43,39 @@ states:
       EVT_CHAIN_DONE: "IDLE"
 ```
 
+### 2.1. Advanced Flux Control (The "Logic-Flow Separation" Magic)
+Beyond simple lists, Theus supports full **Control Flow** inside YAML.
+
+**Note:** You can define a process step in two ways:
+1.  **Shorthand:** `- "p_name"` (Simple)
+2.  **Explicit:** `- process: "p_name"` (Clearer for complex files)
+
+```yaml
+states:
+  PROCESSING:
+    entry:
+      # 1. Explicit Step
+      - process: "p_validate_user"
+      
+      # 2. Conditional Branching
+      - flux: "if"
+        condition: "ctx.domain.age > 18"
+        then:
+          - "p_approve_loan"  # Shorthand usage
+          - "p_send_email"
+        else:
+          - "p_reject_loan"
+          
+      # 3. Dynamic Loop
+      - flux: "while"
+        condition: "ctx.domain.items_left > 0"
+        do:
+          - "p_process_next_item"
 ```
 
-### 📐 Visual Workflow
+> **Why do this?** So you can change business rules (e.g., "Age limit is now 21") by editing a Text File, without redeploying Code.
+
+### 2.2. Visual Workflow
 
 ```text
        (Start)
