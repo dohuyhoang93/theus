@@ -15,6 +15,8 @@ Traditional models (OOP, FP) lack a crucial piece: **Runtime Architectural Contr
     - **Context:** A "static" data repository, strictly zoned.
     - **Process:** "Stateless" functions that can only touch the Context via a strict **Contract**.
 
+> **🧠 Philosophy Note:** This separation stems from Principle 1.1 of the [POP Manifesto](../../POP_Manifesto.md): **"Data is Inert, Process is Logic."** By stripping data of behavior (no methods on objects), we eliminate hidden side effects.
+
 ## 3. Key Components of Theus v2.2
 1.  **Rust Engine (Theus Core):** The coordination brain, integrating the Transaction Manager and Lock Manager with zero-overhead.
 2.  **Hybrid Context:** Intelligent storage that automatically classifies Data, Signals, and **Heavy Assets** (Tensors/Blobs).

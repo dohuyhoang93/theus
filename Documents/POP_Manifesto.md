@@ -1,303 +1,294 @@
-Dưới đây là **POP Manifesto – Process Oriented Programming Manifesto**
+# 🟦 **POP MANIFESTO — The Process-Oriented Programming Manifesto**
 
-Tuyên ngôn này thể hiện đầy đủ:
+> [🇻🇳 Đọc bản Tiếng Việt (Vietnamese Version)](./POP_Manifesto_VN.md) 
 
-* triết lý tư duy
-* triết lý thiết kế
-* triết lý kiến trúc
-* nguyên tắc vận hành
-* lời cam kết của người phát triển
-  và **chức năng cốt lõi phân biệt POP với OOP, FP, Clean Architecture**.
+This manifesto fully embodies:
 
----
-
-# 🟦 **POP MANIFESTO — TUYÊN NGÔN CHÍNH THỨC CỦA PROCESS-ORIENTED PROGRAMMING**
-
-## 🌐 **Lời mở đầu**
-
-Process-Oriented Programming (POP) là một triết lý lập trình đặt **quy trình** (process) làm trung tâm thay cho đối tượng, hàm thuần hay module.
-
-POP không nhằm cạnh tranh với OOP hay FP, mà nhằm cung cấp một con đường **tường minh, thực dụng và dễ bảo trì** cho mọi hệ thống – từ đơn giản đến phức tạp – bằng cách đưa **logic vận hành của hệ thống** về dạng **các bước tuần tự, dễ đọc, dễ kiểm soát, dễ giải thích và dễ chứng minh**.
-
-POP là sự kết hợp giữa **cách tư duy của con người**, **một mô hình toán-tư duy giản dị**, và **kỷ luật thiết kế kỹ thuật**.
-
-POP nói rằng:
-
-> “Mọi hệ thống đều là dòng chảy của dữ liệu đi qua chuỗi các quy trình được định nghĩa rõ ràng. Hãy mô hình hóa hệ thống bằng chính dòng chảy đó.”
+*   The philosophy of thinking
+*   The philosophy of design
+*   The philosophy of architecture
+*   The principles of operation
+*   The developer's commitment
+    and **the core functions distinguishing POP from OOP, FP, and Clean Architecture**.
 
 ---
 
-## 🟦 **1. Triết lý cốt lõi**
+## 🌐 **Preface**
 
-### **1.1. Lập trình là mô hình hóa dòng chảy**
+Process-Oriented Programming (POP) is a programming philosophy that places the **Process** at the center, replacing objects, pure functions, or modules.
 
-Mọi phần mềm – từ robot, PLC, AI, backend – đều là **chuỗi hành động có chủ đích**.
+POP does not aim to compete with OOP or FP, but to provide a **transparent, pragmatic, and maintainable** path for every system – from simple to complex – by modeling the **operational logic of the system** as **sequential steps that are easy to read, control, explain, and prove**.
 
-Process là hình thức tự nhiên nhất để mô tả hành động.
+POP is the fusion of **human reasoning**, **a simple mathematical-mental model**, and **engineering design discipline**.
 
-POP coi hệ thống như một **dòng chảy**:
+POP states:
+
+> "Every system is a flow of data passing through a sequence of well-defined processes. Model the system using that very flow."
+
+---
+
+## 🟦 **1. Core Philosophy**
+
+### **1.1. Programming is Modeling the Flow**
+
+Every piece of software – from robots, PLCs, AI, to backends – is a **sequence of intentional actions**.
+
+A **Process** is the most natural form to describe an action.
+
+POP views the system as a **flow**:
 
 ```
-Dữ liệu vào → Biến đổi → Kiểm tra → Quyết định → Hành động → Dữ liệu ra
+Input Data → Transform → Check → Decide → Act → Output Data
 ```
 
-Tất cả đều được mô hình hóa thành **các bước rõ ràng có tên**, không ẩn logic trong lớp, không nhét hành vi vào dữ liệu, không nhúng điều kiện vào cấu trúc mơ hồ.
+Everything is modeled into **clearly named steps**, not hiding logic inside classes, not stuffing behavior into data, and not embedding conditions into ambiguous structures.
 
 ---
 
-### **1.2. Sự tường minh là giá trị tối thượng**
+### **1.2. Transparency is the Ultimate Value**
 
-> “Nếu không thể giải thích, thì không được phép triển khai.”
+> "If it cannot be explained, it is not allowed to be implemented."
 
-POP đặt **tính giải thích** lên hàng đầu:
+POP places **explainability** above all else:
 
-* Mỗi process phải được mô tả bằng **một câu đơn có chủ ngữ – vị ngữ – mục tiêu**.
-* Mỗi sự thay đổi trong context phải có lý do domain rõ ràng.
-* Mỗi bước trong workflow phải có thể đọc được như mô tả công việc.
+*   Each process must be describable by **a single sentence with Subject – Verb – Object**.
+*   Every change in the context must have a clear domain reason.
+*   Every step in the workflow must be readable like a job description.
 
-Không chấp nhận:
+NOT accepted:
 
-* logic bị chôn dưới lớp abstraction mơ hồ,
-* mô hình dữ liệu bị đẩy vào kiểu "đa năng",
-* hành vi bí mật nằm trong object hoặc callback ẩn.
+*   Logic buried under vague abstraction layers.
+*   Data models pushed into "god object" types.
+*   Secret behaviors hidden in objects or callbacks.
 
-Minh bạch là an toàn.
-Minh bạch là dễ bảo trì.
-Minh bạch là tính người trong phần mềm.
-
----
-
-### **1.3. Tránh nhị nguyên cực đoan – embrace phi-nhị-nguyên**
-
-POP không theo đuổi:
-
-* “pure function hay nothing”
-* “context bất biến hay hỏng hoàn toàn”
-* “một bước – một dòng code”
-* “workflow chỉ được linear”
-
-POP khẳng định:
-
-> “Thế giới không phải nhị nguyên, phần mềm cũng vậy.”
-
-POP cho phép:
-
-* mutation có kiểm soát
-* branching trong process nếu minh bạch
-* process lớn nếu là một khối ngữ nghĩa
-* parallel step nếu dễ giải thích
-* workflow động nếu có quy tắc an toàn
-
-Điều quan trọng không phải kích thước hay purity.
-Quan trọng là **ngữ nghĩa chuẩn xác và khả năng kiểm chứng**.
+Transparency is Safety.
+Transparency is Maintainability.
+Transparency is Humanity in Software.
 
 ---
 
-### **1.4. Dữ liệu không mang hành vi – Context không được “biết làm gì”**
+### **1.3. Avoid Binary Extremes – Embrace Non-Duality**
 
-Context là:
+POP does not pursue:
 
-* dòng dữ liệu đi qua workflow
-* trung tâm lưu trạng thái của domain
-* “trạng thái của thế giới mô phỏng”
+*   "Pure function or nothing"
+*   "Immutable context or totally broken"
+*   "One step – one line of code"
+*   "Workflows must be linear"
 
-Nhưng context **không được chứa hành vi**, không được chứa logic, không được tự ý biến đổi.
+POP asserts:
 
-Context là “dữ liệu câm”, nhưng không phải dữ liệu ngu.
-Nó là **hiện trạng hệ thống**, không phải nơi giấu hành động.
+> "The world is not binary, and neither is software."
+
+POP allows:
+
+*   Controlled mutation.
+*   Branching within a process if transparent.
+*   Large processes if they represent a semantic block.
+*   Parallel steps if easy to explain.
+*   Dynamic workflows if safety rules exist.
+
+What matters is not size or purity.
+What matters is **precise semantics and verifiability**.
 
 ---
 
-## 🟦 **2. Triết lý thiết kế**
+### **1.4. Data Has No Behavior – Context Must Not "Know How To Do"**
 
-### **2.1. Process là đơn vị thiết kế nhỏ nhất**
+Context is:
 
-Không class, không object, không method ẩn logic.
-POP dùng **process** làm đơn vị cơ bản:
+*   The data flow passing through the workflow.
+*   The center for storing domain state.
+*   The "state of the simulated world".
+
+But Context **must not contain behavior**, must not contain logic, and must not self-mutate.
+
+Context is "inert data", but not stupid data.
+It is the **current state of the system**, not a place to hide actions.
+
+---
+
+## 🟦 **2. Design Philosophy**
+
+### **2.1. Process is the Smallest Unit of Design**
+
+No classes, no objects, no methods hiding logic.
+POP uses the **Process** as the fundamental unit:
 
 ```
-process(context) → context_moi
+process(context) → new_context
 ```
 
-Process phải:
+A Process must:
 
-* làm **một việc có nghĩa**
-* không phá domain
-* có đầu vào/đầu ra rõ ràng (đọc/ghi context)
-* kiểm tra được bằng unit test
-* dễ mô tả bằng lời
-
----
-
-### **2.2. Workflow là nơi kiến trúc được nhìn thấy**
-
-Workflow thể hiện:
-
-* luồng công việc
-* rẽ nhánh
-* song song
-* gộp kết quả
-* lặp
-* thử-thất bại (retry, fallback, compensation)
-
-Workflow là **bản đồ hệ thống**.
-Ai cũng đọc được, không cần biết lập trình.
+*   Do **one meaningful thing**.
+*   Not break the domain.
+*   Have clear inputs/outputs (read/write context).
+*   Be testable via unit tests.
+*   Be easily describable in words.
 
 ---
 
-### **2.3. Phân rã process theo ngữ nghĩa, không theo số dòng**
+### **2.2. Workflow is Where Architecture is Visible**
 
-Quy tắc:
+The Workflow represents:
 
-* Một process chứa **một ý nghĩa**, có thể gồm nhiều bước nhỏ.
-* Không ép process phải cực nhỏ.
-* Không cho process quá lớn đến mức khó giải thích.
+*   The flow of work.
+*   Branching.
+*   Parallelism.
+*   Result aggregation.
+*   Loops.
+*   Trial-and-failure (retry, fallback, compensation).
 
----
-
-### **2.4. Tái sử dụng là phụ, tường minh là chính**
-
-POP chấp nhận code lặp nếu:
-
-* giúp tường minh
-* giảm coupling
-* giảm abstraction tầng tầng lớp lớp
-
-POP phản đối “generic hóa quá đà”, vì generic thường che giấu ngữ nghĩa.
+The Workflow is the **Map of the System**.
+Anyone can read it, no programming knowledge required.
 
 ---
 
-## 🟦 **3. Triết lý kiến trúc**
+### **2.3. Decompose Processes by Semantics, Not Line Count**
 
-### **3.1. Ba lớp Context**
+Rules:
 
-* **Global**: cấu hình, thông tin bất biến
-* **Domain**: trạng thái vận hành, logic nghiệp vụ
-* **Local**: dữ liệu tạm trong từng process
-
-Ưu điểm:
-
-* ngăn rò rỉ logic
-* dễ kiểm soát thay đổi
-* dễ audit
+*   A process contains **one meaning**, which may consist of multiple small steps.
+*   Do not force processes to be extremely small.
+*   Do not allow processes to be so large that they are hard to explain.
 
 ---
 
-### **3.2. Process-safe Context Evolution**
+### **2.4. Reuse is Secondary, Transparency is Primary**
 
-Context phải tiến hóa có kiểm soát:
+POP accepts code duplication if:
 
-* mỗi thay đổi phải quan sát được
-* không bao giờ ghi ngầm
-* không bao giờ reuse field cho nghĩa khác
-* các domain field phải có ý nghĩa cố định
+*   It helps transparency.
+*   It reduces coupling.
+*   It reduces layers and layers of abstraction.
 
----
-
-### **3.3. Sơ đồ điều khiển có thể là Line, Nhánh, DAG hoặc Động**
-
-POP chấp nhận nhiều dạng:
-
-* **Tuyến tính**: bước sau sau bước trước
-* **Rẽ nhánh**: chạy tùy điều kiện
-* **Song song (DAG)**: tổng hợp kết quả nhiều nhánh
-* **Động**: workflow thay đổi theo thời gian thực
-
-Nhưng luôn phải:
-
-* minh bạch
-* dễ hiểu
-* dễ trace
+POP opposes "over-generalization", because generic code often hides semantics.
 
 ---
 
-### **3.4. POP không chống OOP hay FP – nó chọn thực dụng**
+## 🟦 **3. Architectural Philosophy**
 
-POP học từ FP:
+### **3.1. The 3-Axis Context Model**
 
-* tính thuần khiết có kiểm soát
-* bất biến cục bộ
-* tránh side-effect không mong muốn
+Context is no longer flat. It is a 3-dimensional space optimizing safety and performance:
 
-POP học từ OOP:
+*   **Layer (Scope)**: Global (Config), Domain (Business), Local (Ephemeral).
+*   **Zone (Policy)**: Data (Persistent), Signal (Transient), Meta (Debug), Heavy (Zero-Copy).
+*   **Semantic (Role)**: Input (Read-only), Output (Read-Write).
 
-* modularity
-* grouping theo domain
-
-POP học từ Clean Architecture:
-
-* tách domain và adapter
-* đơn hướng phụ thuộc
-
-Nhưng POP không rập khuôn.
-POP đặt process làm trung tâm thay vì class hoặc function thuần.
+-> *Goal: Comprehensive control over the data lifecycle.*
 
 ---
 
-## 🟦 **4. Triết lý vận hành**
+### **3.2. Process-Safe Context Evolution**
 
-### **4.1. Phần mềm là một công việc – hãy mô tả bằng công việc**
+Context must evolve in a controlled manner:
 
-Workflow POP được viết bằng ngôn ngữ tự nhiên:
+*   Every change must be observable.
+*   Never write implicitly.
+*   Never reuse fields for different meanings.
+*   Domain fields must have fixed meanings.
 
-```
-- gọi: "camera.chup_anh"
-- gọi: "anh.tim_vat"
-- nếu: ctx.vat.tim_thay
-    thì:
-      - gọi: "robot.gap"
+---
+
+### **3.3. Control Flow: From Linear to Reactive**
+
+POP evolves beyond static graphs to embrace **Finite State Machines (FSM)** and **Reactive Rules** for complex dynamic systems:
+
+*   **Declarative**: Flow is defined in configuration, preventing logic coupling in code.
+*   **Reactive**: Execution is triggered by explicit Events.
+*   **Traceable**: Whether linear or reactive, the path of execution must always be deterministically traceable.
+
+---
+
+### **3.4. POP Does Not Oppose OOP or FP – It Chooses Pragmatism**
+
+POP learns from FP:
+
+*   Controlled purity.
+*   Local immutability.
+*   Avoidance of unwanted side-effects.
+
+POP learns from OOP:
+
+*   Modularity.
+*   Grouping by domain.
+
+POP learns from Clean Architecture:
+
+*   Separation of domain and adapter.
+*   Unidirectional dependency.
+
+But POP is not rigid.
+POP places the Process at the center instead of the Class or the Pure Function.
+
+---
+
+## 🟦 **4. Operational Philosophy**
+
+### **4.1. Software is Work – Describe It Like Work**
+
+POP Workflows are written in natural language:
+
+```yaml
+- call: "camera.capture_photo"
+- call: "image.find_object"
+- if: ctx.object.found
+    then:
+      - call: "robot.pick_up"
 ```
 
-Không từ viết tắt.
-Không ký hiệu lập trình.
-Không syntax khó nhớ.
+No abbreviations.
+No programming symbols.
+No hard-to-remember syntax.
 
 ---
 
-### **4.2. Mọi bước đều có thể kiểm toán (audit)**
+### **4.2. Every Step is Auditable**
 
-POP đảm bảo rằng:
+POP ensures that:
 
-* trước mỗi process: snapshot context
-* sau mỗi process: snapshot context
-* delta phải tường minh
+*   Before each process: Snapshot context.
+*   After each process: Snapshot context.
+*   Delta must be transparent.
 
-Giúp kiểm soát lỗi, kiểm soát hành vi, và phục vụ an toàn công nghiệp.
-
----
-
-### **4.3. Process dễ test – workflow dễ kiểm tra**
-
-* process có input → output rõ ràng
-* workflow có thể chạy giả lập (simulation)
-* toàn bộ hệ thống có thể “step-through”
+Helps control errors, control behavior, and serve industrial safety.
 
 ---
 
-## 🟦 **5. Cam kết của người theo POP**
+### **4.3. Process is Easy to Test – Workflow is Easy to Verify**
 
-Tôi cam kết:
-
-1. Không giấu logic.
-2. Không nhồi hành vi vào dữ liệu.
-3. Không tạo abstraction rối rắm.
-4. Không phá domain context vì sự tiện tay.
-5. Không cực đoan purity hay cực đoan mutable.
-6. Luôn giải thích được mọi bước của hệ thống.
-7. Ưu tiên sự rõ ràng hơn sự hào nhoáng kỹ thuật.
-8. Viết phần mềm để người thật hiểu được.
-9. Kiểm soát thay đổi bằng lý trí, không theo thói quen.
-10. Tôn trọng dòng chảy tự nhiên của dữ liệu và logic.
+*   Process has clear Input → Output.
+*   Workflow can run in simulation.
+*   The entire system can be "stepped-through".
 
 ---
 
-## 🟦 **6. Tuyên bố cuối cùng**
+## 🟦 **5. The POP Practitioner's Commitment**
 
-**POP là phương pháp đặt con người vào trung tâm của tư duy lập trình.**
+I commit:
 
-* Con người suy nghĩ theo bước → POP mô hình hóa theo bước.
-* Con người hiểu sự vật qua hành động → POP mô hình hóa hành động qua process.
-* Con người cảm nhận dòng chảy → POP tổ chức hệ thống bằng dòng chảy context.
+1.  To not hide logic.
+2.  To not stuff behavior into data.
+3.  To not create messy abstractions.
+4.  To not break the domain context for convenience.
+5.  To not be extreme about purity or mutability.
+6.  To always be able to explain every step of the system.
+7.  To prioritize clarity over technical flashiness.
+8.  To write software for real humans to understand.
+9.  To control change with reason, not by habit.
+10. To respect the natural flow of data and logic.
 
-POP không phải một kỹ thuật.
-POP là một **quan điểm về sự rõ ràng và trung thực trong phần mềm**.
+---
+
+## 🟦 **6. Final Statement**
+
+**POP is the method of placing humans at the center of programming thinking.**
+
+*   Humans think in steps → POP models in steps.
+*   Humans understand things through actions → POP models actions through processes.
+*   Humans perceive flow → POP organizes systems by context flow.
+
+POP is not just a technique.
+POP is a **perspective on clarity and honesty in software**.

@@ -10,6 +10,8 @@ Level defines **WHAT ACTION** the Engine will take when a rule is violated.
 | **B** | **Block** | `AuditBlockError` | **Rollback** | Rejects this Process only. Transaction cancelled. Workflow **STAYS ALIVE** and can retry or branch. |
 | **C** | **Campaign** | (None) | **Log Warning** | Only logs yellow warning. Process still Commits successfully. |
 
+> **🧠 Philosophy Note:** "Transparency is the Ultimate Value." By configuring thresholds (S/A/B), we make the system's tolerance **explicit** and **visible** in config, rather than buried in `if/else` checks. See Principle 1.2 of the [POP Manifesto](../../POP_Manifesto.md).
+
 ## 2. Dual-Thresholds: Error Accumulation
 Real systems have Noise. Theus v2 allows you to configure "Tolerance" via Thresholds (Rust Audit Tracker).
 

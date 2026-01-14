@@ -1,4 +1,5 @@
 import logging
+import operator
 
 logger = logging.getLogger("POP_AUDIT")
 
@@ -13,9 +14,6 @@ class AuditInterlockError(AuditError):
 class AuditBlockError(AuditError):
     """Level B violation -> Soft Block (Rollback Transaction)."""
     pass
-
-# Deprecated Shells ensuring backward compatibility for imports
-# but warning that logic has moved to Rust.
 
 class AuditTracker:
     def __init__(self):
@@ -34,3 +32,4 @@ class ContextAuditor:
         pass
     def audit_output(self, *args, **kwargs):
         pass
+

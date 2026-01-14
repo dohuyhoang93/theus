@@ -67,18 +67,16 @@ impl Engine {
         let ctx_bound = self.ctx.bind(py);
 
         if let Some(policy) = &mut self.audit_policy {
-             if let Err(e) = policy.evaluate(py, &process_name, "input", ctx_bound, None) {
+             let audit_input = kwargs.map(|d| d.as_any());
+             if let Err(e) = policy.evaluate(py, &process_name, "input", ctx_bound, audit_input) {
                   return Self::raise_audit_error(py, e);
              }
         }
         
         // Transaction (New PyClass)
-        // [FIX] Conditional Initialization: Only create Transaction if strict_mode is TRUE
-        let tx = if self.strict_mode {
-            Some(Py::new(py, Transaction::new())?)
-        } else {
-            None
-        };
+        // ACID Process Guarantee: Always create transaction to ensure Rollback/Atomic behavior.
+        // Strict Mode controls Audit/Permission enforcement, not Transaction mechanism.
+        let tx = Some(Py::new(py, Transaction::new())?);
 
         let func_bound = func.bind(py);
         let contract = func_bound.getattr("_pop_contract")

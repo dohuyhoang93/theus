@@ -2,55 +2,42 @@
 
 Performance in Theus is a balance between **Safety (Transactional Integrity)** and **Speed (Raw Access)**. This chapter guides you through optimizing Theus for high-load scenarios like Deep Learning Training.
 
-## 1. Level 1 Optimization: "Heavy Zone" (Granular)
-**Best for:** Hybrid systems (e.g., Robot with critical safety logic + Vision AI).
+## 1. The HEAVY Zone & Tier 2 Guards
+**Concept vs Implementation:**
+*   **HEAVY (The Policy):** A zone rule that says "This data is too big to snapshot (Undo Log)."
+*   **Tier 2 Guard (The Mechanism):** The Rust object (`TheusTensorGuard`) that Theus hands you when you access a `heavy_` variable. It acts as a safety valve, allowing high-speed mutation (Zero-Copy) while still enforcing contract rules.
 
-In standard logic, Theus "Shadow Copies" lists and dicts. For a 1GB Tensor, this is fatal.
-Soluton: Prefix variable names with `heavy_`.
-
+**Example:**
 ```python
-@dataclass
-class VisionDomain(BaseDomainContext):
-    # Standard (Protected, Rollback-capable)
-    counter: int = 0
-    
-    # HEAVY ASSET (Bypasses Shadow Copy)
-    heavy_camera_frame: np.ndarray = field(...)
-    heavy_q_table: dict = field(...)
+# HEAVY Zone declaration
+heavy_frame: np.ndarray = field(...)
 ```
 
-*   **Behavior:** Theus passes the **Direct Reference** to the process.
-*   **Trade-off:** Zero Copy speed, but **No Rollback** for that specific field.
+When you access `ctx.domain.heavy_frame`:
+1.  **Tier 1 (Normal):** Would try to deep-copy the array (Too slow).
+2.  **Tier 2 (Heavy):** Returns a **Wrapper** that points to the original memory. You can modify it (`+=`), but you cannot Undo it.
 
-## 2. Level 2 Optimization: Strict Mode Toggle (Global)
-**Best for:** Pure AI Training, Simulations (Gym/GridWorld), where speed is #1 and crash recovery is handled by restarting the episode.
+> **Analogy:** Normal variables are documents in a photocopier (Snapshot). Heavy variables are sculptures; you work on the original because you can't photocopy a sculpture.
 
-You can disable the entire Transactional layer of Theus.
+## 2. Strict Mode: True vs False
+This switch controls the **Transaction Engine**.
 
-```python
-# In run_experiments.py
-engine = TheusEngine(
-    system_ctx, 
-    strict_mode=False  # <--- THE MAGIC SWITCH
-)
-```
+## 3. The Comparison Matrix (v2.2.6 Reference)
 
-### What happens when `strict_mode=False`?
-1.  **Zero Overhead:** No Transaction objects created. No Audit Log history.
-2.  **Pass-through Guards:** `ContextGuard` becomes a transparent proxy. Reading/Writing happens directly on the real object.
-3.  **Contract Enforcement:** Disabled. You can modify undeclared variables (Side Effects possible).
-4.  **Rollback:** Disabled. If a process crashes, the Context is left in a "Dirty" state.
-5.  **Silent Mode:** "Unsafe Mutation" warnings (modifying context without a lock) are suppressed (moved to DEBUG level) to keep logs clean during high-speed loops.
+This table clarifies exactly which defense layers are active in each mode.
 
-## 3. Comparison Matrix
-
-| Feature | Default (`True`) | Heavy Zone | Strict Mode `False` |
+| Defense Layer | **Strict Mode = True** (Default) | **Strict Mode = False** (Dev/Flexible) | **Heavy Zone** (Tier 2 Guard) |
 | :--- | :--- | :--- | :--- |
-| **Shadow Copy** | Yes (Safe) | No (Direct) | No (Direct) |
-| **Rollback** | Yes (Full) | Scalar: Yes, Heavy: No | **No** (None) |
-| **Audit Logs** | Yes (Ephemeral) | Yes | **No** (None) |
-| **Memory Usage** | High (History) | Low | **Lowest** |
-| **Use Case** | Production / Finance | Robotics / Hybrid AI | **Training / Sim** |
+| **1. Transaction (Rollback)** | ✅ **Enabled** | ✅ **Enabled** | ❌ **Disabled** (Direct Write) |
+| **2. Audit Policy** | ✅ **Active** | ✅ **Active** | ✅ **Active** (Checks final state) |
+| **3. Input Gate (Zone Check)** | ✅ **Strict** (No Signal/Meta) | ⚠️ **Relaxed** (Allow All) | N/A |
+| **4. Private Access (`_attr`)** | ✅ **Blocked** | ⚠️ **Allowed** | N/A |
+| **5. Performance** | Standard | Standard (No speed gain) | 🚀 **Zero-Copy** |
+
+### Key Takeaway:
+*   Use **HEAVY Zone** when you need **Speed** (Big Data).
+*   Use **Strict Mode = False** when you need **Flexibility** (Debugging/Listeners).
+*   **NEVER** assume `strict_mode=False` makes code faster in v2.2.6. It only makes it "looser".
 
 ## 4. Avoiding Memory Leaks
 Even with optimizations, Python references can leak.

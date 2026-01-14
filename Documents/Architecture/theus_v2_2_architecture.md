@@ -19,7 +19,10 @@ graph TD
     subgraph "Layer 1: Kernel (Theus Core)"
         Engine[Rust Engine]
         Engine -->|Enforces| StrictMode[Strict Mode Logic]
-        Engine -->|Uses| Guard[Context Guard]
+        Engine -->|Strategy| TieredGuard[3-Tier Guard Strategy]
+        TieredGuard -->|Tier 1| NativeStructs[TrackedList/Dict]
+        TieredGuard -->|Tier 2| TensorGuard[TheusTensorGuard]
+        TieredGuard -->|Tier 3| ContextGuard[ContextGuard Wrapper]
         Engine -->|Uses| Transaction[Delta Log]
         Engine -->|Uses| ZoneMgr[Zone Manager]
     end
@@ -54,10 +57,16 @@ graph TD
     -   **Flux Engine:** Python only hands over the config; Rust acts as the stepper.
     -   **FSM Manager:** High-level State logic remains in Python for flexibility.
 
-### D. Heavy Zone (AI Optimization)
+### D. 3-Tier Guard Strategy (New in v2.2.6)
+We moved beyond a single "ContextGuard" to a tiered approach for optimal performance:
+1.  **Tier 1 (Core Structures):** `TrackedList` and `TrackedDict` are now **Native Rust Types**. Python sees them as standard classes, but their storage and mutation logic live entirely in the Rust Microkernel (Zero-Overhead).
+2.  **Tier 2 (Heavy Zone - `TheusTensorGuard`):** A specialized Rust Guard for `HEAVY` zone data (e.g. `heavy_tensor`). It permits direct memory writing (Zero-Copy) while still enforcing Ownership rules.
+3.  **Tier 3 (Generic ContextGuard):** A Hybrid Wrapper for general python objects, ensuring strict Attribute Access Control.
+
+### E. Heavy Zone (AI Optimization)
 -   **V2.1:** All data passed through Transaction Log (Copy-on-Write). Crashed with 500MB+ Tensors.
 -   **V2.2:** Special Zone `HEAVY` (`heavy_` prefix).
-    -   **Zero-Copy:** Writes directly to RAM, bypassing Transaction Log.
+    -   **Zero-Copy:** Writes directly to RAM using `TheusTensorGuard`.
     -   **Non-Transactional:** "Heavy" data cannot be rolled back (Trade-off: Speed > Safety for Blobs).
 
 ## 4. Component Inventory (Updated)

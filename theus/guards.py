@@ -51,7 +51,9 @@ class ContextGuard(RustContextGuard):
         # engine.py usually passes: target, inputs, outputs, prefix, tx, strict, name
         
         # We call super().__init__ which maps to Rust new()
-        super().__init__(target_obj, list(allowed_inputs), list(allowed_outputs), transaction, False, strict_mode)
+        # super().__init__(...) calls object.__init__ which fails with args.
+        # Rust state is already initialized by __new__ (which runs before __init__).
+        pass
         
         # Manually set path_prefix? Rust new_internal sets it to "".
         # Wait, Rust `new_internal` sets `path_prefix` to "".
@@ -76,6 +78,7 @@ class ContextGuard(RustContextGuard):
         # Setup Logger
         base_logger = logging.getLogger("POP_PROCESS")
         adapter = ContextLoggerAdapter(base_logger, {'process_name': process_name})
+        # Rust Guard is now smart enough to whitelist 'log' into __dict__
         self.log = adapter
 
         # NOTE: Zone Enforcement is strictly done in Rust constructor (Strict Mode) specific logic

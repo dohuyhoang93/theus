@@ -10,6 +10,9 @@ Instead of forcing you to write `ctx.domain.data.user_id` (too verbose), Theus v
 | **DATA** | (None) | Business Asset. Persistent. | Full Transaction, Strict Replay. |
 | **SIGNAL** | `sig_`, `cmd_` | Event/Command. Transient. | Transaction Reset, No Replay. |
 | **META** | `meta_` | Debug Info. | Read-only (usually). |
+| **HEAVY** | `heavy_` | AI Tensors/Blobs. | **Zero-Copy** (Direct RAM), No Rollback. |
+
+> **🧠 Philosophy Note:** Why divide into Zones? Because **"Transparency is Safety"**. By explicitly separating transient Signals from persistent Data, we prevent "Logic Leakage". See Principle 3.1 of the [POP Manifesto](../../POP_Manifesto.md).
 
 ## 2. Design with Dataclasses
 We still use `dataclass`, but we must adhere to Zone conventions.
@@ -42,6 +45,8 @@ class WarehouseContext(BaseSystemContext):
     # We enforce type hinting for clarity
     domain_ctx: WarehouseDomain = field(default_factory=WarehouseDomain)
     global_ctx: WarehouseConfig = field(default_factory=WarehouseConfig)
+
+> **Pro Tip (v2.2.6+):** When you declare `items: list`, Theus automatically upgrades it to a **Rust-Native `TrackedList`** at runtime. This provides O(1) audit logging and zero-copy slicing without you changing a single line of code.
 ```
 
 ## 3. Why is Zoning Important?

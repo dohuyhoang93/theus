@@ -1,9 +1,23 @@
-# Theus: Process-Oriented Operating System for Python
+# Theus Framework (v2.2.6)
 
-[![PyPI version](https://img.shields.io/pypi/v/theus.svg)](https://pypi.org/project/theus/)
+[![PyPI version](https://badge.fury.io/py/theus.svg)](https://badge.fury.io/py/theus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Paper License: CC-BY 4.0](https://img.shields.io/badge/Paper--License-CC--BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+
+> **"A Process-Oriented Operating System for AI Agents, powered by a Rust Microkernel."**
+
+---
+
+## 🧭 **Where do I start?**
+
+Theus is vast. Use our **[Interactive Documentation Map](https://github.com/dohuyhoang93/theus/tree/main/Documents/00_Start_Here_Map.md)** to find your path:
+*   🚀 **I want to build an Agent now:** [Go to Quickstart](https://github.com/dohuyhoang93/theus/tree/main/Documents/AI_DEVELOPER_GUIDE.md)
+*   🏗️ **I want to check architecture:** [Go to Specs](https://github.dohuyhoang93/theus/tree/main/Documents/Architecture/theus_v2_2_architecture.md)
+*   🎓 **I want to learn from scratch:** [Go to Tutorials](https://github.com/dohuyhoang93/theus/tree/main/Documents/tutorials/en/Chapter_01.md)
+
+---
+
+## 🚀 Key Features (v2.2.6)
 
 > **"Data is the Asset. Code is the Liability. Theus protects the Asset."**
 

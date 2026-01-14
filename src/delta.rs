@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::types::PyList;
 use std::sync::{Mutex, OnceLock};
 use std::collections::HashSet;
 
@@ -6,18 +7,25 @@ static LOGGED_HEAVY_PATHS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 
 #[derive(Debug)]
+#[pyclass]
 pub struct DeltaEntry {
+    #[pyo3(get)]
     pub path: String,
+    #[pyo3(get)]
     pub op: String,
-    pub value: Option<PyObject>,
-    pub old_value: Option<PyObject>,
-    pub target: Option<PyObject>,
+    #[pyo3(get)]
+    pub value: Option<Py<PyAny>>,
+    #[pyo3(get)]
+    pub old_value: Option<Py<PyAny>>,
+    #[pyo3(get)]
+    pub target: Option<Py<PyAny>>,
+    #[pyo3(get)]
     pub key: Option<String>,
 }
 
 #[pyclass]
 pub struct Transaction {
-    pub log: Vec<DeltaEntry>,
+    pub delta_log: Vec<DeltaEntry>,
     shadow_cache: std::collections::HashMap<usize, (PyObject, PyObject)>, // id -> (original, shadow)
 }
 
@@ -31,7 +39,7 @@ impl Transaction {
         target: Option<PyObject>, 
         key: Option<String>
     ) {
-        self.log.push(DeltaEntry {
+        self.delta_log.push(DeltaEntry {
             path, op, value, old_value, target, key 
         });
     }
@@ -45,10 +53,28 @@ impl Default for Transaction {
 
 #[pymethods]
 impl Transaction {
+    #[getter]
+    pub fn delta_log(&self, py: Python) -> PyResult<PyObject> {
+        let list = PyList::empty_bound(py);
+        for entry in &self.delta_log {
+            let cloned = DeltaEntry {
+                path: entry.path.clone(),
+                op: entry.op.clone(),
+                value: entry.value.as_ref().map(|v| v.clone_ref(py)),
+                old_value: entry.old_value.as_ref().map(|v| v.clone_ref(py)),
+                target: entry.target.as_ref().map(|v| v.clone_ref(py)),
+                key: entry.key.clone(),
+            };
+            let py_obj = Py::new(py, cloned)?;
+            list.append(py_obj)?;
+        }
+        Ok(list.into_py(py))
+    }
+
     #[new]
     pub fn new() -> Self {
         Transaction { 
-            log: Vec::new(),
+            delta_log: Vec::new(),
             shadow_cache: std::collections::HashMap::new(),
         }
     }
@@ -148,7 +174,34 @@ impl Transaction {
                  // Generic object: original.__dict__.update(shadow.__dict__)
                  if let Ok(orig_dict) = orig_bind.getattr("__dict__") {
                       if let Ok(shadow_dict) = shadow.bind(py).getattr("__dict__") {
-                           orig_dict.call_method1("update", (shadow_dict,))?;
+                           if let Ok(shadow_dict_casted) = shadow_dict.downcast::<pyo3::types::PyDict>() {
+                               for (k, v) in shadow_dict_casted {
+                                   let mut final_val = v.clone();
+                                   
+                                   // 1. Check for explicit _wrapped (Proxy)
+                                   if let Ok(wrapped) = v.getattr("_wrapped") {
+                                       final_val = wrapped;
+                                   }
+                                   
+                                   // 2. Check for FrozenList/TrackedList (Zombie Leak)
+                                   // If type name contains "FrozenList" or "TrackedList", convert to List
+                                   if let Ok(type_obj) = final_val.get_type().name() {
+                                       if type_obj.to_string().contains("FrozenList") || type_obj.to_string().contains("TrackedList") {
+                                           // Use builtins.list() to convert any iterable proxy back to list
+                                           if let Ok(builtins) = PyModule::import(py, "builtins") {
+                                                if let Ok(as_list) = builtins.call_method1("list", (&final_val,)) {
+                                                     final_val = as_list;
+                                                }
+                                           }
+                                       }
+                                   }
+                                   
+                                   orig_dict.set_item(k, final_val)?;
+                               }
+                           } else {
+                               // Fallback if __dict__ is not a dict (unlikely)
+                               orig_dict.call_method1("update", (shadow_dict,))?;
+                           }
                       }
                  }
             }
@@ -156,20 +209,20 @@ impl Transaction {
         
         // [FIX] Clean up references immediately to prevent memory leak via reference cycles
         self.shadow_cache.clear();
-        self.log.clear();
+        self.delta_log.clear();
         
         Ok(())
     }
 
     pub fn rollback(&mut self, py: Python) -> PyResult<()> {
-        for entry in self.log.iter().rev() {
+        for entry in self.delta_log.iter().rev() {
              if let (Some(target), Some(key), Some(old)) = (&entry.target, &entry.key, &entry.old_value) {
                  if entry.op == "SET" {
                      target.bind(py).setattr(key.as_str(), old)?;
                  }
              }
         }
-        self.log.clear();
+        self.delta_log.clear();
         self.shadow_cache.clear();
         Ok(())
     }

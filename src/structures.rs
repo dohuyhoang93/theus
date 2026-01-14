@@ -34,20 +34,26 @@ impl TrackedList {
         Ok(real_index)
     }
 
-    fn __getitem__(&self, py: Python, index: isize) -> PyResult<PyObject> {
-        let idx = self.normalize_index(py, index)?;
-        let val = self.data.bind(py).get_item(idx)?.unbind();
+    fn __getitem__(&self, py: Python, key: PyObject) -> PyResult<PyObject> {
+        // Use generic get_item which supports Slices and Integers via PyAny
+        // PyList::get_item only supports usize, so we must use PyAny
+        let val = self.data.bind(py).as_any().get_item(&key)?.unbind();
         let val_type = val.bind(py).get_type().name()?.to_string();
 
         if val_type == "list" || val_type == "dict" {
              let mut tx_val = self.tx.bind(py).borrow_mut();
              let shadow = tx_val.get_shadow(py, val.clone_ref(py), None)?;
              
-             if !shadow.is(&val) {
-                 self.data.bind(py).set_item(idx, shadow.clone_ref(py))?;
+             // If key is Integer, we CAN update.
+             if let Ok(idx) = key.extract::<usize>(py) {
+                 if !shadow.is(&val) {
+                     // Use PyList set_item for index (efficient)
+                     self.data.bind(py).set_item(idx, shadow.clone_ref(py))?;
+                 }
              }
              
-             let child_path = format!("{}[{}]", self.path, index);
+             let key_str = key.to_string();
+             let child_path = format!("{}[{}]", self.path, key_str);
              
              if val_type == "list" {
                  let child_list = shadow.bind(py).downcast::<PyList>()?.clone().unbind();
@@ -71,18 +77,19 @@ impl TrackedList {
         Ok(val)
     }
 
-    fn __setitem__(&self, py: Python, index: isize, value: PyObject) -> PyResult<()> {
-        let idx = self.normalize_index(py, index)?;
-        let old_val = self.data.bind(py).get_item(idx)?.unbind();
-        self.data.bind(py).set_item(idx, value.clone_ref(py))?;
+    fn __setitem__(&self, py: Python, key: PyObject, value: PyObject) -> PyResult<()> {
+        // Use generic set_item
+        let old_val = self.data.bind(py).as_any().get_item(&key).ok().map(|v| v.unbind());
+        self.data.bind(py).as_any().set_item(&key, value.clone_ref(py))?;
         
         // Log
-        let entry_path = format!("{}[{}]", self.path, index);
+        let key_str = key.to_string();
+        let entry_path = format!("{}[{}]", self.path, key_str);
         self.tx.bind(py).borrow_mut().log_internal(
             entry_path, 
             "SET".to_string(), 
             Some(value), 
-            Some(old_val), 
+            old_val, 
             None, 
             None
         );
@@ -95,6 +102,80 @@ impl TrackedList {
             self.path.clone(),
             "APPEND".to_string(),
             Some(value),
+            None,
+            None,
+            None
+        );
+        Ok(())
+    }
+
+    fn insert(&self, py: Python, index: isize, value: PyObject) -> PyResult<()> {
+        self.data.bind(py).call_method1("insert", (index, value.clone_ref(py)))?;
+        self.tx.bind(py).borrow_mut().log_internal(
+            self.path.clone(),
+            "INSERT".to_string(),
+            Some(value), // Logging index is complex in this schema, simplified
+            None,
+            None,
+            None
+        );
+        Ok(())
+    }
+
+    fn extend(&self, py: Python, values: PyObject) -> PyResult<()> {
+        // values is iterable
+        self.data.bind(py).call_method1("extend", (values.clone_ref(py),))?;
+        self.tx.bind(py).borrow_mut().log_internal(
+            self.path.clone(),
+            "EXTEND".to_string(),
+            Some(values),
+            None,
+            None,
+            None
+        );
+        Ok(())
+    }
+
+    fn clear(&self, py: Python) -> PyResult<()> {
+        self.data.bind(py).call_method0("clear")?;
+        self.tx.bind(py).borrow_mut().log_internal(
+            self.path.clone(),
+            "CLEAR".to_string(),
+            None,
+            None,
+            None,
+            None
+        );
+        Ok(())
+    }
+
+    #[pyo3(signature = (key=None, reverse=false))]
+    fn sort(&self, py: Python, key: Option<PyObject>, reverse: bool) -> PyResult<()> {
+        let kwargs = PyDict::new_bound(py);
+        if let Some(k) = key {
+            kwargs.set_item("key", k)?;
+        }
+        kwargs.set_item("reverse", reverse)?;
+        
+        self.data.bind(py).call_method("sort", (), Some(&kwargs))?;
+        
+        self.tx.bind(py).borrow_mut().log_internal(
+            self.path.clone(),
+            "SORT".to_string(),
+            None, // Function objects hard to log
+            None,
+            None,
+            None
+        );
+        Ok(())
+    }
+
+    fn reverse(&self, py: Python) -> PyResult<()> {
+        self.data.bind(py).call_method0("reverse")?;
+        self.tx.bind(py).borrow_mut().log_internal(
+            self.path.clone(),
+            "REVERSE".to_string(),
+            None,
             None,
             None,
             None
@@ -281,6 +362,107 @@ impl TrackedDict {
     
     fn values(&self, py: Python) -> PyResult<PyObject> {
         Ok(self.data.bind(py).values().into_py(py))
+    }
+
+    #[pyo3(signature = (key, default=None))]
+    fn pop(&self, py: Python, key: PyObject, default: Option<PyObject>) -> PyResult<PyObject> {
+        // If key exists, log POP(val). If not and default provided, return default (no log). If not and no default, raise KeyError.
+        let has_key = self.data.bind(py).contains(&key)?;
+        if has_key {
+            let val = self.data.bind(py).call_method1("pop", (&key,))?.unbind();
+            
+            let key_str = key.to_string();
+            let entry_path = if key_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                 format!("{}.{}", self.path, key_str)
+            } else {
+                 format!("{}[{}]", self.path, key_str)
+            };
+            
+            self.tx.bind(py).borrow_mut().log_internal(
+                entry_path,
+                "POP".to_string(),
+                None,
+                Some(val.clone_ref(py)),
+                None,
+                None
+            );
+            Ok(val)
+        } else if let Some(d) = default {
+            Ok(d)
+        } else {
+            Err(pyo3::exceptions::PyKeyError::new_err(key.to_string()))
+        }
+    }
+
+    fn popitem(&self, py: Python) -> PyResult<PyObject> {
+        // Returns (key, value) tuple
+        let tuple = self.data.bind(py).call_method0("popitem")?.unbind();
+        let tuple_bound = tuple.bind(py).downcast::<pyo3::types::PyTuple>()?;
+        let key = tuple_bound.get_item(0)?;
+        let val = tuple_bound.get_item(1)?;
+        
+        let key_str = key.to_string();
+         let entry_path = if key_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                 format!("{}.{}", self.path, key_str)
+            } else {
+                 format!("{}[{}]", self.path, key_str)
+            };
+            
+        self.tx.bind(py).borrow_mut().log_internal(
+            entry_path,
+            "POPITEM".to_string(),
+            None,
+            Some(val.into_py(py)),
+            None,
+            None
+        );
+        Ok(tuple)
+    }
+
+    fn clear(&self, py: Python) -> PyResult<()> {
+        self.data.bind(py).call_method0("clear")?;
+        self.tx.bind(py).borrow_mut().log_internal(
+            self.path.clone(),
+            "CLEAR".to_string(),
+            None,
+            None,
+            None,
+            None
+        );
+        Ok(())
+    }
+
+    #[pyo3(signature = (key, default=None))]
+    fn setdefault(&self, py: Python, key: PyObject, default: Option<PyObject>) -> PyResult<PyObject> {
+        if self.data.bind(py).contains(&key)? {
+             let val = self.data.bind(py).get_item(&key)?.unwrap().unbind();
+             Ok(val)
+        } else {
+             let def_val = default.unwrap_or_else(|| py.None());
+             // Reuse logging logic via __setitem__ helper or duplicate?
+             // Since we are inside the class, we can call self.__setitem__?
+             // Rust methods on PyClass are not inherent methods on the struct unless implemented that way.
+             // We can just do the logic.
+             
+             self.data.bind(py).set_item(&key, def_val.clone_ref(py))?;
+             
+             let key_str = key.to_string();
+             let entry_path = if key_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                  format!("{}.{}", self.path, key_str)
+             } else {
+                  format!("{}[{}]", self.path, key_str)
+             };
+             
+             self.tx.bind(py).borrow_mut().log_internal(
+                 entry_path, 
+                 "SET".to_string(), 
+                 Some(def_val.clone_ref(py)), 
+                 None, // Old value is None
+                 None, 
+                 None
+             );
+             Ok(def_val)
+        }
     }
 
     #[pyo3(signature = (key, default=None))]

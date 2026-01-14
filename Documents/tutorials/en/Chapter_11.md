@@ -43,6 +43,27 @@ states:
       EVT_CHAIN_DONE: "IDLE"
 ```
 
+```
+
+### 📐 Visual Workflow
+
+```text
+       (Start)
+          |
+          v
+      +--------+    CMD_START    +------------+
+      |  IDLE  | --------------> | PROCESSING |
+      +--------+                 +------------+
+          ^                       | entry: [p1, p2]
+          |                       |
+    EVT_CHAIN_DONE           EVT_CHAIN_FAIL
+          |                       |
+          |                       v
+          |                 +----------------+
+          +-----------------| ERROR_RECOVERY |
+                            +----------------+
+```
+
 ## 3. Emitting Signals
 
 Your processes (Python functions) drive the flow by emitting signals or simply finishing successfully.
@@ -100,3 +121,5 @@ bus.emit("CMD_START")
 - **Declarative:** Logic is in YAML, not Python.
 - **Reactive:** System sleeps until a Signal arrives.
 - **Resilient:** Failures trigger `EVT_CHAIN_FAIL`, allowing you to define `ERROR_RECOVERY` states explicitly.
+
+> **🧠 Philosophy Note:** By lifting control flow out of Python code and into YAML, we achieve **"Logic-Flow Separation"**. Your Python code becomes a library of tools (Processes), and the YAML becomes the instruction manual (Workflow). This makes the system easier to visualize and modify without touching code.

@@ -46,6 +46,8 @@ When you call `engine.run_process("add_product", product_name="TV", price=500)`,
     - If everything OK -> Apply changes to Real Context.
     - Unlock Context.
 
+> **🧠 Philosophy Note:** Theus pipelines are "Guilty until Proven Innocent". Every step is locked, guarded, and audited. This adheres to Principle 4.2: **"Every Step is Auditable"**. We trade Raw Speed for Absolute Reproducibility. See [POP Manifesto](../../POP_Manifesto.md).
+
 ## 3. Running It
 ```python
 engine.register_process("add_product", add_product)

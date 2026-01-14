@@ -21,6 +21,27 @@ Every data point is defined by 3 axes. You MUST respect them:
 
 **CRITICAL INVARIANT:** Never mutate Context directly. Always use the injected `ctx` (ContextGuard).
 
+### 📐 Visual Model
+
+```text
+       [Y] SEMANTIC (Input vs Output)
+              ^
+              |
+      Input   |   Output
+     (Read)   |  (Write)
+              |
+   +----------+----------+
+  /|         /|          |
+ +-+--------+ |  THEUS   |--> [Z] ZONE (Data/Signal/Heavy)
+ | | GLOBAL | | CONTEXT  |
+ | +--------+-+          |
+ |/ DOMAIN /|/           |
+ +----------+------------+
+      /
+     v
+ [X] LAYER (Scope)
+```
+
 ---
 
 ## 2. Strict Mode (Default: ON)

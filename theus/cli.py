@@ -42,7 +42,8 @@ def init_project(project_name: str, target_dir: Path):
         "src/processes/stress.py": TEMPLATE_PROCESS_STRESS,
         "workflows/workflow.yaml": TEMPLATE_WORKFLOW,
         "specs/context_schema.yaml": "# Define your Data Contract here\n",
-        "specs/audit_recipe.yaml": TEMPLATE_AUDIT_RECIPE
+        "specs/audit_recipe.yaml": TEMPLATE_AUDIT_RECIPE,
+        "specs/workflow.yaml": TEMPLATE_WORKFLOW # Added missing file
     }
 
     for rel_path, content in files_to_create.items():

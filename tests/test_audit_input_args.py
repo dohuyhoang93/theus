@@ -1,82 +1,51 @@
 import sys
 import os
-import pytest
-from unittest.mock import MagicMock
+import unittest
+from dataclasses import dataclass
 
-# Add project root to path
-# Adjust path since we are in theus/tests
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import theus
-print(f"DEBUG: Loaded 'theus' from: {theus.__file__}")
-
+from theus import TheusEngine, process, BaseSystemContext, BaseGlobalContext, BaseDomainContext
 from theus.config import AuditRecipe, ProcessRecipe, RuleSpec
-from theus.audit import AuditPolicy, ContextAuditor
+from theus.audit import AuditBlockError
 
-def test_audit_input_kwargs():
-    print("\n=== TESTING AUDIT INPUT KWARGS ===")
-    
-    # 1. Define Recipe targeting a kwarg 'agent_id'
-    recipe = AuditRecipe(definitions={
-        "p_kwargs": ProcessRecipe(
-            process_name="p_kwargs",
-            input_rules=[
-                RuleSpec(
-                    target_field="agent_id", # This is a kwarg, not in ctx
-                    condition="min",
-                    value=0,
-                    level="C"
-                )
-            ]
-        )
-    })
-    
-    auditor = ContextAuditor(recipe)
-    
-    # Mock Context (Empty)
-    class Ctx: pass
-    ctx = Ctx()
-    
-    # CASE 1: Valid Input (agent_id=1 >= 0)
-    print("Test 1: Valid Input (agent_id=1)...")
-    auditor.audit_input("p_kwargs", ctx, input_args={"agent_id": 1})
-    
-    # Check Violations History
-    violations = auditor.policy.tracker.violations.get("p_kwargs", [])
-    if len(violations) == 0:
-        print("   -> PASS (No Violation)")
-    else:
-        print("   -> FAIL (Violation Recorded)")
-        sys.exit(1)
-    
-    # Test 2: Invalid Input (agent_id=-1)
-    print("Test 2: Invalid Input (agent_id=-1)...")
-    auditor.audit_input("p_kwargs", ctx, input_args={"agent_id": -1})
-    
-    # Check Violations History
-    violations = auditor.policy.tracker.violations.get("p_kwargs", [])
-    print(f"   Violations recorded: {len(violations)}")
-    
-    if len(violations) > 0:
-        print("   -> PASS (Violation Recorded in History)")
-        # Verify content
-        v = violations[-1]
-        print(f"      Last Violation: {v.rule.target_field}={v.actual_value}")
-        if v.actual_value != -1:
-             print("      -> FAIL (Wrong value recorded)")
-             sys.exit(1)
-    else:
-        print("   -> FAIL (No Violation History)")
-        sys.exit(1)
+@process(inputs=[], outputs=[])
+def p_kwargs(ctx, agent_id=0):
+    pass
 
-    # CASE 3: Missing Input
-    print("Test 3: Missing Input...")
-    try:
-        auditor.audit_input("p_kwargs", ctx, input_args={})
-        print("   -> PASS (Graceful skip)")
-    except Exception as e:
-        print(f"   -> FAIL (Crashed: {e})")
-        sys.exit(1)
+class TestAuditInputArgs(unittest.TestCase):
+    def test_audit_kwargs_violation(self):
+        print("\n=== TESTING AUDIT KWARGS (RUST ENGINE) ===")
+        
+        # 1. Define Recipe
+        recipe = AuditRecipe(definitions={
+            "p_kwargs": ProcessRecipe(
+                process_name="p_kwargs",
+                input_rules=[
+                    RuleSpec(
+                        target_field="agent_id", # kwarg not in ctx, so path is just key
+                        condition="min",
+                        value=0,
+                        level="B"
+                    )
+                ]
+            )
+        })
+        
+        # Use Standard Contexts
+        ctx = BaseSystemContext(global_ctx=BaseGlobalContext(), domain_ctx=BaseDomainContext())
+        
+        engine = TheusEngine(ctx, strict_mode=True, audit_recipe=recipe)
+        engine.register_process("p_kwargs", p_kwargs)
+        
+        # Case 1: Valid
+        engine.run_process("p_kwargs", agent_id=1)
+        print("Case 1 (Valid): OK")
+        
+        # Case 2: Invalid -> Block
+        with self.assertRaises(AuditBlockError):
+            engine.run_process("p_kwargs", agent_id=-1)
+        print("Case 2 (Invalid): Caught Block Error")
 
 if __name__ == "__main__":
-    test_audit_input_kwargs()
+    unittest.main()

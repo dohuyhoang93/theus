@@ -11,11 +11,29 @@ In Theus v2, `@process` is not just syntax; it is a **Legal Contract** between y
 )
 ```
 
+```
+
+### 📐 Visual Contract
+
+```text
+       (Read-Only)               (Pure Logic)               (Write-Only)
+      +-----------+           +----------------+           +------------+
+      |  INPUTS   | --------> |    PROCESS     | --------> |  OUTPUTS   |
+      | (Frozen)  |           |   (Function)   |           | (Mutation) |
+      +-----------+           +----------------+           +------------+
+            ^                         |                          |
+            |                         v                          v
+      [Audit Gate]               [Exception]                [Commit]
+     (Check Rules)             (Rollback All)            (Append Log)
+```
+
 ## 2. The Golden Rule: No Input Signals
 This is the biggest difference in v2.
 **Rule:** You **MUST NOT** declare a `sig_` or `cmd_` variable in `inputs`.
 - *Why?* Because a Process must be **Pure Logic**. Its logic should only depend on persistent Data. Signals are transient; if dependent on them, the Process cannot be reliably Replayed.
 - *How to handle Signals?* That is the job of the **Workflow Flux** (Chapter 11). A Process should only handle the *result* of a Signal (Data), not the Signal itself.
+
+> **🧠 Philosophy Note:** This enforces **Determinism**. Signals are "Time-Dependent" (Ephemeral), while Data is "State-Dependent" (Persistent). Mixing them breaks the ability to Replay history. See Principle 2.3 of the [POP Manifesto](../../POP_Manifesto.md).
 
 ## 3. Writing Your First Process
 ```python
