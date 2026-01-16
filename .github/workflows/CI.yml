@@ -15,11 +15,14 @@ permissions:
 jobs:
   lint_and_test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.12', '3.14'] # Added 3.14
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
       - name: Install dependencies
@@ -48,7 +51,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --interpreter python3.8 python3.9 python3.10 python3.11 python3.12 python3.13 --manifest-path Cargo.toml
+          args: --release --out dist --interpreter python3.10 python3.11 python3.12 python3.13 python3.14 --manifest-path Cargo.toml
           sccache: 'true'
           manylinux: auto
       - name: Upload wheels
@@ -67,13 +70,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14' # Use 3.14 for Windows build env
           architecture: ${{ matrix.target }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: x86_64-pc-windows-msvc
-          args: --release --out dist --interpreter python3.10 python3.11 python3.12 python3.13 --manifest-path Cargo.toml
+          args: --release --out dist --interpreter python3.10 python3.11 python3.12 python3.13 python3.14 --manifest-path Cargo.toml
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -91,12 +94,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14' # Use 3.14 for macOS build env
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}-apple-darwin
-          args: --release --out dist --interpreter python3.10 python3.11 python3.12 python3.13 --manifest-path Cargo.toml
+          args: --release --out dist --interpreter python3.10 python3.11 python3.12 python3.13 python3.14 --manifest-path Cargo.toml
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4

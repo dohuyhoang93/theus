@@ -1,35 +1,13 @@
-import logging
-import operator
+try:
+    from theus_core import AuditSystem as AuditSystemRust, AuditRecipe, AuditBlockError
+except ImportError:
+    class AuditRecipe:
+        def __init__(self, threshold_max, reset_on_success): pass
+    class AuditSystemRust:
+        def __init__(self, recipe): pass
+    class AuditBlockError(Exception): pass
 
-logger = logging.getLogger("POP_AUDIT")
-
-class AuditError(Exception):
-    """Base for audit failures."""
+class AuditSystem(AuditSystemRust):
     pass
 
-class AuditInterlockError(AuditError):
-    """Level S/A violation -> Hard Crash (Stop Workflow)."""
-    pass
-
-class AuditBlockError(AuditError):
-    """Level B violation -> Soft Block (Rollback Transaction)."""
-    pass
-
-class AuditTracker:
-    def __init__(self):
-        pass
-
-class AuditPolicy:
-    def __init__(self, recipe):
-        pass
-    def evaluate(self, *args, **kwargs):
-        pass
-
-class ContextAuditor:
-    def __init__(self, recipe):
-        pass
-    def audit_input(self, *args, **kwargs):
-        pass
-    def audit_output(self, *args, **kwargs):
-        pass
-
+__all__ = ["AuditSystem", "AuditRecipe", "AuditBlockError"]

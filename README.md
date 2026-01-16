@@ -173,10 +173,15 @@ print(f"Alice: {sys_ctx.domain_ctx.accounts['Alice']}") # 500
 
 Theus provides a powerful CLI suite to accelerate development and maintain architectural integrity.
 
-*   **`python -m theus.cli init <project_name>`**: Scaffolds a new project with the standard V2 structure (`src/`, `specs/`, `workflows/`).
-*   **`python -m theus.cli audit gen-spec`**: Scans your `@process` functions and automatically populates `specs/audit_recipe.yaml` with rule skeletons.
-*   **`python -m theus.cli audit inspect <process_name>`**: Inspects the effective audit rules, side effects, and error contracts for a specific process.
-*   **`python -m theus.cli schema gen`**: Infers and generates `specs/context_schema.yaml` from your Python Dataclass definitions.
+*   **`py -m theus.cli init <project_name>`**: Scaffolds a new project with the standard V2 structure (`src/`, `specs/`, `workflows/`).
+*   **`py -m theus.cli audit gen-spec`**: Scans your `@process` functions and automatically populates `specs/audit_recipe.yaml` with rule skeletons.
+*   **`py -m theus.cli audit inspect <process_name>`**: Inspects the effective audit rules, side effects, and error contracts for a specific process.
+*   **`py -m theus.cli schema gen`**: Infers and generates `specs/context_schema.yaml` from your Python Dataclass definitions.
+*   **`py -m theus.cli check`**: Runs the **POP Linter** to enforce architectural purity.
+    *   `POP-E01`: No `print()` (Use `ctx.log`).
+    *   `POP-E02`: No `open()` (Use Outbox).
+    *   `POP-E03`: No `requests` (No Side Effects).
+    *   `POP-E04`: No `global` (Strict Context).
 
 ---
 

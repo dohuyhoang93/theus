@@ -1,267 +1,332 @@
 use pyo3::prelude::*;
-// use std::collections::HashMap; // Moved to registry
-// use std::sync::{Arc, Mutex}; // Moved to registry
-use crate::audit::AuditPolicy;
-use crate::guards::ContextGuard;
-use crate::delta::Transaction;
-use crate::registry;
-use pyo3::types::PyAnyMethods;
+use pyo3::types::{PyAny, PyDict, PyList};
+use crate::structures::{State, ContextError, OutboxMsg};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
-#[pyclass(subclass)]
-pub struct Engine {
-    ctx: PyObject, 
-    // process_registry: HashMap<String, PyObject>, // Moved to global registry
-    audit_policy: Option<AuditPolicy>,
-    strict_mode: bool,
-}
+pyo3::create_exception!(theus_core, WriteTimeoutError, pyo3::exceptions::PyTimeoutError);
 
-impl Engine {
-    fn raise_audit_error(py: Python, err: crate::audit::AuditError) -> PyResult<PyObject> {
-        let audit_mod = PyModule::import(py, "theus.audit")?;
-        
-        match err {
-            crate::audit::AuditError::Block(msg) => {
-                 let exc = audit_mod.getattr("AuditBlockError")?;
-                 Err(PyErr::from_value(exc.call1((msg,))?))
-            },
-            crate::audit::AuditError::Interlock(msg) => {
-                 let exc = audit_mod.getattr("AuditInterlockError")?;
-                 Err(PyErr::from_value(exc.call1((msg,))?))
-            }
-        }
-    }
+/// Helper to collect outbox messages in Transaction
+#[pyclass]
+pub struct OutboxCollector {
+    buffer: Arc<Mutex<Vec<OutboxMsg>>>,
 }
 
 #[pymethods]
-impl Engine {
-    #[new]
-    #[pyo3(signature = (ctx, strict_mode=None, audit_recipe=None))]
-    fn new(py: Python, ctx: PyObject, strict_mode: Option<bool>, audit_recipe: Option<PyObject>) -> Self {
-        let is_strict = strict_mode.unwrap_or(false);
-        let mut policy = None;
-        if let Some(recipe) = audit_recipe {
-             if let Ok(p) = AuditPolicy::from_python(py, recipe) {
-                 policy = Some(p);
-             } else {
-                 eprintln!("WARNING: Failed to parse Audit Policy");
-             }
-        }
+impl OutboxCollector {
+    fn add(&self, msg: OutboxMsg) {
+        self.buffer.lock().unwrap().push(msg);
+    }
+}
 
-        Engine {
-            ctx,
-            // process_registry: HashMap::new(),
-            audit_policy: policy,
-            strict_mode: is_strict,
-        }
+#[pyclass(subclass)]
+pub struct TheusEngine {
+    state: Py<State>,
+    outbox: Arc<Mutex<Vec<OutboxMsg>>>,
+    worker: Arc<Mutex<Option<PyObject>>>,
+    pub schema: Arc<Mutex<Option<PyObject>>>,
+}
+
+#[pymethods]
+impl TheusEngine {
+    #[new]
+    fn new(py: Python) -> PyResult<Self> {
+        let state = Py::new(py, State::new(None, None, None, 1, 1000, py)?)?;
+        Ok(TheusEngine { 
+            state,
+            outbox: Arc::new(Mutex::new(Vec::new())),
+            worker: Arc::new(Mutex::new(None)),
+            schema: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    #[getter]
+    fn state(&self, py: Python) -> Py<State> {
+        self.state.clone_ref(py)
+    }
+
+    // Return Transaction.
+    #[pyo3(signature = (write_timeout_ms=5000))]
+    fn transaction(slf: Py<TheusEngine>, py: Python, write_timeout_ms: u64) -> PyResult<Transaction> {
+        Ok(Transaction {
+            engine: slf,
+            pending_data: PyDict::new_bound(py).unbind(),
+            pending_heavy: PyDict::new_bound(py).unbind(),
+            pending_signal: PyList::empty_bound(py).unbind(), // Fix: PyList
+            pending_outbox: Arc::new(Mutex::new(Vec::new())),
+            start_time: None,
+            write_timeout_ms,
+        })
+    }
+
+    fn commit_state(&mut self, state: Py<State>) {
+        self.state = state;
     }
     
-    fn register_process(&mut self, name: String, func: PyObject) {
-        registry::register_process(name, func);
+    fn attach_worker(&self, worker: PyObject) {
+        let mut w = self.worker.lock().unwrap();
+        *w = Some(worker);
     }
-
-    #[pyo3(signature = (process_name, **kwargs))]
-    fn execute_process(&mut self, py: Python, process_name: String, kwargs: Option<&Bound<'_, pyo3::types::PyDict>>) -> PyResult<PyObject> {
-        let func = registry::get_process(py, &process_name)
-            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(format!("Process '{}' not found", process_name)))?;
-        
-        let ctx_bound = self.ctx.bind(py);
-
-        if let Some(policy) = &mut self.audit_policy {
-             let audit_input = kwargs.map(|d| d.as_any());
-             if let Err(e) = policy.evaluate(py, &process_name, "input", ctx_bound, audit_input) {
-                  return Self::raise_audit_error(py, e);
-             }
-        }
-        
-        // Transaction (New PyClass)
-        // ACID Process Guarantee: Always create transaction to ensure Rollback/Atomic behavior.
-        // Strict Mode controls Audit/Permission enforcement, not Transaction mechanism.
-        let tx = Some(Py::new(py, Transaction::new())?);
-
-        let func_bound = func.bind(py);
-        let contract = func_bound.getattr("_pop_contract")
-             .map_err(|_| pyo3::exceptions::PyAttributeError::new_err(format!("Process '{}' usually needs @process decorator", process_name)))?;
-             
-        let inputs = contract.getattr("inputs")?.extract::<Vec<String>>()?;
-        let outputs = contract.getattr("outputs")?.extract::<Vec<String>>()?;
-        let declared_errors = contract.getattr("errors")?.extract::<Vec<String>>()?;
-        
-        // ContextGuard(ctx, inputs, outputs, "", tx)
-        // Use the RUST ContextGuard directly for performance and correctness
-        let guard_struct = ContextGuard::new_internal(
-            self.ctx.clone_ref(py), 
-            inputs, 
-            outputs, 
-            "".to_string(),
-            tx.as_ref().map(|t| t.clone_ref(py)),
-            false, // Process Guard is NOT admin
-            self.strict_mode,
-        )?;
-        let guard = Py::new(py, guard_struct)?;
-        
-        let args = (guard,);
-        let result = match func_bound.call(args, kwargs) {
-            Ok(res) => res.unbind(),
-            Err(e) => {
-                if let Some(tx) = &tx {
-                     let tx_bound = tx.bind(py);
-                     tx_bound.borrow_mut().rollback(py)?; 
-                } 
-                
-                // Check if error is declared or is a ContractViolationError
-                let err_type = e.get_type(py).name()?.to_string();
-                if declared_errors.contains(&err_type) {
-                     return Err(e);
-                }
-                
-                // Allow builtin PermissionError (mapped from our PyPermissionError) to pass?
-                // Or wrap it?
-                // If it is PermissionError, it means Guard blocked it. Is it a Contract Violation?
-                // Yes, but Python test might expect ContractViolationError.
-                // But generally PermissionError IS the enforcement.
-                
-                // If it is ALREADY ContractViolationError (from FrozenList etc), allow it.
-                if err_type == "ContractViolationError" || err_type == "PermissionError" {
-                     return Err(e);
-                }
-
-                // Otherwise, wrap as Undeclared Error Violation
-                let contracts_mod = PyModule::import(py, "theus.contracts")?;
-                let exc = contracts_mod.getattr("ContractViolationError")?;
-                let msg = format!("Undeclared Error Violation: Caught {}: {}", err_type, e);
-                return Err(PyErr::from_value(exc.call1((msg,))?));
-            }
-        };
-        
-        if let Some(policy) = &mut self.audit_policy {
-            // Use Admin Guard to allow Audit to see Shadows and Read All
-            let audit_guard_struct = ContextGuard::new_internal(
-                self.ctx.clone_ref(py),
-                vec![], // inputs ignored in admin
-                vec![], // outputs ignored in admin
-                "".to_string(),
-                tx.as_ref().map(|t| t.clone_ref(py)),
-                true, // IS ADMIN
-                self.strict_mode,
-            )?;
-            let audit_guard = Py::new(py, audit_guard_struct)?;
-
-            if let Err(e) = policy.evaluate(py, &process_name, "output", audit_guard.bind(py), None) {
-                  if let Some(tx) = &tx {
-                      let tx_bound = tx.bind(py);
-                      tx_bound.borrow_mut().rollback(py)?;
-                  }
-                  return Self::raise_audit_error(py, e);
-            }
-        }
-        
-        if let Some(tx) = &tx {
-             let tx_bound = tx.bind(py);
-             tx_bound.borrow_mut().commit(py)?;
-        }
-
-        Ok(result)
+    
+    fn set_schema(&self, schema: PyObject) {
+        let mut s = self.schema.lock().unwrap();
+        *s = Some(schema);
     }
-        #[pyo3(signature = (step, **kwargs))]
-    fn execute_flux_step(&mut self, py: Python, step: PyObject, kwargs: Option<&Bound<'_, pyo3::types::PyDict>>) -> PyResult<()> {
-        // Resolve Step Type
-        if let Ok(name) = step.extract::<String>(py) {
-             self.execute_process(py, name, kwargs)?;
-             return Ok(());
+    
+    fn process_outbox(&self, py: Python) -> PyResult<()> {
+        let msgs: Vec<OutboxMsg>;
+        {
+            let mut q = self.outbox.lock().unwrap();
+            if q.is_empty() {
+                return Ok(());
+            }
+            msgs = q.drain(..).collect();
         }
-
-        if let Ok(dict) = step.bind(py).downcast::<pyo3::types::PyDict>() {
-             // 1. Process Call
-             if let Some(sub_name) = dict.get_item("process")? {
-                 let name = sub_name.extract::<String>()?;
-                 self.execute_process(py, name, kwargs)?;
-                 return Ok(());
-             }
-
-             // 2. Flux Control
-             if let Some(flux_type) = dict.get_item("flux")? {
-                 let f_type = flux_type.extract::<String>()?;
-                 
-                 if f_type == "run" {
-                     if let Some(steps) = dict.get_item("steps")? {
-                         let steps_list = steps.downcast::<pyo3::types::PyList>()?;
-                         for s in steps_list.iter() {
-                             self.execute_flux_step(py, s.unbind(), kwargs)?;
-                         }
-                     }
-                 }
-                 else if f_type == "if" {
-                     let condition = dict.get_item("condition")?.map(|s| s.extract::<String>()).transpose()?.unwrap_or("False".to_string());
-                     if self.evaluate_condition(py, &condition)? {
-                         if let Some(steps) = dict.get_item("then")? {
-                             let steps_list = steps.downcast::<pyo3::types::PyList>()?;
-                             for s in steps_list.iter() {
-                                 self.execute_flux_step(py, s.unbind(), kwargs)?;
-                             }
-                         }
-                     } else if let Some(steps) = dict.get_item("else")? {
-                         let steps_list = steps.downcast::<pyo3::types::PyList>()?;
-                         for s in steps_list.iter() {
-                             self.execute_flux_step(py, s.unbind(), kwargs)?;
-                         }
-                     }
-                 }
-                 else if f_type == "while" {
-                     let condition = dict.get_item("condition")?.map(|s| s.extract::<String>()).transpose()?.unwrap_or("False".to_string());
-                     // Loop Limit Safety? 
-                     // TODO: Implement max_ops counter from Python equivalent
-                     let mut safety = 0;
-                     while self.evaluate_condition(py, &condition)? {
-                         safety += 1;
-                         if safety > 10000 {
-                             return Err(pyo3::exceptions::PyRuntimeError::new_err("Flux Loop Safety Trip"));
-                         }
-                         
-                         if let Some(steps) = dict.get_item("do")? {
-                             let steps_list = steps.downcast::<pyo3::types::PyList>()?;
-                             for s in steps_list.iter() {
-                                 self.execute_flux_step(py, s.unbind(), kwargs)?;
-                             }
-                         }
-                     }
-                 }
+        
+        // Call worker
+        let w_guard = self.worker.lock().unwrap();
+        if let Some(ref worker) = *w_guard {
+             for msg in msgs {
+                 // Convert OutboxMsg to Python object? 
+                 // It is a PyClass, so passing it is fine.
+                 // We need to convert `msg` (Rust struct) to PyObject.
+                 // OutboxMsg implements Clone.
+                 // But `msg` is owned `OutboxMsg`. 
+                 // To pass to Python, we wrap it in Py::new or into_py?
+                 // Since OutboxMsg is #[pyclass], we can create new Python instance.
+                 let py_msg = Py::new(py, msg)?;
+                 worker.call1(py, (py_msg,))?;
              }
         }
         Ok(())
     }
 
-    fn evaluate_condition(&self, py: Python, condition: &str) -> PyResult<bool> {
-        // Construct safe locals mostly matches Python logic
-        let locals = pyo3::types::PyDict::new(py);
-        locals.set_item("ctx", self.ctx.bind(py))?;
-        // We try to access domain/global from ctx if they exist
-        if let Ok(domain) = self.ctx.bind(py).getattr("domain_ctx") {
-            locals.set_item("domain", domain)?;
-        }
-        if let Ok(global) = self.ctx.bind(py).getattr("global_ctx") {
-            locals.set_item("global", global)?;
-        }
-        // Minimal builtins
-        // py.eval handles this if we pass strict globals?
-        // Let's use py.eval(condition, None, locals)
+    #[pyo3(signature = (expected_version, data=None, heavy=None, signal=None))]
+    fn compare_and_swap(
+        &mut self, 
+        py: Python, 
+        expected_version: u64, 
+        data: Option<PyObject>, 
+        heavy: Option<PyObject>,
+        signal: Option<PyObject>
+    ) -> PyResult<()> {
+        let current_state = self.state.bind(py);
+        let current_version: u64 = current_state.getattr("version")?.extract()?;
         
-        // Execute Python eval safely
-        // PyO3 0.23 eval requires &CStr
-        let c_cond = std::ffi::CString::new(condition)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid CString: {}", e)))?;
-            
-        let res = py.eval(&c_cond, None, Some(&locals))?;
-        let val: bool = res.extract()?;
-        Ok(val)
-    }
-    
-    #[pyo3(signature = (steps, **kwargs))]
-    fn execute_workflow(&mut self, py: Python, steps: PyObject, kwargs: Option<&Bound<'_, pyo3::types::PyDict>>) -> PyResult<PyObject> {
-        let steps_list = steps.bind(py).downcast::<pyo3::types::PyList>()?;
-        for step in steps_list.iter() {
-             self.execute_flux_step(py, step.unbind(), kwargs)?;
+        if current_version != expected_version {
+            return Err(ContextError::new_err(format!(
+                "CAS Version Mismatch: Expected {}, Found {}", 
+                expected_version, current_version
+            )));
         }
-        Ok(self.ctx.clone_ref(py))
+
+        let new_state_obj = current_state.call_method(
+            "update", 
+            (data, heavy, signal), 
+            None
+        )?;
+        
+        self.state = new_state_obj.extract::<Py<State>>()?;
+        Ok(())
+    }
+
+    #[pyo3(signature = (name, func))]
+    fn execute_process_async<'py>(
+        &self, 
+        py: Python<'py>, 
+        name: String, 
+        func: PyObject
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let _ = name; 
+        
+        let inspect = py.import("inspect")?;
+        let is_coroutine = inspect.call_method1("iscoroutinefunction", (&func,))?.is_truthy()?;
+        
+        // Create Ephemeral Context (RAII)
+        let local_dict = PyDict::new_bound(py);
+        let ctx = Py::new(py, crate::structures::ProcessContext {
+            state: self.state.clone_ref(py),
+            local: local_dict.unbind(),
+        })?;
+
+        let args = (ctx,);
+
+        let coro_obj: PyObject = if is_coroutine {
+            func.call1(py, args)?
+        } else {
+            let asyncio = py.import("asyncio")?;
+            asyncio.call_method1("to_thread", (func, args.0))?.unbind()
+        };
+        
+        Ok(coro_obj.bind(py).clone())
     }
 }
 
+// Transaction
+// Removed duplicate `pyo3::types` import
+// PyList should be imported at top level or merged.
+
+// ... 
+
+#[pyclass]
+pub struct Transaction {
+    engine: Py<TheusEngine>,
+    pending_data: Py<PyDict>,
+    pending_heavy: Py<PyDict>,
+    pending_signal: Py<PyList>, // Changed from PyDict to PyList
+    pending_outbox: Arc<Mutex<Vec<OutboxMsg>>>,
+    start_time: Option<Instant>,
+    write_timeout_ms: u64,
+}
+
+#[pymethods]
+impl Transaction {
+    #[new]
+    #[pyo3(signature = (engine=None, write_timeout_ms=5000))]
+    fn new(py: Python, engine: Option<Py<TheusEngine>>, write_timeout_ms: u64) -> PyResult<Self> {
+        let engine_obj = match engine {
+            Some(e) => e,
+            None => {
+                let engine_struct = TheusEngine::new(py)?;
+                Py::new(py, engine_struct)?
+            }
+        };
+
+        Ok(Transaction {
+            engine: engine_obj,
+            pending_data: PyDict::new_bound(py).unbind(),
+            pending_heavy: PyDict::new_bound(py).unbind(),
+            pending_signal: PyList::empty_bound(py).unbind(), // Init empty list
+            pending_outbox: Arc::new(Mutex::new(Vec::new())),
+            start_time: None,
+            write_timeout_ms,
+        })
+    }
+    
+    // ... getters ...
+    #[getter]
+    fn outbox(&self) -> OutboxCollector {
+        OutboxCollector {
+            buffer: self.pending_outbox.clone(),
+        }
+    }
+
+    #[getter]
+    fn write_timeout_ms(&self) -> u64 {
+        self.write_timeout_ms
+    }
+
+    #[pyo3(signature = (data=None, heavy=None, signal=None))]
+    fn update(&self, py: Python, data: Option<PyObject>, heavy: Option<PyObject>, signal: Option<PyObject>) -> PyResult<()> {
+        if let Some(d) = data {
+             let d_bound = d.bind(py);
+             self.pending_data.bind(py).call_method1("update", (d_bound,))?;
+        }
+        if let Some(h) = heavy {
+             let h_bound = h.bind(py);
+             self.pending_heavy.bind(py).call_method1("update", (h_bound,))?;
+        }
+        if let Some(s) = signal {
+             // For signals, we append the delta dict to the list to preserve sequence
+             let s_bound = s.bind(py);
+             self.pending_signal.bind(py).append(s_bound)?;
+        }
+        Ok(())
+    }
+
+    fn __enter__(mut slf: PyRefMut<Self>, _py: Python) -> PyResult<Py<Self>> {
+        slf.start_time = Some(Instant::now());
+        Ok(slf.into())
+    }
+
+    fn __exit__(
+        &self, 
+        py: Python, 
+        _exc_type: Option<PyObject>, 
+        _exc_value: Option<PyObject>, 
+        _traceback: Option<PyObject>
+    ) -> PyResult<()> {
+        
+        if _exc_type.is_some() {
+            return Ok(());
+        }
+
+        // Enforce Timeout
+        if let Some(start) = self.start_time {
+             if start.elapsed().as_millis() as u64 > self.write_timeout_ms {
+                 return Err(WriteTimeoutError::new_err(format!(
+                     "Transaction timed out after {}ms (limit {}ms)", 
+                     start.elapsed().as_millis(), 
+                     self.write_timeout_ms
+                 )));
+             }
+        }
+
+        let engine = self.engine.bind(py);
+        let current_state_obj = engine.getattr("state")?;
+        
+        // Optimistic Update: Create new state version
+        let new_state_obj = current_state_obj.call_method(
+            "update", 
+            (self.pending_data.clone_ref(py), self.pending_heavy.clone_ref(py), self.pending_signal.clone_ref(py)), 
+            None
+        )?;
+
+        // Schema Enforcement (Phase 32.2)
+        {
+             let engine_borrow = engine.borrow();
+             let schema_guard = engine_borrow.schema.lock().unwrap();
+             if let Some(ref schema) = *schema_guard {
+                 // Convert State.data to Dict for Pydantic validation
+                 // We validate the *Resulting* state data to ensure consistency.
+                 
+                 // Access property via getattr, not call_method
+                 // Access property via getattr, not call_method
+                 let frozen_data = new_state_obj.getattr("data")?;
+                 let dict_data = frozen_data.call_method0("to_dict")?;
+                 
+                 // Pydantic model_validate
+                 if let Err(e) = schema.call_method1(py, "model_validate", (dict_data,)) {
+                      return Err(crate::config::SchemaViolationError::new_err(format!("Schema Violation: {}", e)));
+                 }
+             }
+        }
+
+        engine.call_method1("commit_state", (new_state_obj,))?;
+        
+        // Commit Outbox to Engine
+        {
+            let mut pending = self.pending_outbox.lock().unwrap();
+            let msgs = pending.drain(..).collect::<Vec<_>>();
+            
+            // Access Engine Outbox
+            let engine_ref = engine.borrow();
+            engine_ref.outbox.lock().unwrap().extend(msgs);
+        }
+
+        Ok(())
+    }
+
+    /// Internal: Get shadow copy for CoW/Tracking
+    pub fn get_shadow(&self, py: Python, val: PyObject, _path: Option<String>) -> PyResult<PyObject> {
+        // Simple implementation: Deep copy
+        let copy_module = py.import("copy")?;
+        let shadow = copy_module.call_method1("deepcopy", (val,))?;
+        Ok(shadow.unbind())
+    }
+
+    /// Internal: Log operation for Audit
+    #[allow(clippy::too_many_arguments)]
+    pub fn log_internal(
+        &self, 
+        _path: String, 
+        _op: String, 
+        _new_val: Option<PyObject>, 
+        _old_val: Option<PyObject>, 
+        _obj_ref: Option<PyObject>, 
+        _key: Option<String>
+    ) -> PyResult<()> {
+        // Stub for audit logging from ContextGuard
+        Ok(())
+    }
+}

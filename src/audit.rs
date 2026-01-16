@@ -1,259 +1,281 @@
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use log::warn;
 use pyo3::prelude::*;
-use pyo3::types::PyAny;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuleSpec {
-    pub target_field: String,
-    pub condition: String,
-    pub value: serde_json::Value, 
-    pub level: String, 
-    pub min_threshold: u32,
-    pub max_threshold: u32,
-    pub reset_on_success: bool,
-    pub message: Option<String>,
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+// ============================================================================
+// Exception Types
+// ============================================================================
+
+pyo3::create_exception!(theus_core, AuditBlockError, pyo3::exceptions::PyRuntimeError);
+pyo3::create_exception!(theus_core, AuditAbortError, pyo3::exceptions::PyRuntimeError);
+pyo3::create_exception!(theus_core, AuditStopError, pyo3::exceptions::PyRuntimeError);
+pyo3::create_exception!(theus_core, AuditWarning, pyo3::exceptions::PyUserWarning);
+
+// ============================================================================
+// AuditLevel Enum (S/A/B/C)
+// ============================================================================
+
+/// Audit Level per MIGRATION_AUDIT.md
+/// - S (Stop): Immediate halt on first failure
+/// - A (Abort): Cancel current operation, allow retry
+/// - B (Block): Block after threshold exceeded
+/// - C (Count): Count only, never block
+#[pyclass(eq, eq_int)]
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum AuditLevel {
+    Stop = 0,   // Immediate halt
+    Abort = 1,  // Cancel operation
+    Block = 2,  // Block after threshold
+    Count = 3,  // Count only
 }
 
-#[derive(Debug, Clone)]
-pub enum AuditError {
-    Interlock(String),
-    Block(String),
+// ============================================================================
+// Ring Buffer Entry (Immutable)
+// ============================================================================
+
+#[pyclass]
+#[derive(Clone)]
+pub struct AuditLogEntry {
+    #[pyo3(get)]
+    pub timestamp: f64,
+    #[pyo3(get)]
+    pub key: String,
+    #[pyo3(get)]
+    pub message: String,
 }
 
-pub struct AuditTracker {
-    pub counters: HashMap<String, u32>,
-}
-
-impl AuditTracker {
-    pub fn new() -> Self {
-        Self {
-            counters: HashMap::new(),
-        }
-    }
-
-    pub fn increment(&mut self, key: &str) -> u32 {
-        let count = self.counters.entry(key.to_string()).or_insert(0);
-        *count += 1;
-        *count
-    }
-
-    pub fn reset(&mut self, key: &str) {
-        if let Some(count) = self.counters.get_mut(key) {
-            *count = 0;
-        }
+#[pymethods]
+impl AuditLogEntry {
+    fn __str__(&self) -> String {
+        format!("[{}] {}: {}", self.timestamp, self.key, self.message)
     }
 }
 
-pub struct AuditPolicy {
-    pub input_rules: HashMap<String, Vec<RuleSpec>>,
-    pub output_rules: HashMap<String, Vec<RuleSpec>>,
-    pub tracker: AuditTracker,
+// ============================================================================
+// Ring Buffer (Append-Only, Fixed Capacity)
+// ============================================================================
+
+struct RingBuffer {
+    buffer: Vec<AuditLogEntry>,
+    capacity: usize,
+    write_pos: usize,
+    count: usize,
 }
 
-impl AuditPolicy {
-    pub fn new() -> Self {
-        Self {
-            input_rules: HashMap::new(),
-            output_rules: HashMap::new(),
-            tracker: AuditTracker::new(),
+impl RingBuffer {
+    fn new(capacity: usize) -> Self {
+        RingBuffer {
+            buffer: Vec::with_capacity(capacity),
+            capacity,
+            write_pos: 0,
+            count: 0,
         }
     }
 
-    pub fn from_python(py: Python, recipe: PyObject) -> PyResult<Self> {
-        let recipe_bound = recipe.bind(py);
-        let definitions = recipe_bound.getattr("definitions")?.extract::<HashMap<String, PyObject>>()?;
-        
-        let mut policy = AuditPolicy::new();
-        
-        for (process_name, spec_obj) in definitions {
-            let spec = spec_obj.bind(py);
-            
-            // Input Rules
-            if let Ok(inputs) = spec.getattr("input_rules") {
-                if let Ok(rules_list) = inputs.extract::<Vec<PyObject>>() {
-                   let mut rules = Vec::new();
-                   for r_obj in rules_list {
-                       rules.push(Self::parse_rule(py, r_obj.bind(py))?);
-                   }
-                   policy.input_rules.insert(process_name.clone(), rules);
-                }
-            }
-            
-            // Output Rules
-            if let Ok(outputs) = spec.getattr("output_rules") {
-                if let Ok(rules_list) = outputs.extract::<Vec<PyObject>>() {
-                   let mut rules = Vec::new();
-                   for r_obj in rules_list {
-                       rules.push(Self::parse_rule(py, r_obj.bind(py))?);
-                   }
-                   policy.output_rules.insert(process_name.clone(), rules);
-                }
-            }
-        }
-        
-        Ok(policy)
-    }
-
-    fn parse_rule(_py: Python, rule_obj: &Bound<'_, PyAny>) -> PyResult<RuleSpec> {
-        let target_field = rule_obj.getattr("target_field")?.extract::<String>()?;
-        let condition = rule_obj.getattr("condition")?.extract::<String>()?;
-        let level = rule_obj.getattr("level")?.extract::<String>()?;
-        let min_threshold = rule_obj.getattr("min_threshold")?.extract::<u32>().unwrap_or(0);
-        let max_threshold = rule_obj.getattr("max_threshold")?.extract::<u32>().unwrap_or(1);
-        let reset_on_success = rule_obj.getattr("reset_on_success")?.extract::<bool>().unwrap_or(true);
-        let message = rule_obj.getattr("message")?.extract::<Option<String>>().unwrap_or(None);
-        
-        let val_obj = rule_obj.getattr("value")?;
-        let value = Self::py_to_json(val_obj)?;
-
-        Ok(RuleSpec {
-            target_field,
-            condition,
-            value,
-            level,
-            min_threshold,
-            max_threshold,
-            reset_on_success,
-            message,
-        })
-    }
-
-    fn py_to_json(val: Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
-        if val.is_none() {
-            return Ok(serde_json::Value::Null);
-        }
-        if let Ok(b) = val.extract::<bool>() {
-            return Ok(serde_json::Value::Bool(b));
-        }
-        if let Ok(i) = val.extract::<i64>() {
-            return Ok(serde_json::json!(i));
-        }
-        if let Ok(f) = val.extract::<f64>() {
-            return Ok(serde_json::json!(f));
-        }
-        if let Ok(s) = val.extract::<String>() {
-            return Ok(serde_json::Value::String(s));
-        }
-        // Fallback to string representation for complex types
-        Ok(serde_json::Value::String(val.to_string()))
-    }
-    
-    // Use Bound<'py, PyAny>
-    fn resolve_path<'a>(&self, _py: Python<'a>, ctx: &Bound<'a, PyAny>, path: &str, extra_data: Option<&Bound<'a, PyAny>>) -> PyResult<Option<Bound<'a, PyAny>>> {
-        if let Some(data) = extra_data {
-            if let Ok(val) = data.get_item(path) {
-                 return Ok(Some(val));
-            }
-        }
-
-        let mut current = ctx.clone();
-        for part in path.split('.') {
-            if let Some(method_name) = part.strip_suffix("()") {
-                let obj = current.getattr(method_name)?;
-                current = obj.call0()?;
-            } else if let Ok(attr) = current.getattr(part) {
-                current = attr;
-            } else if let Ok(item) = current.get_item(part) {
-                 current = item;
-            } else {
-                 return Ok(None); 
-            }
-        }
-        Ok(Some(current))
-    }
-    
-    fn check_condition(&self, actual: &Bound<'_, PyAny>, condition: &str, limit_val: &serde_json::Value) -> bool {
-        match condition {
-            "min" => {
-                if let Ok(val) = actual.extract::<f64>() {
-                    if let Some(limit) = limit_val.as_f64() {
-                        return val >= limit;
-                    }
-                }
-            },
-            "max" => {
-                if let Ok(val) = actual.extract::<f64>() {
-                    if let Some(limit) = limit_val.as_f64() {
-                        return val <= limit;
-                    }
-                }
-            },
-            "eq" => {
-                 if let Some(s) = limit_val.as_str() {
-                     let actual_str = actual.to_string();
-                     return actual_str == s;
-                 }
-            },
-             "neq" => {
-                 if let Some(s) = limit_val.as_str() {
-                     let actual_str = actual.to_string();
-                     return actual_str != s;
-                 }
-             },
-            "min_len" => {
-                if let Ok(len) = actual.len() {
-                    if let Some(limit) = limit_val.as_u64() {
-                        return len >= (limit as usize);
-                    }
-                }
-            },
-            "max_len" => {
-                if let Ok(len) = actual.len() {
-                    if let Some(limit) = limit_val.as_u64() {
-                        return len <= (limit as usize);
-                    }
-                }
-            }
-            _ => return true, 
-        }
-        true
-    }
-
-    pub fn evaluate<'a>(&mut self, py: Python<'a>, process_name: &str, stage: &str, ctx: &Bound<'a, PyAny>, extra_data: Option<&Bound<'a, PyAny>>) -> Result<(), AuditError> {
-        let rules = if stage == "input" {
-            self.input_rules.get(process_name).cloned()
+    fn push(&mut self, entry: AuditLogEntry) {
+        if self.buffer.len() < self.capacity {
+            self.buffer.push(entry);
         } else {
-            self.output_rules.get(process_name).cloned()
-        };
+            self.buffer[self.write_pos] = entry;
+        }
+        self.write_pos = (self.write_pos + 1) % self.capacity;
+        self.count += 1;
+    }
+
+    fn get_all(&self) -> Vec<AuditLogEntry> {
+        if self.buffer.len() < self.capacity {
+            // Not yet wrapped around
+            self.buffer.clone()
+        } else {
+            // Wrapped - return in order from oldest to newest
+            let mut result = Vec::with_capacity(self.capacity);
+            for i in 0..self.capacity {
+                let idx = (self.write_pos + i) % self.capacity;
+                result.push(self.buffer[idx].clone());
+            }
+            result
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.buffer.len()
+    }
+}
+
+// ============================================================================
+// AuditRecipe (Enhanced with Level and Dual Thresholds)
+// ============================================================================
+
+#[pyclass]
+#[derive(Clone)]
+pub struct AuditRecipe {
+    #[pyo3(get, set)]
+    pub level: AuditLevel,
+    #[pyo3(get, set)]
+    pub threshold_max: u32,
+    #[pyo3(get, set)]
+    pub threshold_min: u32,  // Warning threshold
+    #[pyo3(get, set)]
+    pub reset_on_success: bool,
+}
+
+#[pymethods]
+impl AuditRecipe {
+    #[new]
+    #[pyo3(signature = (level=None, threshold_max=3, threshold_min=0, reset_on_success=true))]
+    fn new(level: Option<AuditLevel>, threshold_max: u32, threshold_min: u32, reset_on_success: bool) -> Self {
+        AuditRecipe {
+            level: level.unwrap_or(AuditLevel::Block),
+            threshold_max,
+            threshold_min,
+            reset_on_success,
+        }
+    }
+}
+
+// ============================================================================
+// AuditSystem (Enhanced)
+// ============================================================================
+
+#[pyclass(subclass)]
+pub struct AuditSystem {
+    recipe: AuditRecipe,
+    counts: HashMap<String, u32>,
+    ring_buffer: Arc<Mutex<RingBuffer>>,
+}
+
+#[pymethods]
+impl AuditSystem {
+    #[new]
+    #[pyo3(signature = (recipe=None, capacity=1000))]
+    fn new(recipe: Option<AuditRecipe>, capacity: usize) -> Self {
+        let r = recipe.unwrap_or(AuditRecipe {
+            level: AuditLevel::Block,
+            threshold_max: 3,
+            threshold_min: 0,
+            reset_on_success: true,
+        });
         
-        if let Some(rule_list) = rules {
-            for rule in rule_list {
-                let actual_val_opt = self.resolve_path(py, ctx, &rule.target_field, extra_data).unwrap_or(None);
-                
-                let passed = if let Some(val) = &actual_val_opt {
-                    self.check_condition(val, &rule.condition, &rule.value)
-                } else {
-                    true 
-                };
-                
-                if !passed {
-                    let key = format!("{}:{}:{}", process_name, rule.target_field, rule.condition);
-                    let count = self.tracker.increment(&key);
-                    
-                    let actual_str = actual_val_opt.map(|v| v.to_string()).unwrap_or("None".to_string());
-                    
-                    if count >= rule.max_threshold {
-                         self.tracker.reset(&key);
-                         let default_msg = format!("[{}] Rule '{}' violated on '{}'. Value={}. Level {}", stage, rule.condition, rule.target_field, actual_str, rule.level);
-                         let msg = rule.message.clone().unwrap_or(default_msg);
-                         
-                         match rule.level.as_str() {
-                             "S" | "A" => return Err(AuditError::Interlock(msg)),
-                             "B" => return Err(AuditError::Block(msg)),
-                             _ => warn!("{}", msg),
-                         }
-                     } else if count >= rule.min_threshold {
-                        warn!("[EARLY WARNING] Rule '{}' violated on '{}'. Count: {}", rule.condition, rule.target_field, count);
-                     }
-                } else if rule.reset_on_success { 
-                    let key = format!("{}:{}:{}", process_name, rule.target_field, rule.condition);
-                    self.tracker.reset(&key);
+        AuditSystem {
+            recipe: r,
+            counts: HashMap::new(),
+            ring_buffer: Arc::new(Mutex::new(RingBuffer::new(capacity))),
+        }
+    }
+
+    /// Log a failure event. Behavior depends on AuditLevel.
+    pub fn log_fail(&mut self, py: Python, key: String) -> PyResult<()> {
+        // First: update count (mutable borrow)
+        let current_count: u32 = {
+            let count = self.counts.entry(key.clone()).or_insert(0);
+            *count += 1;
+            *count  // Copy value before releasing borrow
+        };
+
+        // Now: immutable borrows are safe
+        // Log to ring buffer
+        self.log_internal(&key, &format!("Fail #{}", current_count));
+
+        let threshold_max = self.recipe.threshold_max;
+        let threshold_min = self.recipe.threshold_min;
+
+        match self.recipe.level {
+            AuditLevel::Stop => {
+                // S-Level: Immediate halt on first failure
+                return Err(AuditStopError::new_err(format!(
+                    "Audit Stop: {} triggered immediate halt", key
+                )));
+            }
+            AuditLevel::Abort => {
+                // A-Level: Abort current operation
+                return Err(AuditAbortError::new_err(format!(
+                    "Audit Abort: {} operation cancelled", key
+                )));
+            }
+            AuditLevel::Block => {
+                // B-Level: Block after threshold exceeded
+                if current_count > threshold_max {
+                    return Err(AuditBlockError::new_err(format!(
+                        "Audit Blocked: {} exceeded threshold {}", 
+                        key, threshold_max
+                    )));
                 }
+                // Check warning threshold
+                if threshold_min > 0 && current_count >= threshold_min {
+                    // Emit warning to Python
+                    pyo3::PyErr::warn_bound(
+                        py,
+                        &py.get_type_bound::<AuditWarning>(),
+                        &format!("WARNING: Approaching threshold ({}/{})", current_count, threshold_max),
+                        0
+                    )?;
+                    
+                    // Also log to ring buffer
+                    self.log_internal(&key, &format!("WARN: Approaching threshold ({}/{})", 
+                        current_count, threshold_max));
+                }
+            }
+            AuditLevel::Count => {
+                // C-Level: Count only, never block
+                // No action needed
             }
         }
         
         Ok(())
+    }
+
+    /// Log a success event. Resets counter if configured.
+    pub fn log_success(&mut self, key: String) {
+        self.log_internal(&key, "Success");
+        
+        if self.recipe.reset_on_success {
+            self.counts.insert(key, 0);
+        }
+    }
+
+    /// Get current count for a key.
+    pub fn get_count(&self, key: String) -> u32 {
+        *self.counts.get(&key).unwrap_or(&0)
+    }
+
+    /// Get total count across all keys.
+    pub fn get_count_all(&self) -> usize {
+        self.ring_buffer.lock().unwrap().count
+    }
+
+    /// Log a general event to ring buffer.
+    #[pyo3(signature = (key, message))]
+    pub fn log(&mut self, key: String, message: String) {
+        self.log_internal(&key, &message);
+    }
+
+    /// Get all logs from ring buffer.
+    pub fn get_logs(&self) -> Vec<AuditLogEntry> {
+        self.ring_buffer.lock().unwrap().get_all()
+    }
+
+    /// Get number of logs in buffer.
+    #[getter]
+    pub fn ring_buffer_len(&self) -> usize {
+        self.ring_buffer.lock().unwrap().len()
+    }
+}
+
+impl AuditSystem {
+    fn log_internal(&self, key: &str, message: &str) {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+
+        let entry = AuditLogEntry {
+            timestamp,
+            key: key.to_string(),
+            message: message.to_string(),
+        };
+
+        self.ring_buffer.lock().unwrap().push(entry);
     }
 }

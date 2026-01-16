@@ -1,6 +1,6 @@
 [package]
 name = "theus_core"
-version = "2.2.6"
+version = "3.0.0"
 edition = "2021"
 authors = ["Do Huy Hoang <dohuyhoangvn93@gmail.com>"]
 description = "Theus Rust Core Microkernel"
@@ -12,8 +12,14 @@ name = "theus_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23.3", features = ["extension-module"] }
+pyo3 = { version = "0.23.3", features = ["extension-module", "experimental-async", "abi3-py312"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["full"] }
+rayon = "1.8"
+im = "15.1"
+thiserror = "1.0"
 log = "0.4"
 env_logger = "0.10"
+once_cell = "1.19"

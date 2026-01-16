@@ -1,8 +1,9 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyPermissionError;
 use pyo3::types::{PyList, PyDict};
-use crate::delta::Transaction;
-use crate::structures::{TrackedList, TrackedDict, FrozenList, FrozenDict};
+use crate::engine::Transaction;
+use crate::structures::FrozenDict;
+use crate::tracked::{TrackedList, TrackedDict, FrozenList};
 use crate::zones::{resolve_zone, ContextZone};
 
 #[pyclass(module = "theus_core", dict, subclass)]
@@ -231,7 +232,7 @@ impl ContextGuard {
         // HEAVY Zone Optimization
         if zone != ContextZone::Heavy {
             if let Some(tx) = &self.tx {
-                let mut tx_ref = tx.bind(py).borrow_mut();
+                let tx_ref = tx.bind(py).borrow_mut();
                 tx_ref.log_internal(
                 full_path.clone(),
                 "SET".to_string(),
@@ -239,7 +240,7 @@ impl ContextGuard {
                 old_val,
                 Some(self.target.clone_ref(py)),
                 Some(name.clone())
-            );
+            )?;
             } 
         }
         
@@ -309,7 +310,7 @@ impl ContextGuard {
         // HEAVY Zone Optimization
         if zone != ContextZone::Heavy {
             if let Some(tx) = &self.tx {
-                let mut tx_ref = tx.bind(py).borrow_mut();
+                let tx_ref = tx.bind(py).borrow_mut();
                 tx_ref.log_internal(
                     full_path.clone(),
                     "SET_ITEM".to_string(), 
@@ -317,7 +318,7 @@ impl ContextGuard {
                     old_val,
                     Some(self.target.clone_ref(py)),
                     Some(key.to_string())
-                );
+                )?;
             }
         }
 
