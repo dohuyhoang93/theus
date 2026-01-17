@@ -77,8 +77,9 @@ For AI workloads (Images, Tensors, Embeddings), use the `HEAVY` zone to avoid RA
 ```python
 @process(inputs=[], outputs=['domain_ctx.heavy_frame'])
 def capture_camera(ctx):
-    # Fast write, no undo log overhead
-    ctx.domain_ctx.heavy_frame = np.zeros((1080, 1920, 3)) 
+    # Fast write via Return (Engine maps output to Shared Memory)
+    frame = np.zeros((1080, 1920, 3)) 
+    return frame 
 ```
 
 ---

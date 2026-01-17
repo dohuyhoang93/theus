@@ -16,12 +16,13 @@ class TestLogic(unittest.TestCase):
         # You can use Real Context classes too, just don't attach Engine if not needed
         ctx = WarehouseContext()
         
-        # 2. Call function directly (bypass Engine/Guard for pure logic test)
-        result = add_product(ctx, product_name="TestTV", price=10)
+        # 2. Call function directly (Pure Logic Test)
+        # Note: In V3, processes return data, they don't mutate ctx directly
+        new_items, new_total, _ = add_product(ctx, product_name="TestTV", price=10)
         
-        # 3. Assert State
-        self.assertEqual(len(ctx.domain_ctx.items), 1)
-        self.assertEqual(result, "Added")
+        # 3. Assert Result Data
+        self.assertEqual(len(new_items), 1)
+        self.assertEqual(new_total, 10)
 ```
 
 ## 2. Integration Test Policy (Engine + Audit)

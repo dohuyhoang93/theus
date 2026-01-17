@@ -50,7 +50,7 @@ class WarehouseContext(BaseSystemContext):
     global_ctx: WarehouseConfig = field(default_factory=WarehouseConfig)
 ```
 
-> **Pro Tip (v3.0):** When you declare `items: list`, Theus automatically upgrades it to a **Rust-Native `TrackedList`** at runtime. This provides O(1) audit logging and zero-copy slicing without you changing a single line of code.
+> **Pro Tip (v3.0):** When you declare `items: list`, Theus automatically wraps it in a **Rust-Native `FrozenList`** at runtime. This ensures **Immutability** - you cannot modify the list directly. To change it, a Process must return a new list pattern (Copy-on-Write).
 
 ## 3. Why is Zoning Important?
 When you run a **Replay (Bug Reproduction)**:
@@ -58,17 +58,17 @@ When you run a **Replay (Bug Reproduction)**:
 - Theus will **IGNORE** `sig_restock_needed` (Signal Zone) because it is past noise.
 This ensures **Determinism** - Running 100 times yields the exact same result.
 
-## 4. Locked Context Mechanism
-Theus protects the Context using `LockManager` (enforced by Rust Core).
+## 4. Immutable Snapshot Mechanism
+Theus protects the Context using **Snapshot Isolation** (enforced by Rust Core).
 
-### 4.1. Default State: LOCKED
-As soon as you initialize `Engine(ctx, strict_mode=True)`, the Context switches to a **LOCKED** state.
+### 4.1. Default State: READ-ONLY
+As soon as you initialize `Engine(ctx, strict_mode=True)`, the Context becomes an **Immutable Snapshot**.
 If you try to modify it externally (External Mutation):
 ```python
 # Code outside of @process
 def hack_system(ctx):
     # This will FAIL if strict_mode=True
-    ctx.domain_ctx.total_value = 9999 # -> Raises ContextLockedError!
+    ctx.domain_ctx.total_value = 9999 # -> Raises ContextError (Immutable)
 ```
 The system raises an error to prevent Untraceable Mutations.
 

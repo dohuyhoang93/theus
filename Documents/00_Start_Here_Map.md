@@ -29,9 +29,9 @@
 **Goal:** "I need to understand how Theus ensures reliability. How does the Rust Core work? What is POP?"
 
 *   **Theory:** [**POP Whitepaper v2.0 (Foundational)**](./POP_Whitepaper_v2.0.md)
-    *   *Concepts:* 3-Axis Context, Strict Mode, Neural Darwinism.
-*   **Design:** [**SPECS (Technical Specifications)**](./SPECS/)
-    *   *Concepts:* Rust Microkernel, Tiered Guards, Zero-Copy Heavy Zone.
+    *   *Concepts:* 3-Axis Context, Audit.
+*   **Deep Dive:** [**Theus Tutorials (Human)**](./tutorials/en/)
+    *   *Concepts:* Contracts, Engine Runtime, Flux DSL, Optimizations.
 *   **Philosophy:** [**The POP Manifesto**](./POP_Manifesto.md)
     *   *Concepts:* "Data is Inert", "Process is Logic".
 
@@ -50,20 +50,20 @@
 5.  [**Chapter 11: Workflow Flux DSL**](./tutorials/en/Chapter_11.md) ⭐ (Major v3.0 update)
 6.  [**Chapter 10: Heavy Zone Optimization**](./tutorials/en/Chapter_10.md)
 
-**Phase 3: Internals**
-7.  [**SPECS/12: Engine Runtime**](./SPECS/12_Engine_Runtime.md)
-8.  [**Release Notes v3.0.0**](../RELEASE_NOTES_v3.0.0.md)
-
 ---
 
 ## 📂 Documentation Structure
 
 ```
-Documents/
 ├── tutorials/
-│   ├── ai/          # 🆕 AI-optimized tutorials (7 modules)
-│   └── en/          # Human tutorials (16 chapters)
-├── SPECS/           # Technical specifications (13 files)
+│   ├── ai/          # 🆕 AI-optimized tutorials
+│   └── en/          # Human tutorials
+├── Architecture/    # Technical Design
+│   ├── Decisions/   # (ADR) Accepted Decisions
+│   ├── Proposals/   # (DR) Open Proposals
+│   │   ├── DR_002_Smart_Guards.md 🆕
+│   ├── THEUS_FEATURES.md  # Core Features Overview
+│   └── theus_v3_0_1_architecture.md
 ├── AI_DEVELOPER_GUIDE.md
 ├── POP_Manifesto.md
 └── POP_Whitepaper_v2.0.md

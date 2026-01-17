@@ -12,10 +12,22 @@ When you read a List/Dict from Context with only read permission (`inputs`):
 - You can only read (`get`, `len`, `iter`).
 - *Performance:* Zero-copy view of the data.
 
-### Tracked Structures (Rust)
-When you have write permission (`outputs`):
-- Engine returns `TrackedList` or `TrackedDict`.
-- Modification is allowed, but it logs to `Transaction Delta` instead of modifying the original data immediately (Shadow Mechanism).
+### Copy-on-Write (Safe Mutation)
+When you have write permission (`outputs`), you do **NOT** modify the Context directly.
+Instead, you follow the **Copy-on-Write** pattern:
+1.  Read the `FrozenList` from Context.
+2.  Create a mutable local copy (Python `list()`).
+3.  Modify the local copy.
+4.  **Return** the new list (or let Theus map it to outputs).
+
+```python
+# ✅ CORRECT PATTERN
+def add_item(ctx):
+    current_items = ctx.domain.items  # Read FrozenList
+    new_items = list(current_items)   # Copy to Mutable
+    new_items.append("New Thing")     # Modify
+    return new_items                  # Return for Commit
+```
 
 ## 2. Zone Enforcement (The Zone Police)
 The Guard checks not just permissions, but **Architecture**.
@@ -47,12 +59,21 @@ Conversely, you are allowed to write to any Zone (Data, Signal, Meta) as long as
 ## 4. Zero Trust Memory
 Theus does not believe in "temporary variables".
 ```python
-# Bad Code (Theus warns or blocks)
+# Bad Code (Fails in v3.0)
 my_list = ctx.domain_ctx.items
 # ... do something long ...
-my_list.append(x) # Dangerous! my_list might be detached from Transaction
+my_list.append(x) # Error! 'FrozenList' object has no attribute 'append'
 ```
-Theus encourages you to always access via `ctx.` to ensure you are interacting with the **latest Guard Proxy**.
+Theus blocks in-place mutation to force you to use the **Return Pattern**. This ensures all changes are explicit and auditable at the function boundary.
+    
+> [!WARNING]
+> **The Zero-Copy Caveat (Crucial for V3)**
+> To achieve Rust-like performance, Theus V3 uses **Zero-Copy Reads**.
+> *   When you access `ctx.domain.items`, you get a direct view of the underlying memory.
+> *   **Do NOT** attempt to mutate this object in-place (e.g., `items.append()`), even if Python allows it.
+> *   If you do, you bypass the Transaction Rollback mechanism. If your process crashes later, the change **WILL PERSIST** (Data Corruption).
+> *   **ALWAYS** use Copy-on-Write: `new_list = list(ctx.domain.items)`.
+
 
 ---
 **Exercise:**

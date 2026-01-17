@@ -61,21 +61,28 @@ def my_process(ctx, item_name: str, value: int):
     if value < 0:
         raise ValueError("Value must be positive")
     
-    # 2. Read inputs (immutable)
+    # 2. Read inputs (immutable snapshot)
     max_limit = ctx.global_.max_limit
+    current_items = ctx.domain.items
+    current_counter = ctx.domain.counter
     
-    # 3. Business logic
+    # 3. Business logic (Compute New State)
+    # Copy-on-Write is required for collections
     new_item = {"name": item_name, "value": value}
     
-    # 4. Write outputs
-    ctx.domain.items.append(new_item)
-    ctx.domain.counter += 1
+    new_items = list(current_items)
+    new_items.append(new_item)
     
-    # 5. Trigger signal if needed
-    if ctx.domain.counter > max_limit:
-        ctx.domain.sig_alert = True
+    new_counter = current_counter + 1
     
-    return "Success"
+    # 4. Determine Signal
+    alert = False
+    if new_counter > max_limit:
+        alert = True
+    
+    # 5. Return Data (Engine handles Atomic Commit)
+    # Returns map to outputs: [items, counter, sig_alert]
+    return new_items, new_counter, alert
 ```
 
 ---

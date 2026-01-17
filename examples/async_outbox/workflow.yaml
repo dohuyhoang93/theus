@@ -1,0 +1,17 @@
+
+name: demo_async_outbox
+version: 1.0.0
+
+steps:
+  # 1. Start Async Job
+  - process: p_spawn_background_job
+      
+  # 2. Do Parallel Sync Work (Concurrency Demo)
+  - process: p_do_sync_work
+  - process: p_do_sync_work
+      
+  # 3. Join Async Job
+  - process: p_await_job
+      
+  # 4. Transactional Outbox
+  - process: p_prepare_outbox_event

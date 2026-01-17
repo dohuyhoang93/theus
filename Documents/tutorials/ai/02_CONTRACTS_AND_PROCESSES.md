@@ -130,15 +130,17 @@ def calculate_cart_total(ctx):
     # 3. Business logic
     subtotal = sum(item['price'] * item['quantity'] for item in items)
     total = subtotal * (1 + tax_rate)
+    final_total = round(total, 2)
     
-    # 4. Write outputs
-    ctx.domain.total_price = round(total, 2)
-    
-    # 5. Signal for workflow
+    # 4. Determine Signal
+    checkout_ready = False
     if total > 0:
-        ctx.domain.sig_checkout_ready = True
+        checkout_ready = True
     
-    return {"subtotal": subtotal, "total": total}
+    # 5. Return Outputs
+    # Must match sequence: outputs=[cart_items, total_price, sig_checkout_ready]
+    # Note: cart_items unchanged, so we return original (Engine optimizes this No-Op)
+    return items, final_total, checkout_ready
 ```
 
 ---
@@ -161,7 +163,7 @@ async def fetch_data(ctx):
     await asyncio.sleep(0.1)  # Simulated API call
     result = {"data": f"Result for {query}"}
     
-    ctx.domain.result = result
+    # Return result directly (Mapped to outputs=['domain.result'])
     return result
 ```
 

@@ -68,32 +68,38 @@ class SemanticType(Enum):
 from theus.contracts import process
 
 @process(
-    inputs=['domain_ctx.items'],           # Read-only items (FrozenList)
+    inputs=['domain_ctx.items', 'domain_ctx.total_value'], # Read-only
     outputs=[
-        'domain_ctx.items',                # Write items (append)
-        'domain_ctx.total_value',          # Write total
-        'domain_ctx.sig_restock_needed'    # Trigger alarm flag
+        'domain_ctx.items',                
+        'domain_ctx.total_value',          
+        'domain_ctx.sig_restock_needed'    
     ],
     errors=['ValueError']
 )
 def add_product(ctx, product_name: str, price: int):
+    # 1. Read Snapshot (Immutable)
+    items = ctx.domain_ctx.items
+    total = ctx.domain_ctx.total_value
+    
     if price < 0:
         raise ValueError("Price cannot be negative!")
     
-    # Business Logic
+    # 2. Compute New State (Copy-on-Write)
     product = {"name": product_name, "price": price}
     
-    # ctx.domain_ctx.items is now a TrackedList (unlocked because it's in outputs)
-    ctx.domain_ctx.items.append(product)
+    new_items = list(items) # Copy!
+    new_items.append(product)
     
-    # Update total
-    ctx.domain_ctx.total_value += price
+    new_total = total + price
     
-    # Trigger Signal if needed (Output Signal is OK!)
-    if len(ctx.domain_ctx.items) > 100:
-        ctx.domain_ctx.sig_restock_needed = True
+    # 3. Return Updates (Engine matches these to 'outputs')
+    # Order matters: items, total, signal
+    
+    restock = False
+    if len(new_items) > 100:
+        restock = True
         
-    return "Added"
+    return new_items, new_total, restock
 ```
 
 ## 6. Async Process Pattern
@@ -114,7 +120,7 @@ async def fetch_data(ctx):
     await asyncio.sleep(0.1)  # Simulated API call
     result = {"data": f"Result for {query}"}
     
-    ctx.domain_ctx.result = result
+    # Return result directly
     return result
 ```
 

@@ -190,10 +190,10 @@ sys_ctx.domain_ctx.counter = 10  # Outside @process
 ### Legal: Via Process
 
 ```python
-# ✅ CORRECT - Inside @process with outputs declared
+# ✅ CORRECT - Return New State
 @process(outputs=['domain.counter'])
 def increment(ctx):
-    ctx.domain.counter += 1
+    return ctx.domain.counter + 1
 ```
 
 ### Legal: Via edit() (Setup/Testing Only)

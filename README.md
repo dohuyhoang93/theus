@@ -39,7 +39,7 @@ Come back to your code in 2 years. You'll thank yourself:
 ### For Safety-Critical Applications
 When bugs aren't just annoying—they're costly:
 - **Transaction Safety:** Automatic rollback on failure
-- **Zero-Trust Memory:** Processes can't access data they didn't declare
+- **Explicit Access:** Processes must declare every data point they touch via `@process` contracts
 - **Industrial Audit:** Block, warn, or stop based on configurable rules
 
 ---
@@ -82,12 +82,17 @@ def transfer(ctx, from_user: str, to_user: str, amount: int):
     if amount <= 0:
         raise ValueError("Amount must be positive")
     
-    accounts = ctx.domain.accounts
+    # V3 Pattern: Copy -> Modify -> Return
+    # ctx.domain.accounts is Immutable (FrozenDict) in strict_mode
+    accounts = dict(ctx.domain.accounts)
+    
     if accounts.get(from_user, 0) < amount:
         raise ValueError("Insufficient funds")
     
     accounts[from_user] -= amount
     accounts[to_user] = accounts.get(to_user, 0) + amount
+    
+    # Return new state (Engine handles the commit)
     return accounts
 
 # 2. Initialize Engine
@@ -148,11 +153,12 @@ Theus provides a powerful CLI suite to accelerate development and maintain archi
 
 ## 🧠 Advanced Architecture
 
-### The Transaction Engine
-Theus uses a **Hybrid Transaction Model**:
-*   **Scalars:** Updated in-place with an Undo Log (for speed).
-*   **Collections:** Updated via **Shadow Copy** (for safety).
-If a process crashes or is blocked by Audit, Theus rolls back the entire state instantly.
+### The Transaction Engine (v3.0)
+Theus prioritizes **Performance** (Zero-Copy) while providing **Safety Tools**:
+*   **Zero-Copy Reads:** Reading data is O(1) direct memory access.
+*   **Copy-on-Write:** To modify data, you **MUST** create a copy (`new = list(old)`). 
+*   **Atomic Commit:** The Engine swaps the pointer to the new data only if the transaction succeeds.
+> ⚠️ **Warning:** In-place mutation (e.g., `list.append`) bypasses the safety lawyer. Always use the Copy-on-Write pattern.
 
 ### The Heavy Zone (Optimization)
 For AI workloads (Images, Tensors) > 1MB, use `heavy_` variables.

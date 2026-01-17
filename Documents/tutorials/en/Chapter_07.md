@@ -1,40 +1,37 @@
-# Chapter 7: Mutable Pitfalls & Tracked Structures
+# Chapter 7: Data Access & Common Pitfalls
 
-Working with Lists and Dicts in a Transactional environment is where most "Gotchas" occur. This chapter helps you avoid them.
+Working with Immutable Snapshots requires a shift in thinking. This chapter helps you avoid common mistakes.
 
-## 1. TrackedList & TrackedDict
-When you access `ctx.domain_ctx.items` (declared in `outputs`), Theus does not return a normal list. It returns `TrackedList`.
-This is a "Smart Wrapper" wrapping the Shadow Copy.
+## 1. FrozenList & FrozenDict
+When you access `ctx.domain_ctx.items`, Theus returns a **FrozenList**.
+This is a zero-copy view of the Rust memory.
 
-**Rule:** Never check `type(ctx.domain_ctx.items) == list`. Use `isinstance(..., list)`.
+**Rule:** `FrozenList` is Read-Only.
+- `items[0]` ✅ OK
+- `items.append(x)` ❌ Output: `AttributeError`
 
-## 2. The "Zombie Proxy" Hazard
-This is the most common newbie mistake.
+To modify, you must **Copy** -> **Modify** -> **Return**.
+
+## 2. The "Stale Reference" hazard
 
 ```python
-# WRONG CODE
-my_temp = ctx.domain_ctx.items  # Save reference of TrackedList to outside variable
-# ... Process ends, Transaction Commit/Rollback ...
+# CODE
+snapshot_items = ctx.domain_ctx.items  # Reference to Version N
+# ... Process runs for 5 seconds ...
+# ... Meanwhile, another process might have updated the state to Version N+1 ...
 
-# In another Process or next run:
-my_temp.append("Ghost") # ERROR! Reference is Stale/Detached.
+# Later in logic:
+decision = make_decision(snapshot_items) 
 ```
 
-**Why?**
-When Transaction ends, the Shadow Copy that `my_temp` holds is either:
-- Merged into original (Commit).
-- Or destroyed (Rollback).
-`my_temp` now points to void or Stale Data. Theus v3.0 (Strict Mode) actively blocks modification of stale proxies, but it's best not to create them.
+**Risk:** `snapshot_items` is accurate for Version N, but might be stale by the time you act.
+**Mitigation:** Theus uses **Optimistic Concurrency (CAS)**. If the underlying data changed while you were processing, your internal logic is self-consistent (Snapshot Isolation), but the Engine might reject your commit if it detects a conflict (depending on policy).
+
+For most logic, this is a **feature**, not a bug: You always see a consistent world view.
 
 **Advice:** Always access directly `ctx.domain_ctx.items` when needed. Do not cache it in local variables for too long.
 
-## 3. FrozenList (Immutable)
-If you only `inputs=['domain_ctx.items']` (no output):
-- You get `FrozenList`.
-- `FrozenList` still shares data with original list (to save RAM), but it blocks all Write APIs.
-- This is how Theus saves performance: No Copy needed if you only Read.
 
-## 4. Heavy Zone Exception
 
 Variables with `heavy_` prefix bypass the transaction log entirely:
 
@@ -42,7 +39,8 @@ Variables with `heavy_` prefix bypass the transaction log entirely:
 @process(outputs=['domain_ctx.heavy_embeddings'])
 def compute_embeddings(ctx):
     # Direct write, no rollback protection
-    ctx.domain_ctx.heavy_embeddings = huge_numpy_array
+    # Valid: Return Heavy Update
+    return "Processed", huge_numpy_array
 ```
 
 **Trade-off:** If process fails after this write, heavy data is NOT rolled back (dirty write). Use only for large data where speed > atomicity.

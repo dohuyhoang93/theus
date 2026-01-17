@@ -68,8 +68,9 @@ from theus.contracts import process
 
 @process(inputs=['domain_ctx.x'], outputs=['domain_ctx.y'])
 def my_process(ctx):
-    ctx.domain_ctx.y = ctx.domain_ctx.x * 2
-    return "done"
+    # Pure Logic: Read -> Compute -> Return
+    new_y = ctx.domain_ctx.x * 2
+    return new_y
 
 # Register single process
 engine.register(my_process)
@@ -118,8 +119,8 @@ When you call `await engine.execute()`:
    └─ Create ContextGuard with permissions from contract
    
 5. [EXECUTION]
-   └─ Run your Python code
-   └─ All writes go to shadow copy
+   └─ Run your Python code (Snapshot Isolation)
+   └─ Process returns new data (No In-Place Write)
    
 6. [AUDIT OUTPUT GATE]
    └─ Check results against audit rules
@@ -255,7 +256,8 @@ from theus.contracts import process
 @process(inputs=['domain.query'], outputs=['domain.result'])
 async def async_process(ctx):
     await asyncio.sleep(0.1)
-    ctx.domain.result = "done"
+    # Return result directly
+    return "done"
 
 # Execute async process
 async def main():

@@ -1,0 +1,19 @@
+# Audit Rules for Ecommerce Scenario
+defaults:
+  level: "BLOCK"
+  reset_on_success: true
+
+rules:
+  # Rule 1: Order Total must be positive
+  # Applying to 'create_order' process
+  - process: "create_order"
+    input_rules:
+      - key: "domain.order_request.total"
+        min: 0.01 # Must be at least 1 cent
+        level: "BLOCK"
+        message: "Order total must be positive"
+      
+      - key: "domain.order_request.items"
+        min_len: 1 # Must have at least 1 item
+        level: "BLOCK"
+        message: "Order must have items"

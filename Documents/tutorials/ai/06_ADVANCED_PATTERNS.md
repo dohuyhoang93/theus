@@ -118,8 +118,8 @@ def compute_embeddings(ctx):
     # Heavy computation
     embeddings = model.encode(query)  # Large numpy array
     
-    # Direct write, no copy
-    ctx.domain.heavy_embeddings = embeddings
+    # Return directly (Engine writes directly to Shared Memory via outputs map)
+    return embeddings
 ```
 
 ---
@@ -168,11 +168,8 @@ def agent_deliberation(ctx):
     thought = think_step(obs)
     action = act_step(thought)
     
-    # Single write at end
-    ctx.domain.thought = thought
-    ctx.domain.action = action
-    
-    return action
+    # Return all outputs (Atomic Commit)
+    return action, thought
 ```
 
 ### Benefits
@@ -363,23 +360,28 @@ For managing external side effects (emails, HTTP calls):
 ```python
 from theus_core import OutboxMsg
 
-@process(outputs=['domain.orders'])
+@process(
+    inputs=['domain.orders', 'domain.outbox_queue'], 
+    outputs=['domain.orders', 'domain.outbox_queue']
+)
 def create_order(ctx, order_data):
-    # 1. Update state
-    ctx.domain.orders.append(order_data)
+    # 1. Read Immutable Snapshot
+    current_orders = ctx.domain.orders
+    current_queue = ctx.domain.outbox_queue or []
     
-    # 2. Queue side effect
-    ctx.outbox.add(OutboxMsg(
-        topic="email",
-        payload={"to": order_data['email'], "template": "order_confirm"}
-    ))
+    # 2. Compute New State (Copy-on-Write)
+    new_orders = list(current_orders)
+    new_orders.append(order_data)
     
-    # Outbox processed AFTER transaction commits
-```
+    new_queue = list(current_queue)
+    msg = OutboxMsg(topic="email", payload=order_data)
+    new_queue.append(msg)
+    
+    # 3. Return (Atomic Commit of Data + Event)
+    return new_orders, new_queue
 
-```python
-# Process outbox after workflow
-engine.process_outbox()
+# --- System Relay ---
+# Engine commits changes. Separate worker polls 'domain.outbox_queue' and clears it.
 ```
 
 ---
