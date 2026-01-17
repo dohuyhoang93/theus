@@ -13,7 +13,7 @@ Performance in Theus is a balance between **Safety (Transactional Integrity)** a
 heavy_frame: np.ndarray = field(...)
 ```
 
-When you access `ctx.domain.heavy_frame`:
+When you access `ctx.domain_ctx.heavy_frame`:
 1.  **Tier 1 (Normal):** Would try to deep-copy the array (Too slow).
 2.  **Tier 2 (Heavy):** Returns a **Wrapper** that points to the original memory. You can modify it (`+=`), but you cannot Undo it.
 
@@ -22,24 +22,47 @@ When you access `ctx.domain.heavy_frame`:
 ## 2. Strict Mode: True vs False
 This switch controls the **Transaction Engine**.
 
-## 3. The Comparison Matrix (v2.2.6 Reference)
+| Mode | Use Case | Behavior |
+|:-----|:---------|:---------|
+| `strict_mode=True` | Production, Testing | Full transactions, rollback, strict checks |
+| `strict_mode=False` | Training loops | Disabled transactions, native Python speed |
+
+## 3. The Comparison Matrix (v3.0 Reference)
 
 This table clarifies exactly which defense layers are active in each mode.
 
-| Defense Layer | **Strict Mode = True** (Default) | **Strict Mode = False** (Dev/Flexible) | **Heavy Zone** (Tier 2 Guard) |
+| Defense Layer | **Strict Mode = True** (Default) | **Strict Mode = False** (Training) | **Heavy Zone** (Tier 2 Guard) |
 | :--- | :--- | :--- | :--- |
-| **1. Transaction (Rollback)** | ✅ **Enabled** | ✅ **Enabled** | ❌ **Disabled** (Direct Write) |
-| **2. Audit Policy** | ✅ **Active** | ✅ **Active** | ✅ **Active** (Checks final state) |
+| **1. Transaction (Rollback)** | ✅ **Enabled** | ❌ **Disabled** | ❌ **Disabled** (Direct Write) |
+| **2. Audit Policy** | ✅ **Active** | ⚠️ **Optional** | ✅ **Active** (Checks final state) |
 | **3. Input Gate (Zone Check)** | ✅ **Strict** (No Signal/Meta) | ⚠️ **Relaxed** (Allow All) | N/A |
 | **4. Private Access (`_attr`)** | ✅ **Blocked** | ⚠️ **Allowed** | N/A |
-| **5. Performance** | Standard | Standard (No speed gain) | 🚀 **Zero-Copy** |
+| **5. Performance** | Standard | 🚀 **Native Speed** | 🚀 **Zero-Copy** |
 
 ### Key Takeaway:
-*   Use **HEAVY Zone** when you need **Speed** (Big Data).
-*   Use **Strict Mode = False** when you need **Flexibility** (Debugging/Listeners).
-*   **NEVER** assume `strict_mode=False` makes code faster in v2.2.6. It only makes it "looser".
+*   Use **HEAVY Zone** when you need **Speed** for **Big Data** (>1MB).
+*   Use **Strict Mode = False** when you need **Maximum Speed** for **Training Loops**.
+*   In v3.0, `strict_mode=False` **actually bypasses the Rust Transaction Layer** for real performance gains.
 
-## 4. Avoiding Memory Leaks
+## 4. SignalHub Performance (v3.0)
+
+The new Tokio-powered SignalHub achieves:
+- **Throughput:** 2.7+ million events/second
+- **Latency:** Sub-microsecond
+
+```python
+from theus_core import SignalHub
+
+hub = SignalHub(capacity=10000)
+receiver = hub.subscribe()
+
+# High-throughput event sending
+for i in range(1000000):
+    hub.send("tick", {"step": i})
+```
+
+## 5. Avoiding Memory Leaks
 Even with optimizations, Python references can leak.
 *   **Restart Strategy:** For long training (1M+ episodes), restart the worker process periodically to clear fragmented memory.
 *   **Avoid "God Objects":** Don't put everything in one giant List/Dict. Use specific dataclasses.
+*   **Heavy Zone for Tensors:** Use `heavy_` prefix to avoid transaction log overhead.

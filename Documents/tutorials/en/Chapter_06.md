@@ -1,6 +1,6 @@
-# Chapter 6: Transaction & Delta - The Time Machine v2
+# Chapter 6: Transaction & Delta - The Time Machine v3
 
-In Theus v2, the Transaction concept is handled by the **Rust Core**, ensuring absolute data integrity (ACID-like) with optimized performance.
+In Theus v3.0, the Transaction concept is handled by the **Rust Core**, ensuring absolute data integrity (ACID-like) with optimized performance.
 
 ## 1. Core Philosophy: Why we "Hold" the Context?
 You might wonder: *"Why does Theus keep a reference to the entire context instead of just copying what I asked for?"*
@@ -13,23 +13,52 @@ The answer lies in **Safety** and **Atomicity**.
 Theus uses a Hybrid Approach to optimize performance automatically:
 
 ### 2.1. Optimistic Concurrency (Scalar: int, str, bool)
-When you assign `ctx.counter = 10`:
+When you assign `ctx.domain_ctx.counter = 10`:
 - **Action:** In-place update (Fast).
 - **Insurance:** Theus logs the *Inverse Operation* to `DeltaLog` ("Old value was 5").
 - **Rollback:** Reads log backwards to restore state.
 
 ### 2.2. Shadow Copy (Collection: list, dict)
-When you modify `ctx.items`:
+When you modify `ctx.domain_ctx.items`:
 - **Action:** Theus creates a replica (Shadow).
 - **Operation:** You work on the Shadow.
 - **Commit:** Content is swapped back to original if success.
 - **Rollback:** Shadow is dropped. Original is safe.
 
-## 3. The Audit Log: Transient & Ephemeral
+## 3. Transaction Context Manager (v3.0)
+
+```python
+with engine.transaction() as tx:
+    # Operations here are transactional
+    tx.update(data={'counter': 10})
+    
+# Auto-commit on success, auto-rollback on exception
+```
+
+## 4. Compare-and-Swap Pattern (v3.0)
+
+For optimistic concurrency control:
+
+```python
+# Get current version
+current_version = engine.state.version
+
+# Perform optimistic update
+try:
+    engine.compare_and_swap(
+        expected_version=current_version,
+        data={'counter': new_value}
+    )
+except VersionMismatchError:
+    # Someone else modified state, retry
+    pass
+```
+
+## 5. The Audit Log: Transient & Ephemeral
 A critical design choice in Theus is that **Transaction Logs are Ephemeral**.
 *   **While Running:** The log exists to track every change.
 *   **After Success:** The log is **discarded** (Dropped).
-*   **Why?** Storing full data history (especially for AI Tensors) would explode memory instanty. Theus is designed to be "Audit-Aware" (counting violations) rather than a full "Time-Travel Database" for storage.
+*   **Why?** Storing full data history (especially for AI Tensors) would explode memory instantly. Theus is designed to be "Audit-Aware" (counting violations) rather than a full "Time-Travel Database" for storage.
 
 ---
 **Advanced Sabotage Exercise:**

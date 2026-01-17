@@ -12,8 +12,8 @@ from theus.context import BaseSystemContext
 
 # --- 1. Global (Configuration) ---
 class DemoGlobal(BaseModel):
-    app_name: str = "Theus V2 Industrial Demo"
-    version: str = "0.2.0"
+    app_name: str = "Theus V3 Demo App"
+    version: str = "3.0.1"
     max_retries: int = 3
 
 # --- 2. Domain (Mutable State) ---
@@ -25,7 +25,22 @@ class DemoDomain(BaseModel):
     processed_count: int = 0      # Logic Counter
     items: List[str] = Field(default_factory=list) # Data Queue
     
-    # Error tracking
+    # E-Commerce Example
+    order_request: Optional[dict] = None
+    orders: List[dict] = Field(default_factory=list)
+    balance: float = 0.0
+    processed_orders: List[str] = Field(default_factory=list)
+
+    # Smart Agent Example
+    sensor_data: dict = Field(default_factory=dict)
+    action: str = "IDLE"
+    action_log: List[str] = Field(default_factory=list)
+
+    # Signals Example
+    signal_count: int = 0
+    received_signals: List[str] = Field(default_factory=list)
+    notified: bool = False
+
     # Error tracking (META Zone)
     meta_last_error: Optional[str] = None
 
@@ -312,12 +327,21 @@ def main():
     recipe = ConfigFactory.load_recipe(audit_path)
     
     # 3. Init Engine
-    print(f"Initializing TheusEngine (V3)...")
+    print("Initializing TheusEngine (V3)...")
     engine = TheusEngine(sys_ctx, strict_mode=True, audit_recipe=recipe)
     
     # 4. Register Processes
     processes_path = os.path.join(basedir, "src", "processes")
     engine.scan_and_register(processes_path)
+    
+    # 4.5 Initialize Sample Data (for E-Commerce Demo)
+    with engine.transaction() as tx:
+        tx.update(data={"domain": {
+            "order_request": {"id": "ORD-001", "items": ["Laptop", "Mouse"], "total": 1500.0},
+            "orders": [],
+            "balance": 0.0,
+            "processed_orders": []
+        }})
     
     # 5. Execute Workflow (Flux)
     print(f"Executing Workflow: {workflow_path}")
@@ -456,4 +480,111 @@ steps:
            - process: p_recover
 
   - process: p_finalize
+"""
+
+# --- ECOMMERCE TEMPLATE (New Showcase) ---
+TEMPLATE_PROCESS_ECOMMERCE = """from theus import process
+from theus.contracts import SemanticType
+
+@process(inputs=['domain.order_request'], outputs=['domain.orders'])
+def create_order(ctx):
+    '''
+    Creates an order from request.
+    Audit Rule: Blocks if price <= 0.
+    POP: Returns updated order list.
+    '''
+    req = ctx.domain.order_request
+    if not isinstance(req, dict):
+         raise ValueError("Invalid request format")
+    
+    # Logic: Appends to order list
+    current_orders = ctx.domain.get('orders', [])
+    total = req.get("total", 0)
+    if total <= 0:
+        raise ValueError(f"Invalid total: {total}")
+
+    new_order = {
+        "id": req.get("id"),
+        "items": req.get("items", []),
+        "total": total
+    }
+    
+    updated = current_orders + [new_order]
+    
+    print(f"Order created: {new_order['id']}")
+    return updated
+
+@process(inputs=['domain.orders'], outputs=['domain.balance', 'domain.processed_orders'])
+def process_payment(ctx):
+    '''
+    Processes payment for pending orders.
+    POP: Returns (balance, processed_list).
+    '''
+    orders = ctx.domain.orders
+    balance = ctx.domain.get('balance', 0.0)
+    processed = ctx.domain.get('processed_orders', [])
+    
+    for order in orders:
+        if order['id'] in processed:
+            continue
+            
+        amount = order['total']
+        balance += amount # Revenue
+        processed.append(order['id'])
+        
+    return balance, processed
+
+@process(inputs=['domain.orders'], outputs=['heavy.invoice_img'], semantic=SemanticType.EFFECT)
+def store_invoice_image(ctx):
+    '''
+    Demonstrates HEAVY zone usage (Zero-Copy).
+    POP: Returns bytearray for heavy output.
+    '''
+    import random
+    
+    # Simulate generating a large image (byte array)
+    large_data = bytearray(random.getrandbits(8) for _ in range(1024 * 1024))
+    
+    print("Invoice image stored in HEAVY zone")
+    return large_data
+
+@process(inputs=[], outputs=['domain.balance'])
+def trigger_rollback_test(ctx):
+    '''
+    Intentionally raises error to test Rollback.
+    Returns nothing (crashes).
+    '''
+    raise RuntimeError("Intentional Failure for Rollback Test")
+"""
+
+TEMPLATE_WORKFLOW_ECOMMERCE = """# E-Commerce Order Flow Workflow
+steps:
+  # 1. Create Order
+  - process: "create_order"
+  
+  # 2. Process Payment
+  - process: "process_payment"
+  
+  # 3. Store Invoice (Heavy Zone)
+  - process: "store_invoice_image"
+"""
+
+TEMPLATE_AUDIT_ECOMMERCE = """# Audit Rules for Ecommerce Scenario
+defaults:
+  level: "BLOCK"
+  reset_on_success: true
+
+rules:
+  # Rule 1: Order Total must be positive
+  - process: "create_order"
+    input_rules:
+      - key: "domain.order_request.total"
+        min: 0.01 # Must be at least 1 cent
+        level: "BLOCK"
+        message: "Order total must be positive"
+      
+      - key: "domain.order_request.items"
+        min_len: 1 # Must have at least 1 item
+        level: "BLOCK"
+        message: "Order must have items"
 """

@@ -11,11 +11,10 @@ Trong các thiết kế cũ, Context thường chỉ được chia theo "Phạm 
                              (Input, Output, SideEffect, Error)
                                       ^
                                       |
-                                      |
                                       |                +------+------+
                                       |               /|             /|
                                       +--------------+ |  CONTEXT   + |----------> [Z] ZONE
-                                     /               | |  OBJECT    | |      (Data, Signal, Meta)
+                                     /               | |  OBJECT    | |      (Data, Signal, Meta, Heavy)
                                     /                | +------------+ |
                                    /                 |/             |/
                                   /                  +------+------+
@@ -41,6 +40,7 @@ Quản lý hợp đồng giao tiếp (Contract).
 *   **DATA:** Tài sản (Asset). Cần lưu lại (Persist).
 *   **SIGNAL:** Tín hiệu (Event). Tự động xóa sau khi dùng.
 *   **META:** Thông tin gỡ lỗi (Debug). Không ảnh hưởng logic.
+*   **HEAVY:** Dữ liệu lớn (Tensor, Image). Zero-copy, không rollback.
 
 ---
 
@@ -58,9 +58,9 @@ Zone giúp Engine phân loại rác và tài sản:
 | **DATA** | (None) | Business State | **Yes** | `user_id`, `cart_items` |
 | **SIGNAL** | `sig_`, `cmd_` | Transient Event | **No** (Reset sau mỗi Step) | `sig_stop_machine`, `cmd_send_email` |
 | **META** | `meta_` | Diagnostic Info | **No** (Optional Persist) | `meta_execution_time`, `meta_last_trace` |
-| **HEAVY** | `heavy_` | Large/External Objects | **No** (Log-only, Audit via introspection) | `heavy_model_weights`, `heavy_tensor` |
+| **HEAVY** | `heavy_` | Large/External Objects | **No** (Zero-copy, No rollback) | `heavy_model_weights`, `heavy_tensor` |
 
-> **Note:** HEAVY zone dành cho các đối tượng không thể/không nên copy như Tensor, Model weights. Transaction sẽ không tạo shadow cho HEAVY objects, chỉ log mutations. Audit vẫn có thể kiểm tra qua introspection methods (`.mean()`, `.shape()`) được khai báo trong spec.
+> **Note v3.0:** HEAVY zone dành cho các đối tượng không thể/không nên copy như Tensor, Model weights. Transaction sẽ **không tạo shadow** cho HEAVY objects và **không hỗ trợ rollback**. Đây là trade-off: tốc độ > atomicity.
 
 ---
 
@@ -68,10 +68,10 @@ Zone giúp Engine phân loại rác và tài sản:
 
 Sức mạnh của Theus nằm ở giao điểm.
 
-**Ví dụ: `domain.sig_login_success`**
+**Ví dụ: `domain_ctx.sig_login_success`**
 *   **Layer:** Domain (Sống trong phiên làm việc).
 *   **Zone:** Signal (Chỉ tồn tại trong tích tắc để kích hoạt Workflow khác).
-*   **Semantic:** Output (Của process Login), Input (Của process Notification).
+*   **Semantic:** Output (Của process Login), Input (CỦA WORKFLOW - xử lý qua Flux DSL, không phải process).
 
 ---
 
@@ -80,11 +80,13 @@ Sức mạnh của Theus nằm ở giao điểm.
 Một trong những hiểu lầm phổ biến là việc chia nhỏ Context thành 3 trục sẽ làm phức tạp code. Thực tế, Theus sử dụng chiến lược **"Phẳng hóa Bề mặt - Chặt chẽ Cốt lõi"**.
 
 Dev không cần viết `ctx.layer.zone.semantic.value`.
-Dev chỉ cần viết `ctx.domain.user_name`.
+Dev chỉ cần viết `ctx.domain_ctx.user_name`.
 
 Engine sẽ tự động nội suy (Infer) Zone và Semantic dựa trên:
-1.  Tên biến (Prefix `sig_` -> Signal).
+1.  Tên biến (Prefix `sig_` -> Signal, `heavy_` -> Heavy).
 2.  Decorator `@process(outputs=[...])`.
+
+> **⚠️ Lưu ý v3.0:** Contract paths bây giờ dùng `domain_ctx.*` thay vì `domain.*`.
 
 ---
 
@@ -92,8 +94,8 @@ Engine sẽ tự động nội suy (Infer) Zone và Semantic dựa trên:
 
 Khi Process chạy, Engine dựng lên một hàng rào ảo (Virtual Barrier) dựa trên 3 trục này.
 
-*   Process chỉ khai báo `inputs=['domain.user']`.
-*   Nếu code cố tình sửa `ctx.domain.user` -> **CRASH NGAY LẬP TỨC**.
+*   Process chỉ khai báo `inputs=['domain_ctx.user']`.
+*   Nếu code cố tình sửa `ctx.domain_ctx.user` -> **CRASH NGAY LẬP TỨC**.
 
 Đây là cơ chế **"Zero Trust Memory"** (Bộ nhớ không tin cậy).
 
@@ -106,7 +108,7 @@ Trước khi code, bạn phải định nghĩa Schema.
 ```yaml
 # specs/context_schema.yaml
 context:
-  domain:
+  domain_ctx:
     # DATA ZONE
     user_score: int
     
@@ -115,28 +117,44 @@ context:
     
     # META ZONE
     meta_process_time: float
+    
+    # HEAVY ZONE
+    heavy_embeddings: object
 ```
 
 ---
 
 ## 4.7. Hướng dẫn Hiện thực hóa (Implementation Standard)
 
-Theus quy định tiêu chuẩn "Contract First" thông qua `context_schema.yaml`:
+Theus quy định tiêu chuẩn "Contract First" thông qua Python dataclasses:
 
-1.  **Level 1 (Concept):** Định nghĩa Schema trong `specs/context_schema.yaml`. Đây là "Single Source of Truth".
-2.  **Level 2 (Code):** Sử dụng `Python Dataclasses` để ánh xạ Schema vào code. Giúp IDE có thể gợi ý (Intellisense) và Type Check.
-3.  **Level 3 (Validation):** Sử dụng các thư viện như `Pydantic` (Optional) nếu cần validation ở mức Field Level ngay khi khởi tạo.
+```python
+from dataclasses import dataclass, field
+from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
 
-## 4.8. Cấu hình "Single Source of Truth"
-Thay vì định nghĩa rời rạc, file `specs/context_schema.yaml` đóng vai trò trung tâm:
+@dataclass
+class MyDomainContext(BaseDomainContext):
+    # DATA ZONE
+    user_score: int = 0
+    
+    # SIGNAL ZONE
+    sig_user_clicked: bool = False
+    
+    # META ZONE
+    meta_process_time: float = 0.0
+    
+    # HEAVY ZONE
+    heavy_embeddings: object = None
 
-```yaml
-context:
-  domain:
-    user:
-      name: {type: string}
-      age: {type: integer, min: 18} # Static constraints
+@dataclass
+class MyGlobalContext(BaseGlobalContext):
+    max_limit: int = 1000
+
+@dataclass
+class MySystemContext(BaseSystemContext):
+    domain_ctx: MyDomainContext = field(default_factory=MyDomainContext)
+    global_ctx: MyGlobalContext = field(default_factory=MyGlobalContext)
 ```
 
-*   **Lợi ích:** Developer và Non-tech (như PM/BA) đều có thể đọc và hiểu dữ liệu.
-*   **Runtime:** Engine sẽ đọc file này lúc khởi động để validate cấu trúc bộ nhớ.
+*   **Lợi ích:** Developer và IDE có thể hiểu và validate dữ liệu.
+*   **Runtime:** Engine sẽ đọc dataclass để validate cấu trúc bộ nhớ.

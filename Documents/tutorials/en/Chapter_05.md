@@ -1,6 +1,6 @@
 # Chapter 5: ContextGuard & Zone Enforcement - Iron Discipline
 
-In this chapter, we dive deep into Theus v2's protection mechanisms: **Guard** and **Zone** (powered by Rust).
+In this chapter, we dive deep into Theus v3.0's protection mechanisms: **Guard** and **Zone** (powered by Rust).
 
 ## 1. Immutability & Unlocking
 This is the core principle: **"Everything is Immutable until Unlocked."**
@@ -21,7 +21,7 @@ When you have write permission (`outputs`):
 The Guard checks not just permissions, but **Architecture**.
 
 ### Input Guard
-In `ContextGuard` initialization, Theus v2 checks all `inputs`:
+In `ContextGuard` initialization, Theus v3.0 checks all `inputs`:
 ```rust
 // Rust Core Logic
 for inp in inputs {
@@ -35,7 +35,16 @@ This prevents Process logic from depending on non-persistent values.
 ### Output Guard
 Conversely, you are allowed to write to any Zone (Data, Signal, Meta) as long as you declare it in `outputs`.
 
-## 3. Zero Trust Memory
+## 3. Zone Prefix Reference
+
+| Zone | Prefix | Behavior |
+|:-----|:-------|:---------|
+| DATA | (none) | Transactional, Rollback on error |
+| SIGNAL | `sig_`, `cmd_` | Transient, Reset on read |
+| META | `meta_` | Observability only |
+| HEAVY | `heavy_` | Zero-copy, NO rollback |
+
+## 4. Zero Trust Memory
 Theus does not believe in "temporary variables".
 ```python
 # Bad Code (Theus warns or blocks)

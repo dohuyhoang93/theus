@@ -1,155 +1,178 @@
-# Chapter 11: Workflow Orchestration (FSM)
+# Chapter 11: Workflow Orchestration (Flux DSL)
 
-Theus v2 uses a **Finite State Machine (FSM)** to coordinate complex Agent behaviors. Instead of hardcoding `if/else` logic, you define a **Reactive Workflow** in YAML.
+> **⚠️ MAJOR CHANGE in v3.0:** The legacy FSM (Finite State Machine) with `states:` and `events:` has been **deprecated**. Theus v3.0 uses **Flux DSL** - a declarative YAML language for workflow control.
 
-## 1. The Components
+## 1. What Changed?
 
-The orchestration layer consists of three parts:
-1.  **WorkflowManager:** The Conductor. It connects the Brain (FSM) with the Hands (Engine).
-2.  **SignalBus:** The Nervous System. It carries events (Signals) from processes/UI to the Manager.
-3.  **ThreadExecutor:** The Scheduler. It executes process chains in background threads to keep the main loop responsive.
+| v2.2 (Deprecated) | v3.0 (Current) |
+|:------------------|:---------------|
+| `WorkflowManager` (Python) | `WorkflowEngine` (Rust) |
+| `SignalBus` | `SignalHub` (Tokio) |
+| `states:` / `events:` | `steps:` with `flux:` control flow |
+| Tick-based | Run-to-Completion |
 
-## 2. Defining a Workflow (YAML)
+## 2. Flux DSL Syntax
 
-Create a `workflow.yaml` file. The structure maps **States** to **Events**.
+### Basic Structure
 
 ```yaml
-name: "FulfillmentWorkflow"
-start_state: "IDLE"
-
-states:
-  IDLE:
-    events:
-      CMD_START: "PROCESSING"  # Event -> Next State
-
-  PROCESSING:
-    # Action: Run these processes immediately upon entering State
-    entry: 
-      - "p_validate_order"
-      - "p_charge_payment"
-    
-    events:
-      EVT_CHAIN_DONE: "SHIPPING"  # transitions after 'entry' chain success
-      EVT_CHAIN_FAIL: "ERROR_RECOVERY"
-
-  SHIPPING:
-    entry: ["p_ship_item"]
-    events:
-      EVT_CHAIN_DONE: "IDLE"
-
-  ERROR_RECOVERY:
-    entry: ["p_alert_admin", "p_refund"]
-    events:
-      EVT_CHAIN_DONE: "IDLE"
+# workflows/example.yaml
+steps:
+  - process: "initialize"
+  - process: "process_data"
+  - process: "finalize"
 ```
 
-### 2.1. Advanced Flux Control (The "Logic-Flow Separation" Magic)
-Beyond simple lists, Theus supports full **Control Flow** inside YAML.
-
-**Note:** You can define a process step in two ways:
-1.  **Shorthand:** `- "p_name"` (Simple)
-2.  **Explicit:** `- process: "p_name"` (Clearer for complex files)
+### Conditional: flux: if
 
 ```yaml
-states:
-  PROCESSING:
-    entry:
-      # 1. Explicit Step
-      - process: "p_validate_user"
+steps:
+  - flux: if
+    condition: "domain['is_valid'] == True"
+    then:
+      - "handle_valid"
+      - "save_result"
+    else:
+      - "handle_invalid"
+```
+
+### Loop: flux: while
+
+```yaml
+steps:
+  - flux: while
+    condition: "domain['remaining'] > 0"
+    do:
+      - "process_one_item"
+```
+
+### Nested Block: flux: run
+
+```yaml
+steps:
+  - flux: run
+    steps:
+      - "step_a"
+      - "step_b"
+```
+
+## 3. Complete Workflow Example
+
+```yaml
+# workflows/agent_loop.yaml
+steps:
+  # 1. Initialize
+  - process: "p_init_agent"
+  
+  # 2. Main loop
+  - flux: while
+    condition: "domain['goal_reached'] == False and domain['step_count'] < global['max_steps']"
+    do:
+      # Think
+      - process: "p_observe"
+      - process: "p_think"
       
-      # 2. Conditional Branching
-      - flux: "if"
-        condition: "ctx.domain.age > 18"
+      # Decide
+      - flux: if
+        condition: "domain['confidence'] > 0.8"
         then:
-          - "p_approve_loan"  # Shorthand usage
-          - "p_send_email"
+          - process: "p_act"
         else:
-          - "p_reject_loan"
-          
-      # 3. Dynamic Loop
-      - flux: "while"
-        condition: "ctx.domain.items_left > 0"
-        do:
-          - "p_process_next_item"
+          - process: "p_ask_for_help"
+      
+      # Update state
+      - process: "p_update_state"
+  
+  # 3. Finalize
+  - flux: if
+    condition: "domain['goal_reached'] == True"
+    then:
+      - process: "p_report_success"
+    else:
+      - process: "p_report_failure"
 ```
 
-> **Why do this?** So you can change business rules (e.g., "Age limit is now 21") by editing a Text File, without redeploying Code.
+## 4. Condition Expression Reference
 
-### 2.2. Visual Workflow
+| Element | Example |
+|:--------|:--------|
+| `domain` | `domain['items']` |
+| `global` | `global['max_limit']` |
+| Comparison | `==`, `!=`, `>`, `<`, `>=`, `<=` |
+| Boolean | `and`, `or`, `not` |
+| `len()` | `len(domain['items']) > 0` |
+| `True/False/None` | Literals |
 
-```text
-       (Start)
-          |
-          v
-      +--------+    CMD_START    +------------+
-      |  IDLE  | --------------> | PROCESSING |
-      +--------+                 +------------+
-          ^                       | entry: [p1, p2]
-          |                       |
-    EVT_CHAIN_DONE           EVT_CHAIN_FAIL
-          |                       |
-          |                       v
-          |                 +----------------+
-          +-----------------| ERROR_RECOVERY |
-                            +----------------+
-```
+## 5. Executing Workflows
 
-## 3. Emitting Signals
-
-Your processes (Python functions) drive the flow by emitting signals or simply finishing successfully.
-
-- **Implicit Signal:** When an `entry` chain finishes, `WorkflowManager` automatically emits `EVT_CHAIN_DONE` (or `EVT_CHAIN_FAIL`).
-- **Explicit Signal:** You can emit custom signals from your code or UI.
+### Simple Execution
 
 ```python
-# From UI / Main Loop
-bus.emit("CMD_START")
-
-# From inside a Process (if needed)
-# ctx.domain.sig_custom_event = True 
-# (Theus Engine automatically converts Context Signals to Bus Events if configured)
-```
-
-## 4. Running the Orchestrator
-
-The best practice is to run the Orchestrator in a background thread so your Application (GUI/API) isn't blocked.
-
-```python
-from theus.orchestrator import WorkflowManager, SignalBus, ThreadExecutor
 from theus import TheusEngine
-import threading
 
-# 1. Setup
-bus = SignalBus()
-scheduler = ThreadExecutor(max_workers=2)
-# Engine setup (see Chapter 4) ...
-manager = WorkflowManager(engine, scheduler, bus)
+engine = TheusEngine(sys_ctx, strict_mode=True)
+engine.scan_and_register("src/processes")
 
-# 2. Load Workflow
-with open("specs/workflow.yaml") as f:
-    manager.load_workflow(yaml.safe_load(f))
-
-# 3. Create a Non-Blocking Loop
-def orchestrator_loop():
-    while True:
-        try:
-            # Block for 0.1s waiting for signal
-            signal = bus.get(timeout=0.1)
-            manager.process_signal(signal)
-        except:
-            pass # Handle empty queue or exit signal
-
-# 4. Start Thread
-t = threading.Thread(target=orchestrator_loop, daemon=True)
-t.start()
-
-# 5. Interact
-bus.emit("CMD_START")
+# Execute workflow
+engine.execute_workflow("workflows/agent_loop.yaml")
 ```
 
-## 5. Summary
-- **Declarative:** Logic is in YAML, not Python.
-- **Reactive:** System sleeps until a Signal arrives.
-- **Resilient:** Failures trigger `EVT_CHAIN_FAIL`, allowing you to define `ERROR_RECOVERY` states explicitly.
+### WorkflowEngine (Advanced)
+
+```python
+from theus_core import WorkflowEngine, FSMState
+
+# Load YAML
+with open("workflow.yaml") as f:
+    yaml_config = f.read()
+
+# Create engine
+workflow = WorkflowEngine(
+    yaml_config=yaml_config,
+    max_ops=10000,  # Safety limit
+    debug=False
+)
+
+# FSM States: Pending, Running, WaitingIO, Complete, Failed
+print(workflow.state)  # FSMState.Pending
+
+# Execute
+ctx_dict = {"domain": sys_ctx.domain_ctx.__dict__, "global": sys_ctx.global_ctx.__dict__}
+executed = workflow.execute(ctx_dict, lambda name: engine.execute(name))
+```
+
+## 6. Safety Features
+
+### Max Operations Limit
+
+```python
+# Raises RuntimeError if exceeded
+workflow = WorkflowEngine(yaml_config, max_ops=10000)
+# RuntimeError: Flux Safety Trip: Exceeded 10000 operations.
+```
+
+### State Observation
+
+```python
+# Get state history
+history = workflow.state_history  # [Pending, Running, Complete]
+
+# Add observer
+def on_state_change(old_state, new_state):
+    print(f"State: {old_state} -> {new_state}")
+
+workflow.add_state_observer(on_state_change)
+```
+
+## 7. Why Flux DSL?
 
 > **🧠 Philosophy Note:** By lifting control flow out of Python code and into YAML, we achieve **"Logic-Flow Separation"**. Your Python code becomes a library of tools (Processes), and the YAML becomes the instruction manual (Workflow). This makes the system easier to visualize and modify without touching code.
+
+**Benefits:**
+- **Resilience:** State is persisted in Context. If system crashes, it recovers.
+- **Performance:** The loop runs in Rust, bypassing Python GIL for control logic.
+- **Visibility:** Business rules in YAML are easier to audit than nested Python.
+
+---
+**Exercise:**
+Create a `workflow.yaml` with a while loop that runs until `domain['count'] >= 5`. Inside the loop, call a process that increments count. Observe the execution path.

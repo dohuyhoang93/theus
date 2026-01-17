@@ -7,7 +7,7 @@ static LOGGED_HEAVY_PATHS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 
 #[derive(Debug)]
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct DeltaEntry {
     #[pyo3(get)]
     pub path: String,
@@ -23,7 +23,7 @@ pub struct DeltaEntry {
     pub key: Option<String>,
 }
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct Transaction {
     pub delta_log: Vec<DeltaEntry>,
     shadow_cache: std::collections::HashMap<usize, (PyObject, PyObject)>, // id -> (original, shadow)

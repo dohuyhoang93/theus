@@ -4,7 +4,7 @@
 
 ## 12.1. Tổng quan Kiến trúc Microkernel
 
-Engine của Theus không còn là một "Process Runner" đơn thuần. Nó được thiết kế như một **Microkernel** (Hệ điều hành hạt nhân nhỏ) chuyên dụng cho tự động hóa.
+Engine của Theus v3.0 không còn là một "Process Runner" đơn thuần. Nó được thiết kế như một **Rust Microkernel** (Hệ điều hành hạt nhân nhỏ) chuyên dụng cho tự động hóa.
 
 Mục tiêu của Theus Microkernel là quản lý sự **hỗn loạn** của thế giới thực thông qua sự **kỷ luật** của máy tính.
 
@@ -14,7 +14,7 @@ Mục tiêu của Theus Microkernel là quản lý sự **hỗn loạn** của t
 graph TD
     UserCode[User Processes] -->|Calls| Kernel API
     
-    subgraph "Theus Microkernel"
+    subgraph "Theus Microkernel (Rust)"
         Governance[Layer 3: Governance (Cảnh sát)]
         Execution[Layer 2: Execution (Dây chuyền)]
         Transport[Layer 1: Transport (Kho vận)]
@@ -49,27 +49,17 @@ graph TD
 
 ### 3. The 3-Axis Matrix - Luật pháp
 Core của việc kiểm soát nằm ở **Ma trận An toàn 3 Trục** (Xem Chương 4). Kernel không chỉ check tên biến, mà check giao điểm của:
-*   **Zone:** (Data/Signal)
+*   **Zone:** (Data/Signal/Heavy)
 *   **Semantic:** (Input/Output)
 *   **Layer:** (Global/Domain)
 
-> **Ví dụ:** Nếu Process cố gắng khai báo `inputs=['sig_stop']` (Dùng Signal làm đầu vào), Kernel sẽ chặn ngay lập tức vì vi phạm nguyên tắc Determinism (Signal không ổn định để Replay).
+> **Ví dụ:** Nếu Process cố gắng khai báo `inputs=['domain_ctx.sig_stop']` (Dùng Signal làm đầu vào), Kernel sẽ chặn ngay lập tức vì vi phạm nguyên tắc Determinism (Signal không ổn định để Replay).
 
 ---
 
-## 12.3. Pipeline Thực thi Công nghiệp (Flux Engine Upgrade)
+## 12.3. Pipeline Thực thi Công nghiệp (v3.0 Flux Engine)
 
-Trong phiên bản 2.1.4 (Flux Upgrade), Engine chuyển từ chế độ chạy danh sách tuyến tính (`Linear List`) sang chế độ thực thi đệ quy (`Recursive Execution`).
-
-```python
-def _execute_step(step):
-    if is_process(step): execute_process(step)
-    elif is_flux_if(step): resolve_condition_and_branch(step)
-    elif is_flux_while(step): loop_until_false(step)
-```
-
-Mỗi thao tác (Process) vẫn tuân thủ dây chuyền 7 bước bảo mật của Microkernel:
-(Lưu ý: Nếu không dùng Audit Recipe, Bước 2 và Bước 6 sẽ được bỏ qua - Zero Config Mode).
+Trong phiên bản 3.0, Engine sử dụng **Flux DSL** để thực thi workflow. Mỗi thao tác (Process) tuân thủ dây chuyền 7 bước bảo mật của Microkernel:
 
 1.  **Registry Lookup:** Tìm Process và Contract trong sổ cái.
 2.  **Input Audit (Gate 1):** Kiểm tra Input Rules (nếu có) dựa trên Context hiện tại. Nếu vi phạm -> **Chặn ngay lập tức** (Fail Fast).
@@ -78,7 +68,8 @@ Mỗi thao tác (Process) vẫn tuân thủ dây chuyền 7 bước bảo mật 
 5.  **Execution (Unsafe Zone):** Chạy code Python của người dùng với `guarded_ctx`.
 6.  **Output Audit (Gate 2) - Critical:**
     *   Kiểm tra kết quả Output trên bản sao Shadow (**TRƯỚC khi Commit**).
-    *   **Level A (Interlock):** Crash -> Dừng hệ thống.
+    *   **Level S (Stop):** Crash -> Dừng hệ thống.
+    *   **Level A (Abort):** Hard stop -> Dừng workflow.
     *   **Level B (Block):** Soft Fail -> Raise `AuditBlockError`.
 7.  **Atomic Commit / Rollback:**
     *   Nếu OK: `tx.commit()` (Ghi đè Shadow vào Context thật).
@@ -88,27 +79,42 @@ Mỗi thao tác (Process) vẫn tuân thủ dây chuyền 7 bước bảo mật 
 
 ## 12.4. Các mức độ An toàn (Safety Tiers)
 
-Theus chia dữ liệu thành 3 hạng mục để bảo vệ:
+Theus chia dữ liệu thành 4 hạng mục để bảo vệ:
 
 ### Tier 1: Primitives (Tuyệt đối an toàn)
-*   `int`, `str`, `tupe`, `bool`.
+*   `int`, `str`, `tuple`, `bool`.
 *   Python không cho phép sửa nội tại (Immutable). Theus bảo vệ 100%.
 
 ### Tier 2: Managed Structures (An toàn cao)
 *   `List`, `Dict`.
 *   Theus tự động chuyển đổi thành `TrackedList` và `FrozenList`.
-*   Nếu bạn thử `ctx.settings.append(1)` trên một Input List, bạn sẽ nhận lỗi `ContractViolation`.
+*   Nếu bạn thử `ctx.domain_ctx.settings.append(1)` trên một Input List, bạn sẽ nhận lỗi `ContractViolation`.
 
-### Tier 3: Foreign Objects (Cần kỷ luật)
-*   `numpy.array`, `torch.Tensor`, `CustomClass`.
+### Tier 3: Heavy Zone (Tốc độ cao)
+*   Biến với prefix `heavy_` (numpy arrays, tensors).
+*   **Zero-copy** - không copy dữ liệu, không rollback.
+*   Trade-off: Nhanh hơn nhưng không có undo.
+
+### Tier 4: Foreign Objects (Cần kỷ luật)
+*   `numpy.array`, `torch.Tensor`, `CustomClass` (không có `heavy_` prefix).
 *   Theus không thể can thiệp vào bộ nhớ C++ của Numpy.
 *   **Cảnh báo:** Developer phải tự ý thức không được sửa nội tại (mutate inplace) các object này nếu chúng là Input.
 
 ---
 
+## 12.5. API Changes (v3.0)
+
+| v2.2 | v3.0 | Ghi chú |
+|:-----|:-----|:--------|
+| `engine.register_process(name, func)` | `engine.register(func)` | Tên auto-detect |
+| `engine.run_process(name, **kwargs)` | `engine.execute(func_or_name, **kwargs)` | Chấp nhận func hoặc string |
+| Contract paths: `domain.*` | `domain_ctx.*` | Thay đổi bắt buộc |
+
+---
+
 ## 12.6. Autopilot: Tính năng Tự động Khám phá (Auto-Discovery)
 
-Theus v2.1 được trang bị "Crawler" thông minh (`engine.scan_and_register`) để tự động hóa việc đăng ký Process. Không còn cần `engine.register_process()` thủ công.
+Theus v3.0 được trang bị "Crawler" thông minh (`engine.scan_and_register`) để tự động hóa việc đăng ký Process.
 
 ### Cơ chế hoạt động (The Internal Mechanics)
 Engine thực hiện quy trình "4 bước" để tìm kiếm và xác nhận Process:

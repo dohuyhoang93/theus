@@ -3,7 +3,7 @@ use pyo3::types::{PyDict, PyList};
 use crate::engine::Transaction;
 
 /// Immutable List Wrapper
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct FrozenList {
     data: Py<PyList>,
 }
@@ -34,7 +34,7 @@ impl FrozenList {
 }
 
 /// Transaction-Tracked Dictionary
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct TrackedDict {
     data: Py<PyDict>,
     tx: Py<Transaction>,
@@ -81,7 +81,7 @@ impl TrackedDict {
 }
 
 /// Transaction-Tracked List
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct TrackedList {
     data: Py<PyList>,
     tx: Py<Transaction>,

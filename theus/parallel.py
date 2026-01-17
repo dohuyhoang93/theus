@@ -1,10 +1,25 @@
 
-import concurrent.interpreters as interpreters
+try:
+    import concurrent.interpreters as interpreters
+    INTERPRETERS_SUPPORTED = True
+except ImportError:
+    interpreters = None
+    INTERPRETERS_SUPPORTED = False
+
 import queue
 import threading
 from concurrent.futures import ThreadPoolExecutor, Future
 from contextlib import contextmanager
 import pickle
+
+class ParallelContext:
+    """Minimized Context for Parallel Execution (Picklable)"""
+    def __init__(self, domain):
+        self.domain = domain
+
+    def __getattr__(self, name):
+        # Fallback for other attributes to None
+        return None
 
 class InterpreterPool:
     """

@@ -1,9 +1,9 @@
 # Chapter 2: Designing the 3-Axis Context
 
-In Theus v2, the Context is not just a bag of data. It is a 3-dimensional structure that helps the Engine understand and protect your data.
+In Theus v3.0, the Context is not just a bag of data. It is a 3-dimensional structure that helps the Engine understand and protect your data.
 
 ## 1. The "Hybrid Context Zones" Mindset
-Instead of forcing you to write `ctx.domain.data.user_id` (too verbose), Theus v2 uses a **Hybrid** mechanism. You write it flat (`ctx.domain.user_id`), but the Engine implicitly classifies it into **Zones** based on Naming Conventions or Schema.
+Instead of forcing you to write `ctx.domain_ctx.data.user_id` (too verbose), Theus v3.0 uses a **Hybrid** mechanism. You write it flat (`ctx.domain_ctx.user_id`), but the Engine implicitly classifies it into **Zones** based on Naming Conventions or Schema.
 
 | Zone | Prefix | Nature | Protection Mechanism |
 | :--- | :--- | :--- | :--- |
@@ -19,7 +19,7 @@ We still use `dataclass`, but we must adhere to Zone conventions.
 
 ```python
 from dataclasses import dataclass, field
-from theus.context import BaseSystemContext
+from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
 
 # 1. Define Domain (Business Logic)
 @dataclass
@@ -31,6 +31,9 @@ class WarehouseDomain(BaseDomainContext):
     # --- SIGNAL ZONE (Control) ---
     sig_restock_needed: bool = False  # Flag indicating restock needed
     cmd_stop_robot: bool = False      # Emergency stop command
+    
+    # --- HEAVY ZONE (Large Data) ---
+    heavy_inventory_image: object = None  # For camera snapshots
 
 # 2. Define Global (Configuration)
 @dataclass
@@ -45,9 +48,9 @@ class WarehouseContext(BaseSystemContext):
     # We enforce type hinting for clarity
     domain_ctx: WarehouseDomain = field(default_factory=WarehouseDomain)
     global_ctx: WarehouseConfig = field(default_factory=WarehouseConfig)
-
-> **Pro Tip (v2.2.6+):** When you declare `items: list`, Theus automatically upgrades it to a **Rust-Native `TrackedList`** at runtime. This provides O(1) audit logging and zero-copy slicing without you changing a single line of code.
 ```
+
+> **Pro Tip (v3.0):** When you declare `items: list`, Theus automatically upgrades it to a **Rust-Native `TrackedList`** at runtime. This provides O(1) audit logging and zero-copy slicing without you changing a single line of code.
 
 ## 3. Why is Zoning Important?
 When you run a **Replay (Bug Reproduction)**:
@@ -65,7 +68,7 @@ If you try to modify it externally (External Mutation):
 # Code outside of @process
 def hack_system(ctx):
     # This will FAIL if strict_mode=True
-    ctx.domain.total_value = 9999 # -> Raises ContextLockedError!
+    ctx.domain_ctx.total_value = 9999 # -> Raises ContextLockedError!
 ```
 The system raises an error to prevent Untraceable Mutations.
 
@@ -77,12 +80,12 @@ In special cases (like Unit Tests, Initial Data Setup), you need to modify the C
 ```python
 # Temporarily unlock within the with block
 with engine.edit() as safe_ctx:
-    safe_ctx.domain.total_value = 100
-    safe_ctx.domain.items.append("Setup Item")
+    safe_ctx.domain_ctx.total_value = 100
+    safe_ctx.domain_ctx.items.append("Setup Item")
 # Exit block -> Automatically RELOCKED immediately.
 ```
 
 ---
 **Exercise:**
 Create a file `warehouse_ctx.py`. Define the Context as above.
-Try writing a main function, initialize the Engine, then intentionally assign `ctx.domain.total_value = 1` without using `engine.edit()`. Observe the `ContextLockedError`.
+Try writing a main function, initialize the Engine, then intentionally assign `ctx.domain_ctx.total_value = 1` without using `engine.edit()`. Observe the `ContextLockedError`.

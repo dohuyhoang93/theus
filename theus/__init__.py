@@ -16,4 +16,4 @@ except ImportError:
     CORE_AVAILABLE = False
     SignalHub, SignalReceiver, SchemaViolationError = None, None, None
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"

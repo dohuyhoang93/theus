@@ -22,7 +22,7 @@ pyo3::create_exception!(theus_core, AuditWarning, pyo3::exceptions::PyUserWarnin
 /// - A (Abort): Cancel current operation, allow retry
 /// - B (Block): Block after threshold exceeded
 /// - C (Count): Count only, never block
-#[pyclass(eq, eq_int)]
+#[pyclass(module = "theus_core", eq, eq_int)]
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum AuditLevel {
     Stop = 0,   // Immediate halt
@@ -35,7 +35,7 @@ pub enum AuditLevel {
 // Ring Buffer Entry (Immutable)
 // ============================================================================
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 #[derive(Clone)]
 pub struct AuditLogEntry {
     #[pyo3(get)]
@@ -108,7 +108,7 @@ impl RingBuffer {
 // AuditRecipe (Enhanced with Level and Dual Thresholds)
 // ============================================================================
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 #[derive(Clone)]
 pub struct AuditRecipe {
     #[pyo3(get, set)]
@@ -139,7 +139,7 @@ impl AuditRecipe {
 // AuditSystem (Enhanced)
 // ============================================================================
 
-#[pyclass(subclass)]
+#[pyclass(module = "theus_core", subclass)]
 pub struct AuditSystem {
     recipe: AuditRecipe,
     counts: HashMap<String, u32>,

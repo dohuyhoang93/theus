@@ -7,7 +7,10 @@ from .data import (
     TEMPLATE_WORKFLOW,
     TEMPLATE_PROCESS_CHAIN,
     TEMPLATE_PROCESS_STRESS,
-    TEMPLATE_AUDIT_RECIPE
+    TEMPLATE_AUDIT_RECIPE,
+    TEMPLATE_PROCESS_ECOMMERCE,
+    TEMPLATE_WORKFLOW_ECOMMERCE,
+    TEMPLATE_AUDIT_ECOMMERCE
 )
 
 class TemplateRegistry:
@@ -57,18 +60,26 @@ class TemplateRegistry:
              # We reuse context/main from standard for simplicity
              return base_files
 
+        elif template_name == "ecommerce":
+             # E-Commerce Demo (from Integration Test)
+             base_files["src/processes/ecommerce.py"] = TEMPLATE_PROCESS_ECOMMERCE
+             base_files["workflows/workflow.yaml"] = TEMPLATE_WORKFLOW_ECOMMERCE
+             base_files["specs/audit_recipe.yaml"] = TEMPLATE_AUDIT_ECOMMERCE
+             return base_files
+
         else:
             raise ValueError(f"Unknown template: {template_name}")
 
     @staticmethod
     def list_templates() -> list[str]:
-        return ["minimal", "standard", "agent", "hybrid"]
+        return ["minimal", "standard", "ecommerce", "agent", "hybrid"]
 
     @staticmethod
     def list_templates_details() -> list[tuple[str, str]]:
         """Returns list of (name, description) tuples."""
         return [
             ("standard", "Standard project with Flux Loop + Audit Demo"),
+            ("ecommerce", "E-Commerce Demo: Orders, Payments, Heavy Zone, Rollback"),
             ("hybrid",   "Advanced: Flux FSM + Pure Python Pipelines (High Performance)"),
             ("agent",    "Agentic Skeleton (Perception-Action-Learning)"),
             ("minimal",  "Bare-bones structure (experienced users only)"),

@@ -7,7 +7,7 @@ use std::time::Instant;
 pyo3::create_exception!(theus_core, WriteTimeoutError, pyo3::exceptions::PyTimeoutError);
 
 /// Helper to collect outbox messages in Transaction
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct OutboxCollector {
     buffer: Arc<Mutex<Vec<OutboxMsg>>>,
 }
@@ -19,12 +19,14 @@ impl OutboxCollector {
     }
 }
 
-#[pyclass(subclass)]
+#[pyclass(module = "theus_core", subclass)]
 pub struct TheusEngine {
     state: Py<State>,
     outbox: Arc<Mutex<Vec<OutboxMsg>>>,
     worker: Arc<Mutex<Option<PyObject>>>,
     pub schema: Arc<Mutex<Option<PyObject>>>,
+    pub audit_system: Arc<Mutex<Option<PyObject>>>, // NEW
+    pub strict_mode: Arc<Mutex<bool>>,             // NEW
 }
 
 #[pymethods]
@@ -37,9 +39,26 @@ impl TheusEngine {
             outbox: Arc::new(Mutex::new(Vec::new())),
             worker: Arc::new(Mutex::new(None)),
             schema: Arc::new(Mutex::new(None)),
+            audit_system: Arc::new(Mutex::new(None)),
+            strict_mode: Arc::new(Mutex::new(false)),
         })
     }
+    
+    fn set_audit_system(&self, audit: PyObject) {
+        let mut a = self.audit_system.lock().unwrap();
+        *a = Some(audit);
+    }
 
+    fn set_strict_mode(&self, strict: bool) {
+        let mut s = self.strict_mode.lock().unwrap();
+        *s = strict;
+    }
+
+    fn set_schema(&self, schema: PyObject) {
+        let mut s = self.schema.lock().unwrap();
+        *s = Some(schema);
+    }
+    
     #[getter]
     fn state(&self, py: Python) -> Py<State> {
         self.state.clone_ref(py)
@@ -68,11 +87,6 @@ impl TheusEngine {
         *w = Some(worker);
     }
     
-    fn set_schema(&self, schema: PyObject) {
-        let mut s = self.schema.lock().unwrap();
-        *s = Some(schema);
-    }
-    
     fn process_outbox(&self, py: Python) -> PyResult<()> {
         let msgs: Vec<OutboxMsg>;
         {
@@ -93,7 +107,7 @@ impl TheusEngine {
                  // OutboxMsg implements Clone.
                  // But `msg` is owned `OutboxMsg`. 
                  // To pass to Python, we wrap it in Py::new or into_py?
-                 // Since OutboxMsg is #[pyclass], we can create new Python instance.
+                 // Since OutboxMsg is #[pyclass(module = "theus_core")], we can create new Python instance.
                  let py_msg = Py::new(py, msg)?;
                  worker.call1(py, (py_msg,))?;
              }
@@ -143,10 +157,22 @@ impl TheusEngine {
         let is_coroutine = inspect.call_method1("iscoroutinefunction", (&func,))?.is_truthy()?;
         
         // Create Ephemeral Context (RAII)
+        // Create Ephemeral Context (RAII)
         let local_dict = PyDict::new_bound(py);
+        
+        // Fix: Use ProcessContext::new() constructor which handles Outbox init
+        // Or init struct manually if ::new() is not accessible (it is private in structures.rs).
+        // Since structures.rs has `pub struct ProcessContext`, fields are pub? 
+        // No, in structures.rs fields are pub, but Outbox field added.
+        // Let's check structures.rs again... yes `pub outbox: Outbox`.
+        // So we can init manually.
+        
         let ctx = Py::new(py, crate::structures::ProcessContext {
             state: self.state.clone_ref(py),
             local: local_dict.unbind(),
+            outbox: crate::structures::Outbox {
+                messages: Arc::new(Mutex::new(Vec::new()))
+            }
         })?;
 
         let args = (ctx,);
@@ -168,7 +194,7 @@ impl TheusEngine {
 
 // ... 
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct Transaction {
     engine: Py<TheusEngine>,
     pending_data: Py<PyDict>,

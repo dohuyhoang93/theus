@@ -1,4 +1,4 @@
-# Chương 1: Luồng Tư Duy Theus (The Theus Mindset)
+ # Chương 1: Luồng Tư Duy Theus (The Theus Mindset)
 
 > *"Trước khi gõ `import theus`, bạn cần cài đặt `pop_mindset` vào não bộ."*
 
@@ -44,6 +44,7 @@ Trong không gian tư duy của Theus, mọi vấn đề đều được giải 
 ### 3. **Workflow (W - Dòng chảy)**
 *   **Định nghĩa:** Là bản vẽ kỹ thuật nối các Process lại với nhau.
 *   **Vai trò:** "Bản đồ nhận thức" (Cognitive Map). Giúp dev nhìn vào file YAML là hiểu hệ thống đang làm gì.
+*   **v3.0:** Sử dụng **Flux DSL** (if/while/run) thay cho FSM cũ.
 
 ---
 
@@ -51,7 +52,7 @@ Trong không gian tư duy của Theus, mọi vấn đề đều được giải 
 
 ### Nguyên lý 1: Ý nghĩa hơn Hình dạng (Semantic > Structural)
 *   **Phát biểu:** Cấu trúc dữ liệu có thể thay đổi (Evolvable), nhưng Ý NGHĨA của nó phải bất biến (Invariant).
-*   **Ví dụ:** `ctx.robot.pose` có thể là `list` hay `dict`, nhưng ý nghĩa vẫn là "Tọa độ Robot".
+*   **Ví dụ:** `ctx.domain_ctx.robot.pose` có thể là `list` hay `dict`, nhưng ý nghĩa vẫn là "Tọa độ Robot".
 
 ### Nguyên lý 2: Trạng thái Mở (Open State Principle)
 *   **Phát biểu:** Không có biến `private` ẩn giấu logic. Mọi trạng thái quan trọng (Business State) phải nằm phơi bày trên Context để Audit.
@@ -82,16 +83,17 @@ class CoffeeMachine:
         self._beverage = "Coffee"
 ```
 
-**Cách Theus (Tư duy Dòng chảy):**
+**Cách Theus v3.0 (Tư duy Dòng chảy):**
 ```python
 # State phơi bày rõ ràng
 Context = {water: 100, beans: 50, output: None}
 
-# Biến đổi tường minh
-@process(inputs=["water"], outputs=["output"])
+# Biến đổi tường minh (v3.0: dùng domain_ctx)
+@process(inputs=["domain_ctx.water"], outputs=["domain_ctx.output"])
 def brew_coffee(ctx):
-    if ctx.water < 10: return ctx.fail("NO_WATER")
-    ctx.output = "Coffee"
+    if ctx.domain_ctx.water < 10: 
+        raise ValueError("NO_WATER")
+    ctx.domain_ctx.output = "Coffee"
 ```
 **Lợi ích:** Dễ dàng chèn bước `audit_water_quality(ctx)` vào giữa mà không sửa code cũ.
 
@@ -103,6 +105,6 @@ Khi thiết kế một hệ thống Theus, hãy tuân theo quy trình 3 bước 
 
 1.  **Define Context (Dữ liệu):** Hệ thống cần biết những gì? (Input/Output).
 2.  **Define Process (Hành động):** Ai làm gì với dữ liệu đó? (Logic).
-3.  **Define Workflow (Kết nối):** Thứ tự thực hiện ra sao? (Flow).
+3.  **Define Workflow (Kết nối):** Thứ tự thực hiện ra sao? (Flow - dùng Flux DSL).
 
 > **Lời khuyên:** Đừng bắt đầu bằng việc viết Code. Hãy bắt đầu bằng việc vẽ Dòng chảy dữ liệu (Data Flow).

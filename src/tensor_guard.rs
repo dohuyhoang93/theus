@@ -7,7 +7,7 @@ use crate::delta::Transaction;
 /// - Zero-copy arithmetic (Direct C-Dispatch)
 /// - Bypass Transaction Log for values (Performance)
 /// - Maintains Reference Logging (Audit)
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct TheusTensorGuard {
     #[pyo3(get)]
     pub inner: PyObject,

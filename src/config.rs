@@ -39,7 +39,7 @@ struct FieldSpec {
 fn default_type() -> String { "string".to_string() }
 fn default_true() -> bool { true }
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct ConfigLoader {}
 
 #[pymethods]

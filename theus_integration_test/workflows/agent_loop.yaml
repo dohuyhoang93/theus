@@ -1,0 +1,20 @@
+# Smart Agent Loop Workflow
+steps:
+  # 1. Initialize
+  - process: "sense_environment"
+  
+  # 2. Loop
+  - flux: while
+    condition: "domain['sensor_data']['temp'] >= 25 and len(domain.get('action_log', [])) < 5" # Safety break
+    do:
+      - process: "decide_action"
+      
+      # Simulate wait or changing environment by re-sensing
+      - process: "sense_environment" 
+      
+      # Log action (inline helper logic usually done by another process, simulated here implicitly)
+      - flux: if
+        condition: "domain['action'] == 'COOL_DOWN'"
+        then:
+           # Just to show branching
+           - process: "sense_environment" 

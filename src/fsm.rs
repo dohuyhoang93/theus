@@ -139,7 +139,7 @@ fn parse_single_step(item: &Value) -> Result<FluxStep, String> {
 
 /// FSM State for Workflow execution tracking.
 /// Supports: Pending -> Running -> WaitingIO -> Complete/Failed
-#[pyclass(eq, eq_int)]
+#[pyclass(module = "theus_core", eq, eq_int)]
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FSMState {
     Pending = 0,
@@ -153,7 +153,7 @@ pub enum FSMState {
 // WorkflowEngine (PyO3 Class)
 // ============================================================================
 
-#[pyclass(subclass)]
+#[pyclass(module = "theus_core", subclass)]
 pub struct WorkflowEngine {
     steps: Vec<FluxStep>,
     max_ops: u32,
@@ -268,12 +268,12 @@ impl WorkflowEngine {
     /// Wraps the synchronous execution in a thread (asyncio.to_thread) to avoid blocking the event loop.
     /// Handles FSM state transitions correctly for async steps by blocking the worker thread.
     #[pyo3(signature = (ctx, executor))]
-    fn execute_async<'py>(
+    fn execute_async(
         self_: Py<Self>,
-        py: Python<'py>,
+        py: Python<'_>,
         ctx: Py<PyDict>,
         executor: PyObject
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ) -> PyResult<Bound<'_, PyAny>> {
         let asyncio = py.import("asyncio")?;
         
         // Capture running loop for thread-safe execution of sub-coroutines

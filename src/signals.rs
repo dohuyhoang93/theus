@@ -9,7 +9,7 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
     Runtime::new().expect("Failed to create Tokio Runtime")
 });
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 #[derive(Clone)]
 pub struct SignalHub {
     tx: broadcast::Sender<String>,
@@ -43,7 +43,7 @@ impl SignalHub {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct SignalReceiver {
     // We need Arc<Mutex> because PyO3 classes must be Send/Sync (mostly) 
     // and we need mutable access to call recv().

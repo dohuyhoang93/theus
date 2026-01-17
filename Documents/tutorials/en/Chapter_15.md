@@ -1,27 +1,86 @@
-# Chapter 15: Conclusion - Becoming a Theus Architect
+# Chapter 15: CLI Tools Reference
 
-You have journeyed through the entire architecture of Theus v2. You are now no longer just a "Python Coder", you are a **Process Architect**.
+Theus v3.0 provides a powerful CLI suite to accelerate development and maintain architectural integrity.
 
-## 1. The Architect Mindset
-When facing a new problem, don't rush to write functions. As an Architect:
+## 1. Project Initialization
 
-1.  **Define Zones:** Is this variable Data (Persistent), Signal (Transient), or Heavy (Blob)?
-2.  **Define Policy:** What are the Safety Rules? (Level S/A/B)?
-3.  **Define Contract:** What inputs/outputs does this Process need?
-4.  **Define Workflow:** How do states transition in the FSM?
+```bash
+py -m theus.cli init <project_name>
+```
 
-## 2. Theus Manifesto v2
-- **Explicit over Implicit:** Everything (permissions actions, rules) must be explicitly declared.
-- **Architecture Enforcement:** Don't rely on human discipline. Let the Rust Engine enforce data boundaries.
-- **Safety First:** Better to stop the system (Interlock) than to let corrupt data propagate.
+Scaffolds a new project with the standard V3 structure:
+```
+my_project/
+├── src/
+│   └── processes/
+├── specs/
+│   ├── audit_recipe.yaml
+│   └── context_schema.yaml
+├── workflows/
+│   └── main_workflow.yaml
+└── main.py
+```
 
-## 3. The Future
-You are ready to build:
-- **Autonomous AI Agents:** Using Heavy Zone for Tensors and FSM for reasoning.
-- **Enterprise APIs:** Using FastAPI + Theus Service Layer for clean, safe backends.
-- **Industrial Automation:** Using Safety Interlocks to control critical hardware.
+## 2. Audit Tools
 
-## 4. Closing
-Theus v2 was born to be the foundation for robust, transparent, and safe systems. The power is now in your hands.
+### Generate Audit Spec
 
-**Happy Coding & Stay Safe!** 🚀
+```bash
+py -m theus.cli audit gen-spec
+```
+
+Scans your `@process` functions and automatically populates `specs/audit_recipe.yaml` with rule skeletons.
+
+### Inspect Process
+
+```bash
+py -m theus.cli audit inspect <process_name>
+```
+
+Inspects the effective audit rules, side effects, and error contracts for a specific process.
+
+## 3. Schema Generation
+
+```bash
+py -m theus.cli schema gen
+```
+
+Infers and generates `specs/context_schema.yaml` from your Python Dataclass definitions.
+
+## 4. POP Linter
+
+```bash
+py -m theus.cli check [path]
+```
+
+Runs the **POP Linter** to enforce architectural purity.
+
+| Rule | Violation | Fix |
+|:-----|:----------|:----|
+| POP-E01 | `print()` calls | Use `ctx.log` |
+| POP-E02 | `open()` file access | Use Outbox |
+| POP-E03 | `requests` HTTP calls | Use side_effects declaration |
+| POP-E04 | `global` keyword | Use Context |
+
+## 5. Example Workflow
+
+```bash
+# 1. Create new project
+py -m theus.cli init bank_app
+
+# 2. Navigate to project
+cd bank_app
+
+# 3. Generate audit skeleton after writing processes
+py -m theus.cli audit gen-spec
+
+# 4. Check code quality
+py -m theus.cli check src/processes
+
+# 5. Run application
+python main.py
+```
+
+---
+**Exercise:**
+Initialize a new project with `theus.cli init`. Explore the generated structure.

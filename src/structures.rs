@@ -9,7 +9,7 @@ use crate::signals::SignalHub;
 
 create_exception!(theus.structures, ContextError, pyo3::exceptions::PyException);
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct FrozenDict {
     data: Py<PyDict>,
 }
@@ -65,7 +65,7 @@ impl FrozenDict {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 #[derive(Clone)]
 pub struct MetaLogEntry {
     #[pyo3(get)]
@@ -85,7 +85,7 @@ impl MetaLogEntry {
 
 /// Theus v3 Immutable State
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 #[derive(Clone)]
 pub struct State {
     pub data: HashMap<String, Arc<PyObject>>,
@@ -268,12 +268,35 @@ impl State {
 
     #[getter]
     fn domain(&self, py: Python) -> PyResult<PyObject> {
-        self.data(py)
+        match self.data.get("domain") {
+             Some(val) => {
+                 // If val is a dict, wrap in FrozenDict for dot access
+                 if val.bind(py).is_instance_of::<PyDict>() {
+                     let dict: Py<PyDict> = val.extract(py)?;
+                     let frozen = Py::new(py, FrozenDict::new(dict))?;
+                     Ok(frozen.into_py(py))
+                 } else {
+                     Ok(val.clone_ref(py))
+                 }
+             },
+             None => Ok(py.None())
+        }
     }
 
     #[getter]
     fn global(&self, py: Python) -> PyResult<PyObject> {
-        self.data(py)
+        match self.data.get("global") {
+             Some(val) => {
+                 if val.bind(py).is_instance_of::<PyDict>() {
+                     let dict: Py<PyDict> = val.extract(py)?;
+                     let frozen = Py::new(py, FrozenDict::new(dict))?;
+                     Ok(frozen.into_py(py))
+                 } else {
+                     Ok(val.clone_ref(py))
+                 }
+             },
+             None => Ok(py.None())
+        }
     }
 
     #[getter]
@@ -286,20 +309,51 @@ impl State {
     }
 }
 
+#[pyclass(module = "theus_core")]
+#[derive(Clone)]
+pub struct Outbox {
+    pub messages: Arc<Mutex<Vec<OutboxMsg>>>,
+}
+
+#[pymethods]
+impl Outbox {
+    #[new]
+    fn new() -> Self {
+        Outbox {
+            messages: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn add(&self, msg: OutboxMsg) {
+        self.messages.lock().unwrap().push(msg);
+    }
+    
+    #[getter]
+    fn get_messages(&self) -> Vec<OutboxMsg> {
+        self.messages.lock().unwrap().clone()
+    }
+}
+
 /// Ephemeral Context passed to Process
-#[pyclass]
+#[pyclass(module = "theus_core")]
 pub struct ProcessContext {
     #[pyo3(get)]
     pub state: Py<State>,
     #[pyo3(get)]
     pub local: Py<PyDict>, // Mutable Ephemeral Scope
+    #[pyo3(get)]
+    pub outbox: Outbox,
 }
 
 #[pymethods]
 impl ProcessContext {
     #[new]
     fn new(state: Py<State>, local: Py<PyDict>) -> Self {
-        ProcessContext { state, local }
+        ProcessContext { 
+            state, 
+            local,
+            outbox: Outbox::new(), 
+        }
     }
 
     // Legacy Compatibility: global_ctx -> state.data["global"]
@@ -337,7 +391,7 @@ impl ProcessContext {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "theus_core")]
 #[derive(Clone)]
 pub struct OutboxMsg {
     #[pyo3(get)]

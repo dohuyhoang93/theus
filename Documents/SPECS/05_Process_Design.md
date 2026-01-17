@@ -51,8 +51,6 @@ Dùng `Local Context` cho các biến tạm để giữ `Domain Context` sạch 
 
 ---
 
----
-
 ## 5.3. Quy tắc An toàn Tương tác (Interaction Matrix)
 
 Đây là điểm khác biệt lớn nhất của **Theus Framework**. Process không "tự do" truy cập Context. Nó bị kiểm soát bởi **Ma trận An toàn 3 Trục**:
@@ -77,34 +75,36 @@ Dùng `Local Context` cho các biến tạm để giữ `Domain Context` sạch 
 
 ## 5.4. Hướng dẫn Hiện thực hóa (Standard Implementation)
 
-Trong Theus Framework, chúng ta sử dụng decorator `@process` từ thư viện `theus`:
+Trong Theus Framework v3.0, chúng ta sử dụng decorator `@process` từ thư viện `theus`:
+
+> **⚠️ Lưu ý v3.0:** Contract paths bây giờ dùng `domain_ctx.*` thay vì `domain.*`.
 
 ```python
-from theus import process
+from theus.contracts import process, SemanticType
 
 @process(
-    inputs=["domain.user.age", "domain.cart.total"], 
-    outputs=["domain.order.status", "domain.order.discount"],
+    inputs=["domain_ctx.user.age", "domain_ctx.cart.total"], 
+    outputs=["domain_ctx.order.status", "domain_ctx.order.discount"],
     side_effects=[],
-    errors=["INVALID_AGE"]
+    errors=["ValueError"],
+    semantic=SemanticType.EFFECT
 )
 def validate_order(ctx):
     # 1. Preparation (Read from Input)
-    age = ctx.domain.user.age
-    total = ctx.domain.cart.total
+    age = ctx.domain_ctx.user.age
+    total = ctx.domain_ctx.cart.total
     
     # 2. Pure Logic (Validate Rule)
     if age < 18:
-        # Business Error (Not Exception)
-        return ctx.fail("INVALID_AGE")
+        raise ValueError("INVALID_AGE")
         
     discount = 0.0
     if total > 1000:
         discount = 0.1
         
     # 3. Update (Write to Output)
-    ctx.domain.order.status = "VALID"
-    ctx.domain.order.discount = discount
+    ctx.domain_ctx.order.status = "VALID"
+    ctx.domain_ctx.order.discount = discount
     
     # Implicit Return Success
 ```
@@ -115,3 +115,23 @@ def validate_order(ctx):
 3.  **Audit Trail:** Khi có lỗi, Audit Log sẽ ghi: *"Process `validate_order` thất bại vì Input `age=15`"*.
 
 > **Tư duy Theus:** Developer không viết "code chạy việc". Developer viết "mô tả logic" và Engine sẽ chạy nó một cách an toàn.
+
+---
+
+## 5.5. Async Process (v3.0)
+
+Theus v3.0 hỗ trợ async processes cho các tác vụ I/O:
+
+```python
+import asyncio
+from theus.contracts import process
+
+@process(
+    inputs=['domain_ctx.query'],
+    outputs=['domain_ctx.result']
+)
+async def fetch_data(ctx):
+    query = ctx.domain_ctx.query
+    await asyncio.sleep(0.1)  # I/O operation
+    ctx.domain_ctx.result = {"data": query}
+```

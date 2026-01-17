@@ -1,7 +1,7 @@
-# 🤖 Theus Framework v2.2: AI Coding Standards & Agent Guidelines
+# 🤖 Theus Framework v3.0: AI Coding Standards & Agent Guidelines
 
-**Target Audience:** AI Assistants (GPT-4, Claude 3.5, Gemini, Copilot) & Autonomous Agents.
-**Purpose:** Rapid understanding of "Rust-First" Architectural Invariants, Strict Mode Constraints, and FSM/Heavy Zone patterns in Theus v2.2.
+**Target Audience:** AI Assistants (GPT-4, Claude, Gemini, Copilot) & Autonomous Agents.
+**Purpose:** Rapid understanding of Rust-First Architectural Invariants, Strict Mode Constraints, and Flux DSL patterns in Theus v3.0.
 
 ---
 
@@ -17,44 +17,26 @@ Every data point is defined by 3 axes. You MUST respect them:
     *   **DATA:** Normal Business State. Transactional (Undo/Redo).
     *   **SIGNAL (`sig_`, `cmd_`):** Communication. Transient. Reset on Read. **Non-Transactional**.
     *   **META (`meta_`):** Observability/Metrics.
-    *   **HEAVY (`heavy_`):** **[NEW]** High-Perf Tensors/Blobs. Bypasses Transaction Log (No Undo).
+    *   **HEAVY (`heavy_`):** High-Perf Tensors/Blobs. Bypasses Transaction Log (No Undo).
 
 **CRITICAL INVARIANT:** Never mutate Context directly. Always use the injected `ctx` (ContextGuard).
-
-### 📐 Visual Model
-
-```text
-       [Y] SEMANTIC (Input vs Output)
-              ^
-              |
-      Input   |   Output
-     (Read)   |  (Write)
-              |
-   +----------+----------+
-  /|         /|          |
- +-+--------+ |  THEUS   |--> [Z] ZONE (Data/Signal/Heavy)
- | | GLOBAL | | CONTEXT  |
- | +--------+-+          |
- |/ DOMAIN /|/           |
- +----------+------------+
-      /
-     v
- [X] LAYER (Scope)
-```
 
 ---
 
 ## 2. Strict Mode (Default: ON)
-Theus v2.2 enforces `strict_mode=True`. Violating these rules causes `PyPermissionError` or `Rust Panic`.
+Theus v3.0 enforces `strict_mode=True`. Violating these rules causes `ContractViolationError` or `PermissionError`.
 
 ### Rule 1: Explicit Contracts
 Every process MUST be decorated with `@process` and declare exact `inputs/outputs`.
+
+> **⚠️ v3.0 BREAKING CHANGE:** Contract paths use `domain_ctx.*` not `domain.*`.
+
 ```python
-# ✅ CORRECT
-@process(inputs=['domain.user_id'], outputs=['domain.profile'])
+# ✅ CORRECT (v3.0)
+@process(inputs=['domain_ctx.user_id'], outputs=['domain_ctx.profile'])
 def fetch_profile(ctx): ...
 
-# ❌ WRONG (Result: Panic or PermissionError)
+# ❌ WRONG (PermissionError)
 def fetch_profile(ctx): ... 
 ```
 
@@ -62,18 +44,28 @@ def fetch_profile(ctx): ...
 Attributes declared in `inputs` are **Read-Only**.
 ```python
 # ❌ WRONG (PermissionError: Illegal Write)
-ctx.domain.user_id = "new_id" 
+ctx.domain_ctx.user_id = "new_id" 
 ```
 
-### Rule 3: No Control Plane Inputs
-You CANNOT declare `inputs=['sig_start']`. Signals are processed by the **Orchestrator**, not passed as data to processes.
+### Rule 3: No Signal Inputs
+You CANNOT declare `inputs=['domain_ctx.sig_start']`. Signals are processed by **Flux DSL**, not passed as data to processes.
 
 ### Rule 4: No Private Access
 Accessing `ctx._internal` or `ctx.target._data` is BLOCKED.
 
 ---
 
-## 3. Optimization: The HEAVY Zone
+## 3. API Changes (v3.0)
+
+| v2.2 | v3.0 | Notes |
+|:-----|:-----|:------|
+| `engine.register_process(name, func)` | `engine.register(func)` | Name auto-detected |
+| `engine.run_process(name, **kwargs)` | `engine.execute(func_or_name, **kwargs)` | Accepts func or string |
+| `domain.*` paths | `domain_ctx.*` paths | Required change |
+
+---
+
+## 4. Optimization: The HEAVY Zone
 For AI workloads (Images, Tensors, Embeddings), use the `HEAVY` zone to avoid RAM explosion.
 
 **Mechanism:**
@@ -83,41 +75,53 @@ For AI workloads (Images, Tensors, Embeddings), use the `HEAVY` zone to avoid RA
 -   **Use Case:** Only for data > 1MB where eventual consistency > atomicity.
 
 ```python
-@process(inputs=[], outputs=['domain.heavy_frame'])
+@process(inputs=[], outputs=['domain_ctx.heavy_frame'])
 def capture_camera(ctx):
     # Fast write, no undo log overhead
-    ctx.domain.heavy_frame = np.zeros((1080, 1920, 3)) 
+    ctx.domain_ctx.heavy_frame = np.zeros((1080, 1920, 3)) 
 ```
 
 ---
 
-## 4. Orchestration: Native FSM
-Logic flow is defined in **YAML**, not Python. Theus Engine uses a Rust-based Finite State Machine.
+## 5. Orchestration: Flux DSL (v3.0)
 
-**Do NOT write loops manually.**
-Define `workflow.yaml`:
+> **⚠️ DEPRECATED:** FSM (states/events) is deprecated. Use Flux DSL.
+
+Logic flow is defined in **YAML**, not Python. Theus Engine uses a Rust-based Flux DSL parser.
+
+**Use Flux DSL keywords:**
 ```yaml
-states:
-  IDLE:
-    events:
-      CMD_START: "PROCESSING"
-  PROCESSING:
-    entry: ["p_step1", "p_step2"]
-    events:
-      EVT_CHAIN_DONE: "DONE"
-      EVT_CHAIN_FAIL: "ERROR"
+steps:
+  - process: "initialize"
+  
+  - flux: if
+    condition: "domain['is_valid'] == True"
+    then:
+      - "process_data"
+    else:
+      - "handle_error"
+  
+  - flux: while
+    condition: "domain['count'] < 10"
+    do:
+      - "increment_count"
+```
+
+**Execute:**
+```python
+engine.execute_workflow("workflows/main.yaml")
 ```
 
 ---
 
-## 5. Coding Patterns for AI Agents
+## 6. Coding Patterns for AI Agents
 
 ### A. Implementing a Feature
 1.  **Schema First:** Check `specs/context_schema.yaml`. Add fields if needed.
 2.  **Define Process:** Create `src/processes/my_feature.py`.
-3.  **Decorate:** Apply `@process` with Strict inputs/outputs.
-4.  **Register:** Add to `src/processes/__init__.py`.
-5.  **YAML:** Add state/transition to `specs/workflow.yaml`.
+3.  **Decorate:** Apply `@process` with `domain_ctx.*` paths.
+4.  **Register:** Use `engine.register(func)` or `engine.scan_and_register("src/processes")`.
+5.  **YAML:** Add steps to `workflows/main.yaml` using Flux DSL.
 
 ### B. Handling Structures (Lists/Dicts)
 Theus returns `TrackedList` or `FrozenList`.
@@ -126,12 +130,36 @@ Theus returns `TrackedList` or `FrozenList`.
 
 ---
 
-## 6. Navigation (Project Structure)
+## 7. Quick Reference
+
+```python
+# Standard imports
+from theus import TheusEngine, process
+from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
+
+# Process decorator (v3.0)
+@process(
+    inputs=['domain_ctx.items', 'global_ctx.max_limit'],
+    outputs=['domain_ctx.items', 'domain_ctx.counter'],
+    errors=['ValueError']
+)
+def my_process(ctx, arg1: str):
+    ...
+
+# Engine setup (v3.0)
+engine = TheusEngine(sys_ctx, strict_mode=True)
+engine.register(my_process)
+result = engine.execute(my_process, arg1="value")
+```
+
+---
+
+## 8. Navigation (Project Structure)
 *   **`src/`**: Rust Core (Do not touch unless modifying Kernel).
 *   **`theus/`**: Python Wrapper & CLI.
 *   **`specs/`**: The "Source of Truth" for Logic (YAMLs).
-*   **`demo/`**: Best practice implementation reference.
+*   **`workflows/`**: Flux DSL workflow definitions.
 *   **`pyproject.toml`**: Build config (Maturin).
 
 ---
-*Generated by Theus Architect Agent (v2.2)*
+*Generated for Theus Framework v3.0.0*

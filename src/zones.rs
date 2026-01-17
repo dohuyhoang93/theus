@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-#[pyclass(eq, eq_int)]
+#[pyclass(module = "theus_core", eq, eq_int)]
 #[derive(PartialEq, Clone, Debug)]
 pub enum ContextZone {
     Data,
