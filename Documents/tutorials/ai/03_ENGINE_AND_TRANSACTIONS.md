@@ -16,7 +16,7 @@ class TheusEngine:
         
         Args:
             context: SystemContext instance
-            strict_mode: Enable Zero-Trust Memory (default: True)
+            strict_mode: Enable strict architectural guards (default: True)
             audit_recipe: Path to audit YAML or dict
         """
 ```
@@ -44,8 +44,8 @@ engine = TheusEngine(
 
 | Mode | Value | Use Case | Behavior |
 |:-----|:------|:---------|:---------|
-| **Production** | `True` | Deployment | Full transaction, rollback, audit |
-| **Training** | `False` | ML training loops | Disabled transactions, max speed |
+| **Production** | `True` | Deployment | Full architectural safety, Private access blocked |
+| **Research/Hack** | `False` | Debugging/Experiments | Disables limits/checks (e.g. private attrs), but Transactions still active |
 
 ```python
 # Production (Safe)
@@ -55,7 +55,7 @@ engine = TheusEngine(sys_ctx, strict_mode=True)
 engine = TheusEngine(sys_ctx, strict_mode=False)
 ```
 
-> **AI Rule:** Default to `strict_mode=True`. Only use `False` for pure training loops where data safety is not critical.
+> **AI Rule:** Default to `strict_mode=True`. Use `False` only for debugging or when you need to bypass architectural constraints (e.g. access private `_` attributes).
 
 ---
 
