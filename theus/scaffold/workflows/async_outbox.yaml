@@ -1,0 +1,24 @@
+
+name: demo_async_outbox
+version: 1.0.0
+
+steps:
+  # 0. Check Signal (Tick 0 - Signal Should be Alive)
+  - flux: if
+    condition: "signal.get('cmd_start_outbox') == 'True'"
+    then: 
+      - process: p_log_success
+    else:
+      - process: p_log_blindness
+
+  # 1. Start Async Job
+  - process: p_spawn_background_job
+      
+  # 2. Do Parallel Sync Work (Concurrency Demo)
+  - process: p_do_sync_work
+  - process: p_do_sync_work
+      
+  # 3. Join Async Job
+  - process: p_await_job
+      
+

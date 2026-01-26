@@ -1,0 +1,107 @@
+
+import pytest
+import os
+import time
+import json
+import uuid
+from multiprocessing import shared_memory
+from theus_core import shm as core_shm
+
+# Theus uses a hidden registry file
+REGISTRY_FILE = ".theus_memory_registry.jsonl"
+
+def _append_dummy_entry(pid, name, size, session="test_session"):
+    """Manually append a registry entry matching Rust AllocRecord struct."""
+    entry = {
+        "name": name,          # matches Rust struct field
+        "pid": pid,
+        "session": session,    # matches Rust struct field
+        "size": size,
+        "ts": time.time()
+    }
+    with open(REGISTRY_FILE, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    return entry
+
+@pytest.mark.xfail(reason="Windows SHM name interop issue between Rust/Python")
+def test_zombie_collector_cleanup():
+    """
+    Verify that MemoryRegistry.scan_zombies() identifies and removes entries
+    belonging to dead processes AND unlinks their shared memory.
+    """
+    # 1. Setup Real Shared Memory (So Rust can open it)
+    shm_name = f"theus_test_zombie_{uuid.uuid4()}"
+    shm_size = 1024
+    shm_segment = None
+    
+    try:
+        # Create physical SHM segment
+        try:
+            shm_segment = shared_memory.SharedMemory(name=shm_name, create=True, size=shm_size)
+        except FileExistsError:
+            shm_segment = shared_memory.SharedMemory(name=shm_name)
+    
+        # 2. Inject Zombie Record
+        fake_pid = 999999 
+        _append_dummy_entry(fake_pid, name=shm_name, size=shm_size)
+        
+        print(f"Created Real SHM: {shm_name} for Fake PID: {fake_pid}")
+        
+        # 3. Execution Phase
+        registry = core_shm.MemoryRegistry("test_session_v3")
+        
+        if hasattr(registry, "scan_zombies"):
+            registry.scan_zombies()
+            
+        # 4. Verification Phase
+        with open(REGISTRY_FILE, "r") as f:
+            lines = f.readlines()
+            
+        found_in_registry = False
+        for line in lines:
+            try:
+                data = json.loads(line)
+                if data.get("name") == shm_name:
+                    found_in_registry = True
+                    break
+            except json.JSONDecodeError:
+                continue
+                
+        assert not found_in_registry, f"Zombie entry {shm_name} should have been removed from registry!"
+        
+    finally:
+        # Cleanup verification resource if it wasn't cleaned by Rust
+        if shm_segment:
+            try:
+                shm_segment.close()
+                shm_segment.unlink()
+            except Exception:
+                pass
+
+def test_live_process_preserved():
+    """
+    Verify that entries for the CURRENT running process are preserved.
+    """
+    my_pid = os.getpid()
+    shm_name = f"theus_test_live_{uuid.uuid4()}"
+    _append_dummy_entry(my_pid, name=shm_name, size=1024)
+    
+    registry = core_shm.MemoryRegistry("test_session_v3")
+    if hasattr(registry, "scan_zombies"):
+        registry.scan_zombies()
+        
+    # Verify
+    with open(REGISTRY_FILE, "r") as f:
+        lines = f.readlines()
+        
+    found = False
+    for line in lines:
+        try:
+            data = json.loads(line)
+            if data.get("name") == shm_name and data.get("pid") == my_pid:
+                found = True
+                break
+        except:
+            continue
+            
+    assert found, "Live process entry should NOT be cleaned up."

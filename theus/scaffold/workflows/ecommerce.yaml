@@ -1,0 +1,15 @@
+name: "Theus V3 Flux Workflow"
+description: "Declarative Workflow using Theus Flux Engine (Rust Core)."
+
+# FLUX Definition (Theus V3)
+# Instead of Python FSM states, we manage control flow declaratively.
+
+steps:
+  # 1. Create Order
+  - process: "create_order"
+  
+  # 2. Process Payment
+  - process: "process_payment"
+  
+  # 3. Store Invoice (Heavy Zone)
+  - process: "store_invoice_image"

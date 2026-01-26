@@ -1,0 +1,5 @@
+# Common Dependencies
+numpy>=1.24.0
+pydantic>=2.0
+theus>=3.0.2
+questionary>=2.0
