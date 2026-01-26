@@ -32,9 +32,9 @@ async def process_success(ctx):
     return "success"
 
 async def run_test(strict):
-    print(f"\n========================================")
+    print("\n========================================")
     print(f" TESTING TRANSACTION | Strict Mode: {strict}")
-    print(f"========================================")
+    print("========================================")
     
     sys_ctx = MySystem()
     engine = TheusEngine(sys_ctx, strict_mode=strict)
@@ -45,7 +45,7 @@ async def run_test(strict):
     print(f"  [Init] Items: {sys_ctx.domain_ctx.items}")
     
     # Case 1: Crash -> Expect Rollback
-    print(f"  [Step 1] Executing 'process_that_crashes'...")
+    print("  [Step 1] Executing 'process_that_crashes'...")
     try:
         await engine.execute("process_that_crashes")
     except ValueError as e:
@@ -63,7 +63,7 @@ async def run_test(strict):
         print("  [PASS] ✅ ROLLBACK SUCCESSFUL! State is clean.")
 
     # Case 2: Success
-    print(f"  [Step 2] Executing 'process_success'...")
+    print("  [Step 2] Executing 'process_success'...")
     await engine.execute("process_success")
     current_items = sys_ctx.domain_ctx.items
     print(f"  [Result] Items after Success: {current_items}")

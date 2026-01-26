@@ -8,52 +8,42 @@ from rich.panel import Panel
 from rich.table import Table
 import questionary
 
-from .templates.registry import TemplateRegistry
+import shutil
+import os
+
+# from .templates.registry import TemplateRegistry # DEPRECATED
 from .config import ConfigFactory
 
 console = Console()
 
-def init_project(project_name: str, target_dir: Path, template: str = "standard", interactive: bool = False):
+def init_project(project_name: str, target_dir: Path):
     """
-    Scaffolds a new Theus project.
+    Scaffolds a new Theus project using the bundled universal scaffold.
     """
     console.print(f"[bold green]🚀 Initializing Theus Project: {project_name}[/bold green]")
     
-    # 1. Create Directories
-    try:
-        (target_dir / "src" / "processes").mkdir(parents=True, exist_ok=True)
-        (target_dir / "workflows").mkdir(parents=True, exist_ok=True)
-        (target_dir / "specs").mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        console.print(f"[bold red]❌ Error creating directories: {e}[/bold red]")
+    # Locate Scaffold Directory (bundled with package)
+    pkg_dir = Path(os.path.dirname(__file__))
+    scaffold_dir = pkg_dir / "scaffold"
+    
+    if not scaffold_dir.exists():
+        console.print(f"[bold red]❌ Critical Error: Scaffold directory not found at {scaffold_dir}[/bold red]")
+        console.print("   Please ensure 'theus' is installed correctly with package data.")
         sys.exit(1)
 
-    # 2. Get Template Files
+    # Copy Tree
     try:
-        files_to_create = TemplateRegistry.get_template(template)
-    except ValueError as e:
-        console.print(f"[bold red]❌ {e}[/bold red]")
+        shutil.copytree(scaffold_dir, target_dir, dirs_exist_ok=True)
+        console.print(f"   [green]✅ Copied project skeleton from {scaffold_dir}[/green]")
+    except Exception as e:
+        console.print(f"[bold red]❌ Error copying scaffold: {e}[/bold red]")
         sys.exit(1)
 
-    # 3. Write Files
-    for rel_path, content in files_to_create.items():
-        file_path = target_dir / rel_path
-        if file_path.exists():
-            console.print(f"   [yellow]⚠️  Skipping existing file: {rel_path}[/yellow]")
-            continue
-            
-        # Ensure parent dir exists (for template files in subdir)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-            
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        console.print(f"   [green]✅ Created {rel_path}[/green]")
-
-    console.print(f"\n[bold blue]🎉 Project created successfully using '{template}' template![/bold blue]")
+    console.print("\n[bold blue]🎉 Project created successfully! (Universal Template)[/bold blue]")
     console.print("\nNext steps:")
     if project_name != ".":
         console.print(f"  cd {project_name}")
-    console.print("  pip install -r requirements.txt (if you have one)")
+    console.print("  pip install -r requirements.txt")
     console.print("  python main.py")
 
 def gen_spec(target_dir: Path = Path.cwd()):
@@ -229,6 +219,7 @@ def main():
     # Command: check (New V3.1)
     parser_check = subparsers.add_parser("check", help="Run POP Static Analysis (Linter).")
     parser_check.add_argument("target", nargs="?", default=".", help="Directory to check.")
+    parser_check.add_argument("--format", choices=["table", "json"], default="table", help="Output format (default: table).")
 
     # Command: audit
     parser_audit = subparsers.add_parser("audit", help="Audit tools.")
@@ -263,17 +254,7 @@ def main():
         
         project_name = args.name or "."
         
-        if not args.template and not args.quiet:
-            args.template = questionary.select(
-                "Choose a template:",
-                choices=[
-                    questionary.Choice(title=f"{name: <10} - {desc}", value=name)
-                    for name, desc in TemplateRegistry.list_templates_details()
-                ],
-                default="standard"
-            ).ask()
-            
-        template = args.template or "standard"
+        # Template selection removed (Universal only)
         
         if project_name == ".":
             target_path = Path.cwd()
@@ -285,7 +266,7 @@ def main():
                 sys.exit(1)
             target_path.mkdir(exist_ok=True)
             
-        init_project(project_name, target_path, template=template)
+        init_project(project_name, target_path)
     
     elif args.command == "check":
         from .linter import run_lint
@@ -293,7 +274,7 @@ def main():
         if not target.exists():
              console.print(f"[bold red]❌ Target path does not exist: {target}[/bold red]")
              sys.exit(1)
-        success = run_lint(target)
+        success = run_lint(target, output_format=args.format)
         if not success:
             sys.exit(1)
         

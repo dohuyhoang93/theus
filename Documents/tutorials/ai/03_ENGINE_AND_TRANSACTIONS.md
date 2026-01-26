@@ -202,24 +202,62 @@ version = state.version
 
 ---
 
-## 9. Compare-and-Swap Pattern
+## 9. Compare-And-Swap (CAS) Pattern
 
-For optimistic concurrency control:
+Theus v3 provides two CAS modes for optimistic concurrency control:
+
+### 9.1 Configuration
 
 ```python
-# Get current version
+# Initialize Engine with desired CAS mode
+engine = TheusEngine(
+    context=sys_ctx,
+    strict_cas=False  # Default: Smart CAS (Field-Level Tracking)
+    # strict_cas=True   # Option: Strict CAS (Version-Level Rejection)
+)
+```
+
+### 9.2 API Usage
+
+```python
+# 1. Get current version
 current_version = engine.state.version
 
-# Perform optimistic update
+# 2. Perform optimistic update
 try:
+    # If strict_cas=False (default), this SUCCEEDS if:
+    # - exact version match OR
+    # - only unrelated fields have changed (Field-Level Merge)
     engine.compare_and_swap(
         expected_version=current_version,
         data={'counter': new_value}
     )
 except VersionMismatchError:
-    # Someone else modified state, retry
+    # Genuine conflict detected (same field modified)
+    # Retry logic needed
     pass
+
+# If strict_cas=True, this fails on ANY version mismatch.
 ```
+
+### 9.3 4-Tier Case Analysis
+
+How different APIs behave under various conditions:
+
+| Case | Scenario | Strict CAS (Python) | Smart CAS (Rust) | Transaction (`tx.update`) |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Standard** | Single thread, version match | ✅ Success | ✅ Success | ✅ Auto-commit |
+| **2. Related** | Multi-field update | ✅ Success (Version based) | ✅ Success (Field based) | ✅ Batched commit |
+| **3. Edge** | Stale version, diff fields | ❌ **Reject** (Ver mismatch) | ✅ **SUCCESS** (Partial Merge) | N/A (No checks) |
+| **4. Conflict** | Stale version, same field | ❌ Reject | ❌ Reject (ContextError) | ⏳ Blocked (Mutex) |
+
+### 9.4 Decision Guide
+
+| API | Use Case |
+| :--- | :--- |
+| `engine.compare_and_swap(strict_cas=True)` | **Banking/Audit**: World state must be exact. |
+| `engine.compare_and_swap(strict_cas=False)` | **High Concurrency**: Allow non-conflicting merges. |
+| `engine.transaction().update()` | **Complex Logic**: Sequential consistency via locking. |
 
 ---
 
@@ -271,7 +309,37 @@ asyncio.run(main())
 
 ---
 
-## 12. AI Implementation Checklist
+## 12. State Mutation Strategy (Decision Tree)
+
+When implementing a User Request, use this logic to choose the right API:
+
+```
+IF (Request is "Business Logic" OR "Processing Data"):
+    -> USE Implicit POP (@process)
+    -> "Just return the new data in the function."
+
+ELSE IF (Request is "Initialization" OR "Setup"):
+    -> USE Batch Transaction (engine.transaction)
+    -> "Batch updates together at startup."
+
+ELSE IF (Request is "Testing" OR "Debug"):
+    -> USE Safe Edit (engine.edit)
+    -> "Modify state directly (Bypasses guards, Use with Caution)."
+
+ELSE IF (Request is "Lock", "Mutex", or "High Concurrency Counter"):
+    -> USE Explicit CAS (compare_and_swap)
+        IF (System requires Absolute Safety like Banking):
+            -> Strict CAS (strict_cas=True)
+        ELSE (System requires Throughput):
+            -> Smart CAS (strict_cas=False)
+
+ELSE:
+    -> REJECT or Ask for Clarification.
+```
+
+---
+
+## 13. AI Implementation Checklist
 
 When generating TheusEngine code:
 

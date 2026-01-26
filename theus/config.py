@@ -26,6 +26,22 @@ class AuditRecipeBook:
 
 class ConfigFactory:
     @staticmethod
+    def load_audit_recipe():
+        """Attempts to load audit_recipe.yaml from CWD."""
+        import os
+        import yaml
+        
+        path = "audit_recipe.yaml"
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f)
+                    return data
+            except Exception as e:
+                print(f"WARNING: Failed to load audit_recipe.yaml: {e}")
+        return None
+
+    @staticmethod
     def load_recipe(path: str) -> AuditRecipeBook:
         import yaml
         import os

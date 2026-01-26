@@ -1,64 +1,78 @@
-# Chapter 1: Theus v3.0 - The Era of Process-Oriented Programming (POP)
+# Chapter 1: Theus is NOT Objects
 
-## 1. The Philosophy of Theus: "Zero Trust" State Management
-In modern software development (AI Agents, Automation, Banking), the biggest challenge is the chaos of State Management. Data mutates uncontrollably, Events are mixed with persistent Data, leading to non-deterministic bugs that are impossible to reproduce.
+> [!CAUTION]
+> **READ THIS FIRST:** Theus is **not** an Object-Oriented Framework. If you try to write "Pythonic" OOP code here, your application will crash, lose data, or perform poorly.
 
-**Theus v3.0 (Rust Microkernel)** is not just a library; it is a **Process Operating System** for your code, enforcing the **3-Axis Context Model**:
-1.  **Layer:** Where does the data live? (Global/Domain/Local).
-2.  **Semantic:** What is the data used for? (Input/Output).
-3.  **Zone:** How is the data guarded? (Data/Signal/Meta/Heavy).
-
-## 2. Why POP v3?
-Traditional models (OOP, FP) lack a crucial piece: **Runtime Architectural Control.**
-- **OOP:** Good encapsulation, but Data Flow is hidden within methods.
-- **Theus POP:** Complete separation:
-    - **Context:** A "static" data repository, strictly zoned.
-    - **Process:** "Stateless" functions that can only touch the Context via a strict **Contract**.
-
-> **🧠 Philosophy Note:** This separation stems from Principle 1.1 of the [POP Manifesto](../../POP_Manifesto.md): **"Data is Inert, Process is Logic."** By stripping data of behavior (no methods on objects), we eliminate hidden side effects.
-
-## 3. Key Components of Theus v3.0
-1.  **Rust Engine (Theus Core):** The coordination brain, integrating the Transaction Manager and Lock Manager with zero-overhead.
-2.  **Hybrid Context:** Intelligent storage that automatically classifies Data, Signals, and **Heavy Assets** (Tensors/Blobs).
-3.  **Audit System:** The traffic police, blocking transactions that violate business rules (Rule-based Enforcement).
-4.  **Flux DSL:** The workflow engine coordinating flow based on YAML definitions (if/while/run).
-5.  **SignalHub:** High-throughput Tokio-powered event system (2.7M+ events/sec).
-
-## 4. What's New in v3.0 (Breaking Changes)
-
-| v2.2 | v3.0 | Notes |
-|:-----|:-----|:------|
-| Python 3.10+ | **Python 3.14+** | Sub-interpreter support |
-| `domain.*` paths | `domain_ctx.*` paths | Strict Rust checking |
-| `engine.run_process()` | `engine.execute()` | New API |
-| FSM (states/events) | **Flux DSL** (if/while/run) | Complete workflow rewrite |
-| WorkflowManager | **WorkflowEngine** (Rust) | Deprecated Python FSM |
-
-## 5. Installation
-Theus v3.0 requires **Python 3.14+** to leverage Sub-interpreter support.
-
-### Option 1: User (Production)
-```bash
-pip install theus
+## 1. The Impedance Mismatch
+Most Python frameworks (Django, Flask, standard scripts) treat data as **Living Objects** in memory.
+```python
+# Standard Python (State is alive)
+user = User(name="Alice")
+user.activate() # Method call mutates state inside the object
+print(user.is_active) # True
 ```
 
-### Option 2: Developer (Source)
-We use **Maturin** to build the Rust Core.
+**Theus is different.** Ideally, you should think of Theus like a **Database that speaks Python**.
+```python
+# Theus (State is dead data in Rust)
+state = eng.state.domain # This is a SNAPSHOT (Copy), not the data itself.
+user = state.users[0]    # This is a COPY of the data at this instant.
 
-```bash
-# 1. Install Maturin
-pip install maturin
-
-# 2. Build & Install (Dev Mode)
-# This compiles the Rust Core and installs it in your venv
-maturin develop
+user.activate()          # You just mutually a LOCAL COPY.
+# The real data in Rust has NOT changed.
 ```
+
+## 2. The Physical Reality: Zero-Copy
+Theus is built on a **Rust Core** designed for High-Concurrency (1000+ Agents).
+*   **Rust State:** A highly optimized `HashMap<String, Value>` protected by Atomic Locks.
+*   **Python Context:** When you access `ctx.domain`, Theus gives you a **View** into that map.
+
+### The "Snapshot" Trap
+When you read a variable, you are taking a **Snapshot**.
+```python
+# Timeline of a Bug
+order = ctx.domain.orders[0] # Snapshot at T=0
+# ... heavy processing (100ms) ...
+# Meanwhile, another process DELETES this order at T=50.
+
+order.status = "PAID"        # You are modifying a Ghost.
+ctx.domain.orders[0] = order # CRASH! IndexOutOfBounds or Zombie Write.
+```
+
+## 3. The Golden Rule
+> **"Treat Python Objects as READ-ONLY Snapshots."**
+
+To modify state, you must explicitly **COMMIT** a Transaction. You are not "changing variables"; you are "requesting a state transition".
+
+### Wrong Way (OOP Thinking)
+```python
+def process_payment(ctx):
+    # Trying to use object methods
+    ctx.domain.cart.add_item("Apple") 
+    ctx.domain.cart.total += 10
+    # Result: NOTHING happens. Theus ignores in-place mutations of objects.
+```
+
+### Right Way (Transactional Thinking)
+```python
+def process_payment(ctx):
+    # 1. Read (Snapshot)
+    cart = ctx.domain.cart.copy()
+    
+    # 2. Compute (Logic)
+    cart.add_item("Apple")
+    cart.total += 10
+    
+    # 3. Commit (Replace)
+    return cart 
+```
+*Note: We will explore simpler ways to do this later, but you must understand this fundamental friction first.*
+
+## 4. Why Use Theus?
+If it's so strict, why use it?
+*   **Safety:** The locking mechanism prevents Race Conditions that would corrupt a standard Python script instantly.
+*   **Scale:** Rust manages the memory. Python just handles the logic. This allows 1000 agents to share 10GB of state with Zero-Copy overhead.
 
 ---
-**Exercise Chapter 1:**
-Forget the old way of coding. Imagine your system is a factory.
-- What are the raw materials (Input)?
-- What are the products (Output)?
-- What are the sirens/alarms (Signal)?
-- What are the heavy raw materials like steel beams (Heavy)?
-In Chapter 2, we will build the "warehouse" (Context) for this factory.
+**Next:** Now that you know Objects are a lie, let's talk about the cost of moving data between Python and Rust.
+-> **[Chapter 02: The Cost of Serialization](./Chapter_02.md)**

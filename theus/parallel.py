@@ -8,18 +8,33 @@ except ImportError:
 
 import queue
 import threading
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future
 from contextlib import contextmanager
 import pickle
+import multiprocessing
+
+from theus.context import HeavyZoneWrapper
 
 class ParallelContext:
     """Minimized Context for Parallel Execution (Picklable)"""
-    def __init__(self, domain):
+    def __init__(self, domain, heavy=None):
         self.domain = domain
+        self._heavy = heavy
+
+    @property
+    def heavy(self):
+        if self._heavy is None:
+            return {}
+        return HeavyZoneWrapper(self._heavy)
+
+    @property
+    def input(self):
+        """Alias for domain (Inputs are merged into domain for Parallel Context)."""
+        return self.domain
 
     def __getattr__(self, name):
-        # Fallback for other attributes to None
-        return None
+        # Fallback for other attributes: Raise AttributeError to play nice with Pickle
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
 class InterpreterPool:
     """
@@ -86,6 +101,34 @@ class InterpreterPool:
                     interp.close()
             except Exception:
                 pass
+
+class ProcessPool:
+    """
+    Backwards Compatible Pool that uses Multiprocessing (Spawn).
+    Used when Sub-Interpreters are unavailable or incompatible (e.g. NumPy < 2.0).
+    """
+    def __init__(self, size: int = 2):
+        self._size = size
+        # Force spawn for consistent behavior across platforms (and Windows support)
+        ctx = multiprocessing.get_context("spawn")
+        self._executor = ProcessPoolExecutor(max_workers=size, mp_context=ctx)
+        
+    @property
+    def size(self):
+        return self._size
+
+    def submit(self, func, *args, **kwargs) -> Future:
+        """
+        Submit a task to the process pool.
+        Pickling is handled by ProcessPoolExecutor automatically.
+        """
+        # Note: We don't need manual pickle wrapper here usually, 
+        # but to match InterpreterPool behavior (which wraps args), 
+        # we can just submit directly if the func is picklable.
+        return self._executor.submit(func, *args, **kwargs)
+
+    def shutdown(self):
+        self._executor.shutdown(wait=True)
 
 def _unpickle_runner(payload_bytes):
     """

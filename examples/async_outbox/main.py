@@ -6,11 +6,12 @@ import time
 import json
 
 # Add project root to path
-sys.path.append(os.getcwd())
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from demo_async_outbox.context import DemoSystemContext, DemoDomainContext
-from demo_async_outbox.database import init_db, get_connection, insert_outbox_event
-from demo_async_outbox import processes # Register processes
+from context import DemoSystemContext, DemoDomainContext
+from database import init_db, get_connection, insert_outbox_event
+import processes # Register processes
 
 from theus.engine import TheusEngine
 # from demo_async_outbox.mock_engine import MockTheusEngine as TheusEngine # Reverted to Real Engine
@@ -46,6 +47,10 @@ async def main():
                 msgs = list(self._msgs)
                 self._msgs.clear()
                 return msgs
+                
+        def to_dict(self):
+             # Return full state for Engine Init
+             return {"domain": self.domain}
         
     ctx = SimpleContext(domain)
     
@@ -73,14 +78,30 @@ async def main():
     engine.register(processes.p_do_sync_work)
     engine.register(processes.p_await_job)
     engine.register(processes.p_prepare_outbox_event)
+    engine.register(processes.p_log_blindness)
+    engine.register(processes.p_log_success)
+    
+    # 3.1 Inject Signal (Test Flux Capability)
+    print("\n[Test] Injecting 'cmd_start_outbox' signal...")
+    try:
+        engine.compare_and_swap(
+            engine.state.version, 
+            signal={'cmd_start_outbox': True}
+        )
+        print("[Test] Signal Injected.")
+    except Exception as e:
+        print(f"[Test] Signal Injection Failed: {e}")
     
     # --- Execute Workflow ---
     print("\n--- Start Workflow (Threaded) ---")
     loop = asyncio.get_running_loop()
     
+    basedir = os.path.dirname(os.path.abspath(__file__))
+    workflow_path = os.path.join(basedir, "workflow.yaml")
+    
     # Run in thread pool to avoid blocking main loop
     # engine.execute_workflow is blocking rust call (internally manages tasks)
-    future = loop.run_in_executor(None, engine.execute_workflow, "demo_async_outbox/workflow.yaml")
+    future = loop.run_in_executor(None, engine.execute_workflow, workflow_path)
     
     # Wait for completion (Non-blocking await)
     await future
@@ -101,7 +122,7 @@ async def main():
     # Write to SQLite
     if relay_buffer:
         print(f"[Relay] Found {len(relay_buffer)} msgs in Domain State.")
-        print(f"[Relay] Persisting to SQLite...")
+        print("[Relay] Persisting to SQLite...")
         
         conn = get_connection()
         for m in relay_buffer:
@@ -138,7 +159,7 @@ async def main():
     
     print("\n[Verification] Final State:")
     # Helper to print safe
-    from demo_async_outbox.helpers import get_attr
+    from helpers import get_attr
     print(f"  Sync Ops: {get_attr(ctx, 'domain.sync_ops_count')}")
     print(f"  Async Result: {get_attr(ctx, 'domain.async_job_result')}")
     # Buffer is no longer in domain!

@@ -13,7 +13,7 @@
 Theus is vast. Use our **[Interactive Documentation Map](https://github.com/dohuyhoang93/theus/blob/main/Documents/00_Start_Here_Map.md)** to find your path:
 *   🚀 **I want to build an Agent now:** [Go to Quickstart](https://github.com/dohuyhoang93/theus/blob/main/Documents/AI_DEVELOPER_GUIDE.md)
 *   🤖 **I am an AI Assistant:** [Go to AI Tutorials](https://github.com/dohuyhoang93/theus/blob/main/Documents/tutorials/ai/00_QUICK_REFERENCE.md)
-*   🏗️ **I want to check architecture:** [Go to Specs](https://github.com/dohuyhoang93/theus/blob/main/Documents/Architecture/theus_v3_0_1_architecture.md)
+*   🏗️ **I want to check architecture:** [Go to Specs](https://github.com/dohuyhoang93/theus/blob/main/Documents/Architecture/theus_v3_0_2_architecture.md)
 *   🎓 **I want to learn from scratch:** [Go to Tutorials](https://github.com/dohuyhoang93/theus/blob/main/Documents/tutorials/en/Chapter_01.md)
 
 ---
@@ -41,6 +41,7 @@ When bugs aren't just annoying—they're costly:
 - **Transaction Safety:** Automatic rollback on failure
 - **Explicit Access:** Processes must declare every data point they touch via `@process` contracts
 - **Industrial Audit:** Block, warn, or stop based on configurable rules
+- **Concurrency Safety:** Advanced Conflict Manager with Backoff & VIP Locking
 
 ---
 
@@ -71,11 +72,12 @@ This creates a complete runnable demo with: Orders, Payments, Heavy Zone, Audit 
 
 ```python
 from theus import TheusEngine, process
+from theus.structures import StateUpdate
 
 # 1. Define a Process with Contract
 @process(
-    inputs=['domain.accounts'],
-    outputs=['domain.accounts'],
+    inputs=['domain_ctx.accounts'],
+    outputs=['domain_ctx.accounts'],
     errors=['ValueError']
 )
 def transfer(ctx, from_user: str, to_user: str, amount: int):
@@ -83,8 +85,8 @@ def transfer(ctx, from_user: str, to_user: str, amount: int):
         raise ValueError("Amount must be positive")
     
     # V3 Pattern: Copy -> Modify -> Return
-    # ctx.domain.accounts is Immutable (FrozenDict) in strict_mode
-    accounts = dict(ctx.domain.accounts)
+    # ctx.domain_ctx.accounts is Immutable (FrozenDict)
+    accounts = dict(ctx.domain_ctx.accounts)
     
     if accounts.get(from_user, 0) < amount:
         raise ValueError("Insufficient funds")
@@ -92,8 +94,8 @@ def transfer(ctx, from_user: str, to_user: str, amount: int):
     accounts[from_user] -= amount
     accounts[to_user] = accounts.get(to_user, 0) + amount
     
-    # Return new state (Engine handles the commit)
-    return accounts
+    # Return explicit update (Engine handles the commit)
+    return StateUpdate(domain={'accounts': accounts})
 
 # 2. Initialize Engine
 from src.context import DemoSystemContext
@@ -121,15 +123,15 @@ steps:
   - flux: if
     condition: "domain['is_valid'] == True"
     then:
-      - "process_data"
-      - "save_result"
+      - process: "process_data"
+      - process: "save_result"
     else:
-      - "handle_error"
+      - process: "handle_error"
   
   - flux: while
     condition: "domain['items_left'] > 0"
     do:
-      - "process_next_item"
+      - process: "process_next_item"
 ```
 
 Execute with:
@@ -160,24 +162,29 @@ Theus prioritizes **Performance** (Zero-Copy) while providing **Safety Tools**:
 *   **Atomic Commit:** The Engine swaps the pointer to the new data only if the transaction succeeds.
 > ⚠️ **Warning:** In-place mutation (e.g., `list.append`) bypasses the safety lawyer. Always use the Copy-on-Write pattern.
 
-### The Heavy Zone (Optimization)
-For AI workloads (Images, Tensors) > 1MB, use `heavy_` variables.
-*   **Behavior:** Writes bypass the Transaction Log (Zero-Copy).
-*   **Trade-off:** Changes to Heavy data are **NOT** reverted on Rollback.
+### The Heavy Zone & Zero-Copy Parallelism (Strategy V3)
+> **Current Status (v3.0.2):** True Parallelism is now available via `ProcessPool`.
 
+For AI workload/Tensors > 1MB, `ctx.heavy` acts as a **Shared Memory Gateway**:
+*   **Zero-Copy:** leverages shared memory to pass large datasets between processes without serialization overhead.
+*   **True Parallelism:** CPU-bound tasks can bypass the GIL using `ProcessPool`.
+*   **Conflict Safety:** Integrated **Exponential Backoff** and **VIP Locking** ensure that high-concurrency workloads do not starve or livelock.
 
 ### Research & Debugging Mode
 For rapid experimentation where you need to bypass architectural constraints:
 
-engine = TheusEngine(sys_ctx, strict_mode=False)
+`engine = TheusEngine(sys_ctx, strict_mode=False)`
+
 Effect: Disables strict architectural guards (ContextGuard), allowing access to private attributes (`_hidden`) and restricted zones.
-Note: Transaction safety (CAS) is still enforced to ensure consistency.
+> Note: Transaction safety (CAS) is still enforced to ensure consistency.
 
 ---
 
-## 📚 Documentation
+## 📚 Documentation & Debugging
 
-*   **[POP Manifesto](https://github.com/dohuyhoang93/theus/blob/main/Documents/POP_Manifesto.md):** The philosophy behind Process-Oriented Programming.
+- **[DEBUGGING.md](DEBUGGING.md)**: **Read this first!** Common pitfalls, Type Checking errors, and Pickling issues.
+- **[Spec](specs/)**: Full Architecture Specification.
+- **[POP Manifesto](https://github.com/dohuyhoang93/theus/blob/main/Documents/POP_Manifesto.md):** The philosophy behind Process-Oriented Programming.
 
 ---
 

@@ -1,11 +1,13 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use pyo3::create_exception;
+use crate::proxy::SupervisorProxy;
 use im::HashMap;
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::signals::SignalHub;
+use crate::engine::Transaction;
 
 create_exception!(theus.structures, ContextError, pyo3::exceptions::PyException);
 
@@ -45,7 +47,10 @@ impl FrozenDict {
     }
 
     fn __getattr__(&self, py: Python, name: PyObject) -> PyResult<PyObject> {
-        self.__getitem__(py, name)
+        match self.__getitem__(py, name) {
+            Ok(v) => Ok(v),
+            Err(_) => Err(pyo3::exceptions::PyAttributeError::new_err("Attribute not found")),
+        }
     }
 
     fn to_dict(&self, py: Python) -> Py<PyDict> {
@@ -54,6 +59,16 @@ impl FrozenDict {
 
     fn keys(&self, py: Python) -> PyResult<PyObject> {
         Ok(self.data.bind(py).keys().into())
+    }
+
+    fn __deepcopy__(&self, py: Python, memo: PyObject) -> PyResult<PyObject> {
+        let copy_mod = py.import("copy")?;
+        let deepcopy = copy_mod.getattr("deepcopy")?;
+        // Deepcopy internal dict
+        let copied_data = deepcopy.call1((self.data.bind(py), memo))?; 
+        // Return new FrozenDict
+        let new_dict = copied_data.downcast_into::<PyDict>()?.unbind();
+        Ok(Py::new(py, FrozenDict { data: new_dict })?.into_any())
     }
 
     fn values(&self, py: Python) -> PyResult<PyObject> {
@@ -84,7 +99,6 @@ impl MetaLogEntry {
 }
 
 /// Theus v3 Immutable State
-
 #[pyclass(module = "theus_core")]
 #[derive(Clone)]
 pub struct State {
@@ -94,6 +108,10 @@ pub struct State {
     pub meta_logs: Arc<Mutex<VecDeque<MetaLogEntry>>>,
     pub meta_capacity: usize,
     pub version: u64,
+    // v3.3: Key-Level Versioning for Smart CAS
+    pub key_last_modified: HashMap<String, u64>,
+    // v3.3: Signal Latch for Flux (Snapshot of signals in this version)
+    pub last_signals: HashMap<String, String>,
 }
 
 #[pymethods]
@@ -109,12 +127,15 @@ impl State {
         // v3.2: Signal is transient. We create a fresh Hub unless one is passed (which is opaque).
         // For now, simpler: Always new Hub. 
         let state_signal = Arc::new(SignalHub::new());
+        let mut key_last_mod = HashMap::new();
+        let last_sig = HashMap::new(); // Init empty latch
 
         if let Some(d) = data {
             let d_dict = d.downcast_bound::<PyDict>(py)?;
             for (k, v) in d_dict {
                 let key = k.extract::<String>()?;
-                state_data.insert(key, Arc::new(v.into_py(py)));
+                state_data.insert(key.clone(), Arc::new(v.into_py(py)));
+                key_last_mod.insert(key, version);
             }
         }
 
@@ -122,7 +143,8 @@ impl State {
             let h_dict = h.downcast_bound::<PyDict>(py)?;
             for (k, v) in h_dict {
                  let key = k.extract::<String>()?;
-                 state_heavy.insert(key, Arc::new(v.into_py(py)));
+                 state_heavy.insert(key.clone(), Arc::new(v.into_py(py)));
+                 key_last_mod.insert(key, version);
             }
         }
         
@@ -136,6 +158,8 @@ impl State {
             meta_logs: Arc::new(Mutex::new(VecDeque::with_capacity(meta_capacity))),
             meta_capacity,
             version,
+            key_last_modified: key_last_mod,
+            last_signals: last_sig,
         })
     }
 
@@ -151,6 +175,8 @@ impl State {
             meta_logs: self.meta_logs.clone(),
             meta_capacity: self.meta_capacity,
             version: self.version + 1,
+            key_last_modified: self.key_last_modified.clone(),
+            last_signals: HashMap::new(), // Reset latch for new tick
         };
 
         // Auto-log update event (Meta Zone)
@@ -159,16 +185,42 @@ impl State {
         if let Some(d) = data {
             let d_dict = d.downcast_bound::<PyDict>(py)?;
             for (k, v) in d_dict {
-                let key = k.extract::<String>()?;
-                new_state.data.insert(key, Arc::new(v.into_py(py)));
+                let zone_key = k.extract::<String>()?;
+                
+                // v3.1: Track NESTED field paths for Field-Level CAS
+                // NOTE: Must downcast BEFORE into_py to avoid borrow-after-move
+                if let Ok(inner_dict) = v.downcast::<PyDict>() {
+                    for (ik, _iv) in inner_dict {
+                        let inner_key = ik.extract::<String>()?;
+                        let field_path = format!("{}.{}", zone_key, inner_key);  // "domain.counter"
+                        new_state.key_last_modified.insert(field_path, new_state.version);
+                    }
+                }
+                
+                // Keep zone-level tracking for backwards compatibility
+                new_state.key_last_modified.insert(zone_key.clone(), new_state.version);
+                new_state.data.insert(zone_key, Arc::new(v.into_py(py)));
             }
         }
         
         if let Some(h) = heavy {
             let h_dict = h.downcast_bound::<PyDict>(py)?;
             for (k, v) in h_dict {
-                let key = k.extract::<String>()?;
-                new_state.heavy.insert(key, Arc::new(v.into_py(py)));
+                let zone_key = k.extract::<String>()?;
+                
+                // v3.1: Track NESTED field paths for Field-Level CAS
+                // NOTE: Must downcast BEFORE into_py to avoid borrow-after-move
+                if let Ok(inner_dict) = v.downcast::<PyDict>() {
+                    for (ik, _iv) in inner_dict {
+                        let inner_key = ik.extract::<String>()?;
+                        let field_path = format!("{}.{}", zone_key, inner_key);  // "heavy.buffer"
+                        new_state.key_last_modified.insert(field_path, new_state.version);
+                    }
+                }
+                
+                // Keep zone-level tracking for backwards compatibility
+                new_state.key_last_modified.insert(zone_key.clone(), new_state.version);
+                new_state.heavy.insert(zone_key, Arc::new(v.into_py(py)));
             }
         }
         
@@ -180,7 +232,10 @@ impl State {
                      for (k, v) in s_dict {
                         let topic = k.extract::<String>()?;
                         let payload = v.to_string(); 
+
                         new_state.signal.publish(format!("{}:{}", topic, payload));
+                        // Latch for Flux
+                        new_state.last_signals.insert(topic, payload);
                      }
                 }
             } else if let Ok(s_dict) = s.downcast_bound::<PyDict>(py) {
@@ -188,6 +243,8 @@ impl State {
                     let topic = k.extract::<String>()?;
                     let payload = v.to_string(); 
                     new_state.signal.publish(format!("{}:{}", topic, payload));
+                    // Latch for Flux
+                    new_state.last_signals.insert(topic, payload);
                 }
             }
         }
@@ -230,6 +287,8 @@ impl State {
             meta_logs: self.meta_logs.clone(), // Share system logs
             meta_capacity: self.meta_capacity,
             version: self.version,
+            key_last_modified: self.key_last_modified.clone(),
+            last_signals: self.last_signals.clone(),
         }
     }
 
@@ -267,19 +326,48 @@ impl State {
     }
 
     #[getter]
+    fn signals(&self, py: Python) -> PyResult<PyObject> {
+        // Expose Latched Signals as Dict for Flux
+        let dict = PyDict::new_bound(py);
+        for (k, v) in &self.last_signals {
+            dict.set_item(k, v)?;
+        }
+        let frozen = Py::new(py, FrozenDict::new(dict.unbind()))?;
+        Ok(frozen.into_py(py))
+    }
+
+    #[getter]
     fn domain(&self, py: Python) -> PyResult<PyObject> {
         match self.data.get("domain") {
              Some(val) => {
-                 // If val is a dict, wrap in FrozenDict for dot access
-                 if val.bind(py).is_instance_of::<PyDict>() {
-                     let dict: Py<PyDict> = val.extract(py)?;
-                     let frozen = Py::new(py, FrozenDict::new(dict))?;
-                     Ok(frozen.into_py(py))
-                 } else {
-                     Ok(val.clone_ref(py))
-                 }
+                 // v3.1: Return SupervisorProxy (Read-Only) by default
+                 // This allows ContextGuard to "upgrade" it to Mutable if Transaction exists
+                 // while preserving legacy read-only behavior for direct access.
+                 let proxy = SupervisorProxy::new(
+                     val.clone_ref(py),
+                     "domain".to_string(),
+                     true, // Read-Only
+                     None,
+                 );
+                 Ok(Py::new(py, proxy)?.into_py(py))
              },
              None => Ok(py.None())
+        }
+    }
+
+    /// v3.1: Returns domain wrapped in SupervisorProxy (preserves PyObject idiomatics)
+    fn domain_proxy(&self, py: Python, read_only: Option<bool>) -> PyResult<PyObject> {
+        match self.data.get("domain") {
+            Some(val) => {
+                let proxy = SupervisorProxy::new(
+                    val.clone_ref(py),
+                    "domain".to_string(),
+                    read_only.unwrap_or(false),
+                    None,
+                );
+                Ok(Py::new(py, proxy)?.into_py(py))
+            },
+            None => Ok(py.None())
         }
     }
 
@@ -287,13 +375,13 @@ impl State {
     fn global(&self, py: Python) -> PyResult<PyObject> {
         match self.data.get("global") {
              Some(val) => {
-                 if val.bind(py).is_instance_of::<PyDict>() {
-                     let dict: Py<PyDict> = val.extract(py)?;
-                     let frozen = Py::new(py, FrozenDict::new(dict))?;
-                     Ok(frozen.into_py(py))
-                 } else {
-                     Ok(val.clone_ref(py))
-                 }
+                 let proxy = SupervisorProxy::new(
+                     val.clone_ref(py),
+                     "global".to_string(),
+                     true, // Read-Only
+                     None,
+                 );
+                 Ok(Py::new(py, proxy)?.into_py(py))
              },
              None => Ok(py.None())
         }
@@ -343,39 +431,35 @@ pub struct ProcessContext {
     pub local: Py<PyDict>, // Mutable Ephemeral Scope
     #[pyo3(get)]
     pub outbox: Outbox,
+    #[pyo3(get)]
+    pub tx: Option<Py<Transaction>>, // v3.1: Expose active transaction
 }
 
 #[pymethods]
 impl ProcessContext {
     #[new]
-    fn new(state: Py<State>, local: Py<PyDict>) -> Self {
+    fn new(state: Py<State>, local: Py<PyDict>, tx: Option<Py<Transaction>>) -> Self {
         ProcessContext { 
             state, 
             local,
             outbox: Outbox::new(), 
+            tx,
         }
     }
 
-    // Legacy Compatibility: global_ctx -> state.data["global"]
+    // v3.2 Safe Alias: global_ctx -> state.getattr("global")
+    // Use this because 'global' is a reserved keyword in Python!
     #[getter]
     fn global_ctx(&self, py: Python) -> PyResult<PyObject> {
         let state_bound = self.state.bind(py);
-        let data = state_bound.getattr("data")?;
-        match data.get_item("global") {
-            Ok(v) => Ok(v.unbind()),
-            Err(_) => Ok(py.None()),
-        }
+        state_bound.getattr("global")?.extract()
     }
 
-    // Legacy Compatibility: domain_ctx -> state.data["domain"]
+    // v3.2 Safe Alias: domain_ctx -> state.getattr("domain")
     #[getter]
     fn domain_ctx(&self, py: Python) -> PyResult<PyObject> {
         let state_bound = self.state.bind(py);
-        let data = state_bound.getattr("data")?;
-        match data.get_item("domain") {
-            Ok(v) => Ok(v.unbind()),
-            Err(_) => Ok(py.None()),
-        }
+        state_bound.getattr("domain")?.extract()
     }
     
     // Forward getter access to state (except local)

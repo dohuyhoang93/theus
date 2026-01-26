@@ -257,9 +257,35 @@ size = audit.ring_buffer_len()
 - O(1) insert, O(n) retrieval
 - Thread-safe (Mutex protected)
 
+
 ---
 
-## 9. Complete Audit Recipe Example
+## 9. Monitoring & Inspection
+
+Since the Audit System is "Silent by Default", use the following API to inspect results at runtime:
+
+```python
+if engine._audit:
+    # 1. Get full log history (List[AuditLogEntry])
+    logs = engine._audit.get_logs()
+    
+    print(f"--- Audit History ({len(logs)} entries) ---")
+    for entry in logs:
+        # entry.timestamp (float), entry.key (str), entry.message (str)
+        print(f"[{entry.timestamp:.2f}] {entry.key}: {entry.message}")
+
+    # 2. Get specific failure count
+    fail_count = engine._audit.get_count("process_name")
+    
+    # 3. Get total activity count
+    total_ops = engine._audit.get_count_all()
+```
+
+**Note:** `engine._audit` is `None` if no `audit_recipe` was provided/loaded.
+
+---
+
+## 10. Complete Audit Recipe Example
 
 ```yaml
 # specs/banking_audit.yaml

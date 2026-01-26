@@ -3,17 +3,21 @@ import asyncio
 from theus.engine import TheusEngine
 from theus.structures import StateUpdate
 
-# TDD: Verify CAS (Compare-And-Swap) checks prevents Data Races
+# TDD: Verify CAS (Compare-And-Swap) ensures Serializability via Retry Logic
 
 @pytest.mark.asyncio
-async def test_cas_detects_conflict():
-    engine = TheusEngine()
-    # Initial: x=0 version=1
+async def test_cas_ensures_serializability():
+    """
+    v3.3 Behavior: Engine auto-retries conflicts instead of raising exceptions.
+    This test verifies that concurrent updates to the SAME key are serialized correctly.
     
-    # Process A reads version=1. Calculates x=1. Sleep 100ms.
-    # Process B reads version=1. Calculates x=2. Commit IMMEDIATELY.
-    # Process A wakes up. Tries to commit x=1 with base_version=1.
-    # ENGINE MUST REJECT Process A because current version is 2.
+    Scenario:
+    - Process A reads version=1, sleeps 100ms, tries to write x=1.
+    - Process B reads version=1, writes x=2 immediately.
+    - Process A's first attempt fails (CAS mismatch), Engine retries with new version.
+    - Final Result: BOTH processes succeed. x should be the value from the LAST commit.
+    """
+    engine = TheusEngine()
     
     async def slow_process(ctx):
         v_start = ctx.version
@@ -28,12 +32,18 @@ async def test_cas_detects_conflict():
     t1 = asyncio.create_task(engine.execute(slow_process))
     t2 = asyncio.create_task(engine.execute(fast_process))
     
-    # B succeeds
-    await t2
+    # Both should succeed (Retry Logic handles conflicts)
+    await t2  # Fast finishes first
+    await t1  # Slow retries and succeeds
     
-    # A fails
-    with pytest.raises(Exception, match="CAS Version Mismatch"):
-        await t1
+    # Final state: x should exist (either 1 or 2 depending on commit order)
+    # The important invariant: NO exception was raised, system is live.
+    final_x = engine.state.data.get("x")
+    assert final_x is not None, "x should have been written"
+    assert final_x in [1, 2], f"x should be 1 or 2, got {final_x}"
+    
+    # Version should have advanced (at least 2 commits)
+    assert engine.state.version >= 2, "Version should have advanced"
 
 @pytest.mark.asyncio
 async def test_cas_stress_increment():
@@ -41,3 +51,4 @@ async def test_cas_stress_increment():
     # If naive, final result < 100. If safe, final result == 100.
     # Here we test that Engine correctly serializes commits or rejects stale ones.
     pass
+

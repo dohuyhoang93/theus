@@ -14,8 +14,9 @@ The Outbox Pattern has been completely re-architected down to the Rust Core (`th
 ### 2. True Parallelism (Experimental Support)
 Experimental support for **PEP 554 (Multiple Interpreters)** on Python 3.14.
 *   **Interpreter Pool:** Centralized management of isolated Sub-interpreters.
-*   **Pure Task Support:** Tested and confirmed to work well with Pure Python tasks (CPU-bound) running in true parallelism, breaking free from the GIL limitation.
-*   **Known Limitation:** Direct sharing of Rust Core objects (`State`, `Engine`) to sub-interpreters is not yet supported due to current PyO3 library constraints.
+*   **Pure Task Support:** Supports CPU-bound tasks via **Deep Copy (Pickle)**.
+*   **Roadmap:** v3.1 will introduce **Zero-Copy Shared Memory** (`ctx.heavy`) for high-performance AI workloads.
+*   **Known Limitation:** Direct sharing of Rust Core objects (`State`) is not supported; data is marshalled across boundaries.
 
 ### 3. Codebase Modernization (PEP 489)
 All Rust source code (`src/*.rs`) has been standardized to support **Multi-Phase Initialization**.

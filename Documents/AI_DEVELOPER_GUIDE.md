@@ -15,9 +15,10 @@ Every data point is defined by 3 axes. You MUST respect them:
 2.  **Semantic (Role):** `Input` (Read-only) / `Output` (Read-Write).
 3.  **Zone (Policy):**
     *   **DATA:** Normal Business State. Transactional (Undo/Redo).
-    *   **SIGNAL (`sig_`, `cmd_`):** Communication. Transient. Reset on Read. **Non-Transactional**.
-    *   **META (`meta_`):** Observability/Metrics.
+    *   **META (`meta_`):** Observability/Metrics. Log-only.
     *   **HEAVY (`heavy_`):** High-Perf Tensors/Blobs. Bypasses Transaction Log (No Undo).
+
+    > **NOTE on SIGNALS:** Signals (`sig_` events) are no longer stored in variables. They are ephemeral messages handled by the **Flux DSL**. Do not add `sig_` fields to your Domain Class.
 
 **CRITICAL INVARIANT:** Never mutate Context directly. Always use the injected `ctx` (ContextGuard).
 
@@ -131,11 +132,28 @@ Theus returns `TrackedList` or `FrozenList`.
 
 ---
 
-## 7. Quick Reference
+## 7. CLI Cheatsheet (New in v3.0.2)
+Use these tools to ensure compliance:
+
+```bash
+# 1. Lint your project for Theus Best Practices
+python -m theus.cli check .
+
+# 2. Create a new project scaffold
+python -m theus.cli init my_new_agent
+
+# 3. Audit contract violations
+python -m theus.cli audit src/processes
+```
+
+---
+
+## 8. Quick Reference
 
 ```python
 # Standard imports
 from theus import TheusEngine, process
+from theus.structures import StateUpdate
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
 
 # Process decorator (v3.0)
@@ -145,12 +163,16 @@ from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContex
     errors=['ValueError']
 )
 def my_process(ctx, arg1: str):
-    ...
+    # Logic...
+    new_count = ctx.domain_ctx.counter + 1
+    
+    # Return Explicit Update (Recommended)
+    return StateUpdate(domain={'counter': new_count})
 
 # Engine setup (v3.0)
 engine = TheusEngine(sys_ctx, strict_mode=True)
 engine.register(my_process)
-result = engine.execute(my_process, arg1="value")
+result = engine.execute(my_process, arg1="value") # Returns StateUpdate
 ```
 
 ---
@@ -163,4 +185,4 @@ result = engine.execute(my_process, arg1="value")
 *   **`pyproject.toml`**: Build config (Maturin).
 
 ---
-*Generated for Theus Framework v3.0.0*
+*Generated for Theus Framework v3.0.2*

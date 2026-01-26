@@ -5,18 +5,11 @@ description: "Declarative Workflow using Theus Flux Engine (Rust Core)."
 # Instead of Python FSM states, we manage control flow declaratively.
 
 steps:
-  - process: p_init
-    
-  # Example Loop
-  - flux: while
-    condition: "domain.processed_count < 50"
-    do:
-       - process: p_process
-         
-       # Example Conditional
-       - flux: if
-         condition: "domain.processed_count % 20 == 0"
-         then:
-           - process: save_checkpoint_placeholder
-    
-  - process: p_finalize
+  # 1. Create Order
+  - process: "create_order"
+  
+  # 2. Process Payment
+  - process: "process_payment"
+  
+  # 3. Store Invoice (Heavy Zone)
+  - process: "store_invoice_image"

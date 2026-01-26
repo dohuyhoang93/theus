@@ -47,6 +47,15 @@ def main():
     processes_path = os.path.join(basedir, "src", "processes")
     engine.scan_and_register(processes_path)
     
+    # 4.5 Seed Data
+    with engine.transaction() as tx:
+        tx.update(data={"domain": {
+            "order_request": {"id": "ORD-001", "items": ["Laptop"], "total": 1500.0},
+            "orders": [],
+            "balance": 0.0,
+            "processed_orders": []
+        }})
+    
     # 5. Execute Workflow (Flux)
     print(f"Executing Workflow: {workflow_path}")
     try:

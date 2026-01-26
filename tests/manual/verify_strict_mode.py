@@ -37,7 +37,7 @@ async def test_strict_mode(enabled: bool):
     
     try:
         await engine.execute("legacy_mutation_process")
-        print(f"Result: EXECUTION SUCCESS")
+        print("Result: EXECUTION SUCCESS")
     except Exception as e:
         print(f"Result: EXECUTION FAILED -> {type(e).__name__}")
 

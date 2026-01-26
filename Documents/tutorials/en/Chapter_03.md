@@ -1,133 +1,106 @@
-# Chapter 3: Process & Strict Contracts
+# Chapter 3: Transaction Discipline
 
-In Theus v3.0, `@process` is not just syntax; it is a **Legal Contract** between your code and the Engine.
+> [!CAUTION]
+> **DISCIPLINE REQUIRED:** Changing a variable in Theus is a formal request, not an instant action. You must choose the right tool for the job.
 
-## 1. Anatomy of a Contract
-```python
-from theus.contracts import process, SemanticType
+## The Hierarchy of Needs (Mental Model)
 
-@process(
-    inputs=['domain_ctx.items'],          # READ Permission
-    outputs=['domain_ctx.total_value'],   # WRITE Permission
-    errors=['ValueError'],                # ALLOWED Errors
-    semantic=SemanticType.EFFECT          # Process classification
-)
-def my_process(ctx, ...):
-    ...
-```
+To avoid "brain overload," structure your thinking into three tiers. You only need the top tier for 99% of your work.
 
-### 📐 Visual Contract
+### 🔻 Tier 1: The "Daily Driver" (99% Usage)
+*   **Method:** **Implicit POP (`@process` decorator)**
+*   **Mindset:** "I just return the new value. Theus handles the rest."
+*   **Complexity:** 🟢 Easy
 
-```text
-       (Read-Only)               (Pure Logic)               (Write-Only)
-      +-----------+           +----------------+           +------------+
-      |  INPUTS   | --------> |    PROCESS     | --------> |  OUTPUTS   |
-      | (Frozen)  |           |   (Function)   |           | (Mutation) |
-      +-----------+           +----------------+           +------------+
-            ^                         |                          |
-            |                         v                          v
-      [Audit Gate]               [Exception]                [Commit]
-     (Check Rules)             (Rollback All)            (Append Log)
-```
+### 🔻 Tier 2: The "Admin Tool" (1% Usage)
+*   **Method 1:** **Batch Transaction (`tx.update`)** → "Initializing the system."
+*   **Method 2:** **Safe Edit (`engine.edit()`)** → "Cheat Code for Unit Tests / Debugging only."
+*   **Complexity:** 🟡 Medium
 
-## 2. Critical Path Change in v3.0
-
-> **⚠️ BREAKING CHANGE:** Contract paths now use `domain_ctx` instead of `domain`.
-
-```python
-# ❌ OLD (v2.2) - Will fail in v3.0
-@process(inputs=['domain.items'])
-
-# ✅ NEW (v3.0) - Correct
-@process(inputs=['domain_ctx.items'])
-```
-
-The Rust Core now performs strict path validation and will reject legacy paths.
-
-## 3. The Golden Rule: No Input Signals
-This is the biggest difference in v3.0.
-**Rule:** You **MUST NOT** declare a `sig_` or `cmd_` variable in `inputs`.
-- *Why?* Because a Process must be **Pure Logic**. Its logic should only depend on persistent Data. Signals are transient; if dependent on them, the Process cannot be reliably Replayed.
-- *How to handle Signals?* That is the job of the **Flux DSL** (Chapter 11). A Process should only handle the *result* of a Signal (Data), not the Signal itself.
-
-> **🧠 Philosophy Note:** This enforces **Determinism**. Signals are "Time-Dependent" (Ephemeral), while Data is "State-Dependent" (Persistent). Mixing them breaks the ability to Replay history. See Principle 2.3 of the [POP Manifesto](../../POP_Manifesto.md).
-
-## 4. Semantic Types
-
-```python
-from theus.contracts import SemanticType
-
-class SemanticType(Enum):
-    PURE = "pure"      # No side effects, deterministic
-    EFFECT = "effect"  # May have side effects (default)
-    GUIDE = "guide"    # Orchestration/coordination
-```
-
-## 5. Writing Your First Process
-```python
-from theus.contracts import process
-
-@process(
-    inputs=['domain_ctx.items', 'domain_ctx.total_value'], # Read-only
-    outputs=[
-        'domain_ctx.items',                
-        'domain_ctx.total_value',          
-        'domain_ctx.sig_restock_needed'    
-    ],
-    errors=['ValueError']
-)
-def add_product(ctx, product_name: str, price: int):
-    # 1. Read Snapshot (Immutable)
-    items = ctx.domain_ctx.items
-    total = ctx.domain_ctx.total_value
-    
-    if price < 0:
-        raise ValueError("Price cannot be negative!")
-    
-    # 2. Compute New State (Copy-on-Write)
-    product = {"name": product_name, "price": price}
-    
-    new_items = list(items) # Copy!
-    new_items.append(product)
-    
-    new_total = total + price
-    
-    # 3. Return Updates (Engine matches these to 'outputs')
-    # Order matters: items, total, signal
-    
-    restock = False
-    if len(new_items) > 100:
-        restock = True
-        
-    return new_items, new_total, restock
-```
-
-## 6. Async Process Pattern
-
-```python
-import asyncio
-from theus.contracts import process
-
-@process(
-    inputs=['domain_ctx.query'],
-    outputs=['domain_ctx.result']
-)
-async def fetch_data(ctx):
-    """Async process for I/O operations."""
-    query = ctx.domain_ctx.query
-    
-    # Async I/O
-    await asyncio.sleep(0.1)  # Simulated API call
-    result = {"data": f"Result for {query}"}
-    
-    # Return result directly
-    return result
-```
-
-## 7. Fail-Fast Mechanism
-If you forget to declare `domain_ctx.total_value` in `outputs` but try to `+= price`:
-Theus v3.0 will raise `ContractViolationError` immediately via the Rust Guard. This is **Zero Trust Memory** - trusting no one, not even the coder.
+### 🔻 Tier 3: The "Kernel" (System Internals Usage)
+*   **Method:** **Explicit CAS (`compare_and_swap`)**
+*   **Mindset:** "I am building a primitive lock or a high-concurrency counter."
+*   **Complexity:** 🔴 Hard (Requires Strict/Smart mode selection)
 
 ---
-**Exercise:**
-Write the `add_product` process as above. Try intentionally removing the line `outputs=['domain_ctx.total_value']` and run it to see what error occurs.
+
+---
+
+## 1. Implicit POP (Recommended)
+This is the "Magical" way, but it works because it follows strict rules. You declare **what you want to change** in the decorator, and simply **return the new value**.
+
+```python
+@process(outputs=['domain.cart']) # Contract: "I will update the cart"
+def add_item_process(ctx):
+    # 1. Read
+    cart = ctx.domain.cart.copy()
+    
+    # 2. Modify (Local)
+    cart.total += 10
+    
+    # 3. Return (Theus handles the Transaction)
+    return cart
+```
+*   **Why it's safe:** Theus wraps your function in a loop. If `domain.cart` changes while you run (Conflict), Theus re-runs your function automatically.
+*   **Limitation:** You can only return values that match your `outputs`.
+
+## 2. Batch Transaction (`tx.update`)
+Use this when you are "outside" a process (e.g., inside `main.py` setup) or need to update many unrelated things at once.
+
+```python
+# Explicitly open a transaction batch
+with engine.transaction() as tx:
+    # This prepares a commit. Nothing changes in Rust yet.
+    tx.update(data={
+        "domain": {
+            "config": {"mode": "dark"},
+            "users": [...] 
+        }
+    })
+# On exit: Theus sends the batch to Rust.
+```
+*   **Warning:** This overwrites data at the keys you specify. Be careful not to wipe out nested data if you provide a partial dictionary!
+
+## 3. Explicit CAS (`compare_and_swap`)
+
+Used for building low-level primitives or high-concurrency systems.
+Theus v3 offers two flavors of CAS, controlled by `strict_cas`.
+
+### A. Smart CAS (Default: `strict_cas=False`)
+*Field-Level Concurrency (Simpler, Safer)*
+
+The Engine is smart. If you try to update `domain.counter` but someone else updated `domain.name`, the Engine sees **no conflict** and allows your update.
+
+```python
+# 1. Get current version
+ver = engine.state.version
+
+# 2. Try to update
+# Succeeds if:
+# - Version matches exactly OR
+# - Only unrelated fields have changed
+result = engine.compare_and_swap(ver, {"domain": {"counter": 101}})
+```
+
+### B. Strict CAS (`strict_cas=True`)
+*Version-Level Audit (Hard Mode)*
+
+Reject if *anything* changed. Use this for banking or critical audit logs where the "World State" must be exactly what you saw.
+
+### Decision Matrix
+
+| Scenario | Use Method | Why? |
+| :--- | :--- | :--- |
+| **Business Logic** | Implicit POP | Safest. Automatic retries. |
+| **Setup / Batch** | Transaction | Efficient. One version bump. |
+| **High Concurrency** | Smart CAS | Merges non-conflicting updates. |
+| **Strict Audit** | Strict CAS | Zero tolerance for state drift. |
+
+## Summary
+1.  Use **Implicit POP** (`return value`) for almost everything.
+2.  Use **Batch Transaction** for Setup/Init.
+3.  Avoid **Explicit CAS** unless you enjoy pain.
+
+---
+**Next:** Now we can talk about designing your Processes properly.
+-> **[Chapter 04: Processes & Contracts](./Chapter_04.md)**

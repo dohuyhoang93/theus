@@ -8,9 +8,14 @@ def create_order(ctx):
     Audit Rule: Blocks if price <= 0.
     POP: Returns updated order list.
     """
-    req = ctx.domain.order_request
+    req = ctx.domain['order_request']
+    
+    # Handle SupervisorProxy wrapper
+    if hasattr(req, 'to_dict'):
+        req = req.to_dict()
+        
     if not isinstance(req, dict):
-         raise ValueError("Invalid request format")
+         raise ValueError(f"Invalid request format: Expected dict, got {type(req)}")
     
     # Logic: Appends to order list
     current_orders = ctx.domain.get('orders', [])
@@ -35,7 +40,7 @@ def process_payment(ctx):
     Processes payment for pending orders.
     POP: Returns (balance, processed_list).
     """
-    orders = ctx.domain.orders
+    orders = ctx.domain['orders']
     balance = ctx.domain.get('balance', 0.0)
     processed = ctx.domain.get('processed_orders', [])
     

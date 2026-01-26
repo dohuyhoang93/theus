@@ -61,14 +61,11 @@
 ├── Architecture/    # Technical Design
 │   ├── Decisions/   # (ADR) Accepted Decisions
 │   ├── Proposals/   # (DR) Open Proposals
-│   │   ├── DR_002_Smart_Guards.md 🆕
 │   ├── THEUS_FEATURES.md  # Core Features Overview
-│   └── theus_v3_0_1_architecture.md
+│   └── theus_v3_x_architecture.md
 ├── AI_DEVELOPER_GUIDE.md
 ├── POP_Manifesto.md
 └── POP_Whitepaper_v2.0.md
 ```
 
 ---
-
-> **Note on v3.0:** All documentation has been updated for Theus v3.0.0 with Flux DSL workflow, `domain_ctx.*` paths, and new API.

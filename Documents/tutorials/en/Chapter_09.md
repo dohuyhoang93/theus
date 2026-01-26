@@ -61,3 +61,23 @@ except AuditStopError:
 ---
 **Exercise:**
 Configure `max_threshold: 3` for rule `price >= 0`. Call consecutively with negative price and observe the 3rd call failing.
+
+---
+
+## 4. Design Decision: "Trust on Read, Verify on Write"
+
+You might ask: *"Why doesn't Theus check if `domain.items` is valid when I read it?"*
+
+**The Answer:** Performance & Philosophy.
+
+1.  **Trust on Read:** Theus assumes data in the State is **already clean**. Why? Because it had to pass the strict **Write Audit** to get there in the previous tick.
+    *   *Analogy:* You scan your badge to verify identity when *entering* a secure building (Write). You don't scan it every time you walk into the cafeteria (Read).
+    *   **Access Control:** We DO check permissions (Can you read this?).
+
+2.  **Verify on Write:** The "Gatekeeper" stands at the exit. Before any change is committed to the database, it must pass the Schema Audit.
+
+> **⚠️ Performance Warning:** If we audited every Read, a loop iterating 10,000 items would trigger 10,000 Audit Logs. This would destroy performance (100x slowdown).
+> **Rule:** If you need to validate inputs (e.g., from an external API), do it explicitly in your Python code:
+> ```python
+> if input_val < 0: raise ValueError("Bad Input")
+> ```

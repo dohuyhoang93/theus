@@ -1,9 +1,10 @@
+
 use pyo3::prelude::*;
 use pyo3::exceptions::PyPermissionError;
 use pyo3::types::{PyList, PyDict};
 use crate::engine::Transaction;
-use crate::structures::FrozenDict;
-use crate::tracked::{TrackedList, TrackedDict, FrozenList};
+use crate::tracked::{TrackedList, FrozenList};
+use crate::proxy::SupervisorProxy;
 use crate::zones::{resolve_zone, ContextZone};
 
 #[pyclass(module = "theus_core", dict, subclass)]
@@ -26,7 +27,6 @@ impl ContextGuard {
          if strict_mode {
              for inp in &inputs {
                  let zone = resolve_zone(inp);
-                 // println!("DEBUG: Checking Input: '{}', Zone: {:?}, Strict: {}", inp, zone, strict_mode);
                  match zone {
                      ContextZone::Signal | ContextZone::Meta => {
                          return Err(PyPermissionError::new_err(
@@ -78,12 +78,15 @@ impl ContextGuard {
     }
 
     fn apply_guard(&self, py: Python, val: PyObject, full_path: String) -> PyResult<PyObject> {
+        // println!("DEBUG: apply_guard called for path: '{}'", full_path);
+        // std::io::stdout().flush().unwrap();
+        
         let val_bound = val.bind(py);
         let type_name = val_bound.get_type().name()?.to_string();
 
         // NOTE: Whitelist includes Numpy scalar types (float64, int64...) for framework robustness.
         // These are immutable and should not be wrapped by ContextGuard.
-        if ["int", "float", "str", "bool", "NoneType", "float64", "float32", "int64", "int32", "int16", "int8", "uint64", "uint32", "uint16", "uint8", "bool_"].contains(&type_name.as_str()) {
+        if ["int", "float", "str", "bool", "NoneType", "float64", "float32", "int64", "int32", "int16", "int8", "uint64", "uint32", "uint16", "uint16", "uint8", "bool_"].contains(&type_name.as_str()) {
              return Ok(val);
         }
 
@@ -95,7 +98,11 @@ impl ContextGuard {
         // If NO Transaction (strict_mode=False), return raw value immediately
         let tx = match &self.tx {
             Some(t) => t,
-            None => return Ok(val),
+            None => {
+                // println!("DEBUG: No Transaction for guard path '{}', returning raw value", full_path);
+                // std::io::stdout().flush().unwrap();
+                return Ok(val); 
+            },
         };
 
         if type_name == "list" {
@@ -115,24 +122,49 @@ impl ContextGuard {
         }
 
         if type_name == "dict" {
+             // println!("DEBUG: Dict detected at '{}'", full_path);
+             // std::io::stdout().flush().unwrap();
+             let can_write = self.check_permissions(&full_path, true).is_ok();
+             let shadow = val; 
+             let proxy = SupervisorProxy::new(
+                 shadow, 
+                 full_path,
+                 !can_write, 
+                 if can_write { Some(tx.clone_ref(py).into_py(py)) } else { None },
+             );
+             return Ok(Py::new(py, proxy)?.into_py(py));
+        }
+
+        // v3.1: Nested SupervisorProxy Upgrade (Object/Dict)
+        // If the value is ALREADY a SupervisorProxy (from State.domain), unwrap it and re-wrap with Transaction
+        if let Ok(target) = val_bound.getattr("supervisor_target") {
+             // println!("DEBUG: SupervisorProxy detected at '{}' (Upgrading)", full_path);
+             // std::io::stdout().flush().unwrap();
+             
+             let inner = target.unbind();
+             
+             // CRITICAL FIX: Must shadow the inner object before wrapping!
+             // Unwrapped proxy points to Original State (Arc). We need a Transaction Copy.
              let tx_bound = tx.bind(py);
-             let shadow = tx_bound.borrow_mut().get_shadow(py, val.clone_ref(py), Some(full_path.clone()))?; 
+             let shadow = tx_bound.borrow_mut().get_shadow(py, inner, Some(full_path.clone()))?; 
              
              let can_write = self.check_permissions(&full_path, true).is_ok();
-             let shadow_dict = shadow.bind(py).downcast::<PyDict>()?.clone().unbind();
-
-             if can_write {
-                 let tracked = TrackedDict::new(shadow_dict, tx.clone_ref(py), full_path);
-                 return Ok(Py::new(py, tracked)?.into_py(py));
-             } else {
-                 let frozen = FrozenDict::new(shadow_dict);
-                 return Ok(Py::new(py, frozen)?.into_py(py));
-             }
+             
+             let proxy = SupervisorProxy::new(
+                 shadow, 
+                 full_path.clone(),
+                 !can_write,
+                 if can_write { Some(tx.clone_ref(py).into_py(py)) } else { None },
+             );
+             return Ok(Py::new(py, proxy)?.into_py(py));
+        } else {
+             // println!("DEBUG: Regular Object detected at '{}': Type={}", full_path, type_name);
+             // std::io::stdout().flush().unwrap();
         }
         
         let tx_bound = tx.bind(py);
         let shadow = tx_bound.borrow_mut().get_shadow(py, val.clone_ref(py), Some(full_path.clone()))?; 
-
+        
         Ok(Py::new(py, ContextGuard {
             target: shadow,
             allowed_inputs: self.allowed_inputs.clone(),
@@ -153,12 +185,11 @@ impl ContextGuard {
     fn new(target: PyObject, inputs: &Bound<'_, PyAny>, outputs: &Bound<'_, PyAny>, path_prefix: Option<String>, tx: Option<Py<Transaction>>, is_admin: bool, strict_mode: bool) -> PyResult<Self> {
         let prefix = path_prefix.unwrap_or_default();
         
-        // Helper to convert iterable (Set/List) to Vec<String>
         let to_vec = |obj: &Bound<'_, PyAny>| -> PyResult<Vec<String>> {
             let mut result = Vec::new();
             if let Ok(iter) = obj.iter() {
                 for item in iter {
-                   result.push(item?.extract::<String>()?); 
+                    result.push(item?.extract::<String>()?); 
                 }
             } else {
                  return Err(pyo3::exceptions::PyTypeError::new_err("Expected iterable for inputs/outputs"));
@@ -173,7 +204,6 @@ impl ContextGuard {
     }
 
     fn __getattr__(&self, py: Python, name: String) -> PyResult<PyObject> {
-        // Private access block in Strict Mode
         if self.strict_mode && name.starts_with('_') {
              return Err(PyPermissionError::new_err(format!("Access to private attribute '{}' denied in Strict Mode", name)));
         }
@@ -195,19 +225,11 @@ impl ContextGuard {
     }
 
     fn __setattr__(&mut self, py: Python, name: String, value: PyObject) -> PyResult<()> {
-        // 1. Whitelist: Check for Local Attributes
-        // "log" is now a struct field, so we can set it directly.
         if name == "log" {
              self.log = Some(value);
              return Ok(());
         }
         
-        // _local_ prefix support? With explicit field approach, we don't have _local_* fields on struct.
-        // If user tries to set _local_foo, we can't store it on struct easily unless we have a dict field.
-        // But for now, "log" is the only requirement. 
-        // If we want _local_ support, we'd need a Py<PyDict> field "locals".
-        // Let's stick to "log" fix as it addresses the immediate failure.
-
         let full_path = if self.path_prefix.is_empty() {
             name.clone()
         } else {
@@ -218,9 +240,8 @@ impl ContextGuard {
 
         let old_val = self.target.bind(py).getattr(name.as_str()).ok().map(|v| v.unbind());
 
-        // Unwrap Tracked Objects & Nested Guards
         let mut value = value;
-        if let Ok(nested) = value.bind(py).getattr("_target") {
+        if let Ok(nested) = value.bind(py).getattr("supervisor_target") {
              value = nested.unbind();
         } 
         else if let Ok(shadow) = value.bind(py).getattr("_data") {
@@ -229,7 +250,6 @@ impl ContextGuard {
         
         let zone = resolve_zone(&name);
         
-        // HEAVY Zone Optimization
         if zone != ContextZone::Heavy {
             if let Some(tx) = &self.tx {
                 let tx_ref = tx.bind(py).borrow_mut();
@@ -244,7 +264,11 @@ impl ContextGuard {
             } 
         }
         
-        self.target.bind(py).setattr(name.as_str(), value)?;
+        if self.target.bind(py).is_instance_of::<PyDict>() {
+             self.target.call_method1(py, "__setitem__", (name, value))?;
+        } else {
+             self.target.bind(py).setattr(name.as_str(), value)?;
+        }
         Ok(())
     }
 
@@ -293,7 +317,7 @@ impl ContextGuard {
         self.check_permissions(&full_path, true)?;
         
         let mut value_to_set = value.clone_ref(py);
-        if let Ok(inner) = value.bind(py).getattr("_target") {
+        if let Ok(inner) = value.bind(py).getattr("supervisor_target") {
              value_to_set = inner.unbind();
         } else if let Ok(shadow) = value.bind(py).getattr("_data") {
              value_to_set = shadow.unbind();
@@ -307,7 +331,6 @@ impl ContextGuard {
              ContextZone::Data // Integer index -> default Data 
         };
 
-        // HEAVY Zone Optimization
         if zone != ContextZone::Heavy {
             if let Some(tx) = &self.tx {
                 let tx_ref = tx.bind(py).borrow_mut();

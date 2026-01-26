@@ -61,7 +61,8 @@ Every data point in Theus exists in a 3-dimensional space:
 |:------|:--------|:---------|:--------|
 | `global_ctx` | Configuration, Environment | Entire application | `max_workers`, `api_key` |
 | `domain_ctx` | Business State, Session | Per-workflow/user | `user_profile`, `cart_items` |
-| `local_ctx` | Ephemeral Process Data | Single process call | (rarely used) |
+| `domain_ctx` | Business State, Session | Per-workflow/user | `user_profile`, `cart_items` |
+| `local` | **(Conceptual)** Process Scope | Internal function vars | Not an explicit Context object |
 
 ### Axis 2: Semantic (Permission)
 
@@ -100,12 +101,8 @@ class AgentDomainContext(BaseDomainContext):
     current_goal: str = ""
     step_count: int = 0
     
-    # SIGNAL ZONE - Transient control flags
-    sig_goal_reached: bool = False
-    sig_needs_input: bool = False
-    cmd_abort: bool = False
-    
     # HEAVY ZONE - Large data, bypasses transaction log
+    heavy_embeddings: object = None
     heavy_embeddings: object = None
     heavy_image_buffer: object = None
 
@@ -145,21 +142,27 @@ counter: int = 0
 - Full transaction support (commit/rollback)
 - Replayed during deterministic replay
 - Tracked by audit system
+- **Immutability:** Collections (list/dict) are returned as `FrozenList`/`FrozenDict`. You MUST copy them before modification.
 
 ### SIGNAL Zone
 
-```python
-# Prefix with sig_ or cmd_
-sig_task_complete: bool = False
-cmd_pause_execution: bool = False
-```
+**Concept:**
+Signals are **Ephemeral Messages** (Events), not persistent state. They are managed by the Rust Engine (Tokio).
+
+**Usage:**
+- **Send:** Return `StateUpdate(signal={'cmd_stop': True})` from a process.
+- **Receive:** Use `signal.get('cmd_stop')` in Flux Workflows.
+
+**Prefixes:**
+- `cmd_*`: Command directives (e.g., `cmd_stop`).
+- `sig_*`: Notifications (e.g., `sig_user_joined`).
 
 **Behavior:**
-- NOT replayed (transient)
-- Reset after read (consumed)
-- Used for control flow, NOT business logic
+- **Ephemeral:** Exists for EXACTLY 1 Tick, then vanishes.
+- **Dynamic:** Do NOT define them in `DomainContext` dataclass.
+- **Control Flow:** Used to trigger Flux logic, not for data calculation.
 
-**AI Rule:** Never use signals as `inputs` in a process. Use Flux DSL to handle signals.
+**AI Rule:** Never try to read signals inside a Python `@process` (use Flux instead).
 
 ### HEAVY Zone
 

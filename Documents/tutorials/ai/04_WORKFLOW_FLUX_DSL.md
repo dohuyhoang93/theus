@@ -70,7 +70,9 @@ steps:
 - Access context via `domain`, `global` dicts
 - Standard Python operators: `==`, `!=`, `>`, `<`, `>=`, `<=`
 - Boolean: `and`, `or`, `not`
+- Boolean: `and`, `or`, `not`
 - Functions: `len()`, `int()`, `str()`, `bool()`, `abs()`, `min()`, `max()`, `sum()`
+- Signals: `signal.get('key')` (Returns None if not present)
 
 ### Loop: flux: while
 
@@ -234,6 +236,7 @@ Internally, `execute_workflow`:
 |:--------|:--------|
 | `domain` | `domain['items']` |
 | `global` | `global['max_limit']` |
+| `signal` | `signal.get('cmd_start')` |
 | Comparison | `==`, `!=`, `>`, `<`, `>=`, `<=` |
 | Boolean | `and`, `or`, `not` |
 | `len()` | `len(domain['items']) > 0` |

@@ -1,5 +1,8 @@
 # Chapter 4: TheusEngine - Operating the Machine
 
+> [!CAUTION]
+> **OVERHEAD WARNING:** Every call to `engine.execute()` triggers a **Global Lock** and a **Rust Audit**. Do not call this inside tight loops (e.g. iterating 1M array items). Use Batch Processing instead.
+
 TheusEngine v3.0 is a high-performance Rust machine. Understanding its execution flow makes debugging easier.
 
 ## 1. Initializing Standard v3.0 Engine
@@ -25,39 +28,41 @@ engine = TheusEngine(sys_ctx, strict_mode=True)
 | `engine.register_process(name, func)` | `engine.register(func)` | Name auto-detected |
 | `engine.run_process(name, **kwargs)` | `engine.execute(func_or_name, **kwargs)` | Accepts func or string |
 
-## 3. The Execution Pipeline
+## 2. The Execution Pipeline
 When you call `engine.execute(add_product, product_name="TV", price=500)`, what actually happens?
 
-1.  **Audit Input Gate:**
-    - Rust calls `AuditPolicy`.
-    - Checks if input arguments (`product_name`, `price`) violate any Audit Rules.
-    - If `Level S` violation -> **Stop Immediately**.
+1.  **Preparation (Contract Check):**
+    - Python Engine verifies the Process Contract.
+    - Binds arguments and prepares the Execution Environment.
 
-2.  **Context Locking:**
-    - Engine **Locks** the entire Context (Mutex) to ensure Atomic Execution (Thread Safe).
+2.  **Snapshot Isolation:**
+    - Rust creates a **Transactional Snapshot** of the state (MVCC).
+    - Readers are NOT blocked. Writers work on a local copy.
 
 3.  **Transaction Start:**
-    - Rust creates a `Transaction` in RAM.
+    - Rust creates a `Transaction` container to track all changes.
 
 4.  **Guard Injection:**
-    - Rust creates a `ContextGuard` wrapping the real Context.
-    - Grants permissions (Keys) based on the Process Contract (`inputs`/`outputs`).
+    - Rust creates a `ContextGuard` wrapping the Snapshot.
+    - Grants permissions based on Process Contract (`inputs`/`outputs`).
 
 5.  **Execution:**
-    - Your Python code runs. All changes (`+= price`) happen on the Guard/Transaction logic (Shadow Copy).
+    - Your Python code runs. All changes (`+= price`) happen on the Guard/Shadow Copy.
 
-6.  **Audit Output Gate:**
+6.  **Audit & Verification:**
     - Process finishes.
-    - Rust checks the result. E.g., "After adding, does `total_value` exceed limit?".
-    - If violation -> **Rollback Transaction**.
+    - Checks if outputs match the Contract.
+    - Logs success/failure to Audit System.
+    > **Tip:** Inspect logs via `engine._audit.get_logs()` if configured.
 
-7.  **Commit/Rollback:**
-    - If everything OK -> Apply changes to Real Context.
-    - Unlock Context.
+7.  **Commit (CAS):**
+    - Optimistic Commit: Touched keys are checked for conflicts.
+    - If Conflict -> Retry (Backoff).
+    - If Safe -> Apply changes to Real Context.
 
 > **🧠 Philosophy Note:** Theus pipelines are "Guilty until Proven Innocent". Every step is locked, guarded, and audited. This adheres to Principle 4.2: **"Every Step is Auditable"**. We trade Raw Speed for Absolute Reproducibility. See [POP Manifesto](../../POP_Manifesto.md).
 
-## 4. Running It
+## 3. Running It
 ```python
 from theus.contracts import process
 

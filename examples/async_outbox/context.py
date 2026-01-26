@@ -22,3 +22,13 @@ class DemoSystemContext:
     @property
     def domain_ctx(self):
         return self.domain
+        
+    def to_dict(self):
+         return {
+             "domain": {
+                 "active_tasks": self.domain.active_tasks,
+                 "outbox_buffer": self.domain.outbox_buffer,
+                 "sync_ops_count": self.domain.sync_ops_count,
+                 "async_job_result": self.domain.async_job_result
+             }
+         }

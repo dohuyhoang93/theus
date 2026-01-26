@@ -11,6 +11,7 @@
 from dataclasses import dataclass, field
 from theus import TheusEngine, process, ContractViolationError
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
+from theus.structures import StateUpdate
 ```
 
 ---
@@ -24,9 +25,8 @@ class MyDomainContext(BaseDomainContext):
     items: list = field(default_factory=list)
     counter: int = 0
     
-    # SIGNAL ZONE (Transient, prefix: sig_, cmd_)
-    sig_alert: bool = False
-    cmd_stop: bool = False
+    # SIGNAL ZONE 
+    # NOTE: Do NOT define sig_ or cmd_ fields here. They are Dynamic.
     
     # HEAVY ZONE (Zero-Copy, No Rollback, prefix: heavy_)
     heavy_tensor: object = None
@@ -80,9 +80,20 @@ def my_process(ctx, item_name: str, value: int):
     if new_counter > max_limit:
         alert = True
     
-    # 5. Return Data (Engine handles Atomic Commit)
-    # Returns map to outputs: [items, counter, sig_alert]
-    return new_items, new_counter, alert
+    # 3. Return Logic using StateUpdate (Recommended)
+    # Allows explicit signal firing
+    
+    signals = {}
+    if new_counter > max_limit:
+        signals['sig_alert'] = True
+        
+    return StateUpdate(
+        data={
+            'domain_ctx.items': new_items,
+            'domain_ctx.counter': new_counter
+        },
+        signal=signals
+    )
 ```
 
 ---
@@ -174,9 +185,41 @@ engine.execute_workflow("workflows/main_workflow.yaml")
 | Zone | Prefix | Behavior |
 |:-----|:-------|:---------|
 | DATA | (none) | Transactional, Rollback on error |
-| SIGNAL | `sig_`, `cmd_` | Transient, Reset on read |
+| SIGNAL | `sig_`, `cmd_` | Ephemeral (1-Tick), Managed by Rust |
 | META | `meta_` | Observability only |
 | HEAVY | `heavy_` | Zero-copy, NO rollback |
+
+---
+
+## 🛠️ CLI Cheatsheet
+
+| Command | Description |
+|:---|:---|
+| `python -m theus.cli init my_proj` | Create new project |
+| `python -m theus.cli check .` | Run Linter (Critical for AI) |
+| `python -m theus.cli audit gen-spec` | Generate Audit Recipe |
+
+---
+
+## 🚫 Common Coding Pitfalls
+
+### 1. Modifying Immutable Lists
+```python
+# ❌ WRONG
+ctx.domain.items.append(x)  # AttributeError: 'FrozenList' is immutable
+
+# ✅ CORRECT
+new_items = list(ctx.domain.items)
+new_items.append(x)
+return {"domain.items": new_items}
+```
+
+### 2. Manual State Setup
+Use `engine.edit()` context manager for test setup only.
+```python
+with engine.edit() as safe_ctx:
+    safe_ctx.domain.counter = 100
+```
 
 ---
 

@@ -3,23 +3,26 @@ import time
 import json
 from theus.contracts import process
 from theus.structures import StateUpdate  # Standard V3 Update Mechanism
-from demo_async_outbox.context import DemoSystemContext
-from demo_async_outbox.database import get_connection, insert_outbox_event
-from demo_async_outbox.helpers import get_attr # Minimal read helper
+from context import DemoSystemContext
+from database import get_connection, insert_outbox_event
+from helpers import get_attr # Minimal read helper
 
 # --- ASYNC JOB LOGIC ---
 async def heavy_async_job(duration: float):
     """Simulates I/O wait (e.g., API call)."""
     print(f"    [Background] Job sleeping for {duration}s...")
     await asyncio.sleep(duration)
-    print(f"    [Background] Job woke up!")
+    print("    [Background] Job woke up!")
     return f"Job Done at {time.time()}"
 
 # --- PROCESSES ---
 
+
+# Ephemeral Registry (Not persisted in State)
+_TASK_REGISTRY = {}
+
 @process(
     inputs=['domain.active_tasks'],
-    # V3 Standard: Declare output, Return Update
     outputs=['domain.active_tasks'],
     side_effects=['spawns_async_task']
 )
@@ -35,15 +38,18 @@ async def p_spawn_background_job(ctx: DemoSystemContext):
     
     # Logic
     task = asyncio.create_task(heavy_async_job(2.0))
+    job_id = "job_1"
     
-    # Clone & Modify (Immutable Pattern)
+    # Store Task in Ephemeral Registry
+    _TASK_REGISTRY[job_id] = task
+    
+    # Store ID in Persistent State
     new_tasks = active_tasks.copy()
-    new_tasks['job_1'] = task
+    new_tasks[job_id] = "RUNNING"
     
     print("[Process] Job spawned. Returning StateUpdate.")
     # Return explicit update
     return new_tasks 
-
 
 @process(
     inputs=['domain.sync_ops_count'],
@@ -76,20 +82,28 @@ async def p_await_job(ctx: DemoSystemContext):
     Returns (result, updated_tasks_map).
     """
     active_tasks = get_attr(ctx, 'domain.active_tasks', {})
-    task = active_tasks.get('job_1')
+    job_status = active_tasks.get('job_1')
     
-    if task:
-        print("[Process] Joining background job...")
-        result = await task
-        print(f"[Process] Joined. Result: {result}")
-        
-        # Cleanup
-        new_tasks = active_tasks.copy()
-        if 'job_1' in new_tasks:
-            del new_tasks['job_1']
+    if job_status == "RUNNING":
+        task = _TASK_REGISTRY.get('job_1')
+        if task:
+            print("[Process] Joining background job...")
+            result = await task
+            print(f"[Process] Joined. Result: {result}")
             
-        # Return Tuple matching outputs=[result, tasks]
-        return result, new_tasks
+            # Cleanup
+            if 'job_1' in _TASK_REGISTRY:
+                del _TASK_REGISTRY['job_1']
+            
+            new_tasks = active_tasks.copy()
+            if 'job_1' in new_tasks:
+                del new_tasks['job_1']
+                
+            # Return Tuple matching outputs=[result, tasks]
+            return result, new_tasks
+        else:
+             print("[Process] Task object missing in registry!")
+             return None, active_tasks
     else:
         print("[Process] No job to join!")
         return None, active_tasks
@@ -138,7 +152,6 @@ def p_prepare_outbox_event(ctx: DemoSystemContext):
     
     # 4. Return Data (Signals Engine to CAS)
     new_status = f"{res} (Outbox Queued)"
-    from theus.structures import StateUpdate
     
     # We need to return MULTIPLE updates.
     # Theus V3 helper or Tuple return?
@@ -146,5 +159,22 @@ def p_prepare_outbox_event(ctx: DemoSystemContext):
     
     return new_status, new_queue
 
-# NOTE: p_flush_outbox REMOVED.
+# p_flush_outbox REMOVED.
 # Persisting to DB is now a System-Level Relay task, not a workflow step.
+
+@process(
+    inputs=[],
+    outputs=[],
+    side_effects=['logging']
+)
+def p_log_blindness(ctx: DemoSystemContext):
+    """
+    Logs blindness detection.
+    """
+    print("\n[!!!] SIGNAL BLINDNESS DETECTED: cmd_start_outbox was ignored by Flux!")
+    return None
+
+@process(inputs=[], outputs=[], side_effects=['logging'])
+def p_log_success(ctx: DemoSystemContext):
+    print("\n[OK] SIGNAL RECEIVED BY FLUX: cmd_start_outbox detected!")
+    return None

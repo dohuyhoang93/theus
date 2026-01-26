@@ -18,14 +18,15 @@ class SemanticType(str, Enum):
     GUIDE = "guide"
 
 class ProcessContract:
-    def __init__(self, inputs: List[str], outputs: List[str], semantic: SemanticType = SemanticType.PURE, errors: List[str] = None, side_effects: List[str] = None):
+    def __init__(self, inputs: List[str], outputs: List[str], semantic: SemanticType = SemanticType.PURE, errors: List[str] = None, side_effects: List[str] = None, parallel: bool = False):
         self.inputs = inputs
         self.outputs = outputs
         self.semantic = semantic
         self.errors = errors or []
         self.side_effects = side_effects or []
+        self.parallel = parallel
 
-def process(inputs: List[str] = None, outputs: List[str] = None, semantic: SemanticType = SemanticType.EFFECT, errors: List[str] = None, side_effects: List[str] = None):
+def process(inputs: List[str] = None, outputs: List[str] = None, semantic: SemanticType = SemanticType.EFFECT, errors: List[str] = None, side_effects: List[str] = None, parallel: bool = False):
     # Support bare decorator usage @process
     if callable(inputs):
         func = inputs
@@ -36,7 +37,7 @@ def process(inputs: List[str] = None, outputs: List[str] = None, semantic: Seman
         errors = []
         
         # Apply logic immediately
-        func._pop_contract = ProcessContract(inputs, outputs, semantic, errors, side_effects)
+        func._pop_contract = ProcessContract(inputs, outputs, semantic, errors, side_effects, parallel)
         
         sig = inspect.signature(func)
         valid_params = set(sig.parameters.keys())
@@ -71,7 +72,7 @@ def process(inputs: List[str] = None, outputs: List[str] = None, semantic: Seman
     outputs = outputs or []
     
     def decorator(func: Callable):
-        func._pop_contract = ProcessContract(inputs, outputs, semantic, errors, side_effects)
+        func._pop_contract = ProcessContract(inputs, outputs, semantic, errors, side_effects, parallel)
         
         # Pre-compute signature parameters
         sig = inspect.signature(func)

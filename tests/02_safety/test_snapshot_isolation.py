@@ -10,7 +10,7 @@ async def test_reader_isolation():
     # Correct Way to Init State in v3 (Immutable)
     # We must construct a new state and commit it (or use internal API if needed for setup)
     # For setup, we can use compare_and_swap from version 1
-    engine.compare_and_swap(1, {"x": 0}, None)
+    engine.compare_and_swap(1, {"x": 0}, None, None)
     
     async def long_reader(ctx):
         # Finds x=0

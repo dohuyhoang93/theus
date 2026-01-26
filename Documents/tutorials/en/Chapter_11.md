@@ -46,6 +46,18 @@ steps:
       - "process_one_item"
 ```
 
+### Event-Driven: flux: if (Signal)
+
+You can react to ephemeral signals using `signal.get()`.
+
+```yaml
+steps:
+  - flux: if
+    condition: "signal.get('cmd_emergency_stop') == 'True'"
+    then:
+      - process: "p_safe_shutdown"
+```
+
 ### Nested Block: flux: run
 
 ```yaml
@@ -101,6 +113,7 @@ steps:
 | Comparison | `==`, `!=`, `>`, `<`, `>=`, `<=` |
 | Boolean | `and`, `or`, `not` |
 | `len()` | `len(domain['items']) > 0` |
+| `signal` | `signal.get('cmd_stop') == 'True'` |
 | `True/False/None` | Literals |
 
 ## 5. Executing Workflows
@@ -141,6 +154,15 @@ ctx_dict = {"domain": sys_ctx.domain_ctx.__dict__, "global": sys_ctx.global_ctx.
 executed = workflow.execute(ctx_dict, lambda name: engine.execute(name))
 ```
 
+## 6. Auto-Discovery (`scan_and_register`)
+
+Instead of manually registering every function, use:
+
+```python
+# Recursively scans 'src/processes' for @process decorated functions
+engine.scan_and_register("src/processes")
+```
+
 ## 6. Safety Features
 
 ### Max Operations Limit
@@ -166,12 +188,15 @@ workflow.add_state_observer(on_state_change)
 
 ## 7. Why Flux DSL?
 
-> **🧠 Philosophy Note:** By lifting control flow out of Python code and into YAML, we achieve **"Logic-Flow Separation"**. Your Python code becomes a library of tools (Processes), and the YAML becomes the instruction manual (Workflow). This makes the system easier to visualize and modify without touching code.
-
-**Benefits:**
-- **Resilience:** State is persisted in Context. If system crashes, it recovers.
-- **Performance:** The loop runs in Rust, bypassing Python GIL for control logic.
-- **Visibility:** Business rules in YAML are easier to audit than nested Python.
+> **🧠 Manifesto Connection:**
+> **Principle 3.2: "Logic-Flow Separation".**
+>
+> **The Problem:** In traditional code, business logic (`if x > 10`) is mixed with flow control (`while True`). Code becomes a "Spaghetti" of hidden states.
+> **The Solution:**
+> - **Python (`@process`):** Defines the "Tools" (Atomic, Stateless).
+> - **YAML (`Flux`):** Defines the "Assembly Line" (Stateful, Visible).
+>
+> **Benefit:** You can change the assembly line (Workflow) without re-engineering the tools (Refactoring Python). Visual, Hot-Reloadable, and Clean.
 
 ---
 **Exercise:**

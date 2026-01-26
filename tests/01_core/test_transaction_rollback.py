@@ -1,5 +1,5 @@
 import pytest
-from theus.engine import TheusEngine, TransactionError
+from theus.engine import TheusEngine
 from theus.structures import State
 
 # TDD: Rollback works by discarding the 'future' reference, not by undoing writes.
@@ -11,8 +11,8 @@ def test_transaction_rollback_is_instant():
     try:
         with engine.transaction() as tx:
             tx.update({"x": 999})
-            raise TransactionError("Abort!")
-    except TransactionError:
+            raise ValueError("Abort!")
+    except ValueError:
         pass
         
     # State should be EXACTLY the initial object (reference equality)

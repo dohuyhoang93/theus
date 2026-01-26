@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 use crate::structures::{State, ContextError, OutboxMsg};
+use crate::conflict::{ConflictManager, RetryDecision};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -27,6 +28,7 @@ pub struct TheusEngine {
     pub schema: Arc<Mutex<Option<PyObject>>>,
     pub audit_system: Arc<Mutex<Option<PyObject>>>, // NEW
     pub strict_mode: Arc<Mutex<bool>>,             // NEW
+    conflict_manager: Arc<ConflictManager>,         // NEW v3.3
 }
 
 #[pymethods]
@@ -41,6 +43,7 @@ impl TheusEngine {
             schema: Arc::new(Mutex::new(None)),
             audit_system: Arc::new(Mutex::new(None)),
             strict_mode: Arc::new(Mutex::new(false)),
+            conflict_manager: Arc::new(ConflictManager::new(5, 2)), // Max 5 retries, 2ms base
         })
     }
     
@@ -57,6 +60,15 @@ impl TheusEngine {
     fn set_schema(&self, schema: PyObject) {
         let mut s = self.schema.lock().unwrap();
         *s = Some(schema);
+    }
+    
+    // Conflict APIs for Python Retry Loop
+    fn report_conflict(&self, process_name: String) -> RetryDecision {
+        self.conflict_manager.report_conflict(process_name)
+    }
+
+    fn report_success(&self, process_name: String) {
+        self.conflict_manager.report_success(process_name);
     }
     
     #[getter]
@@ -115,26 +127,117 @@ impl TheusEngine {
         Ok(())
     }
 
-    #[pyo3(signature = (expected_version, data=None, heavy=None, signal=None))]
+    #[pyo3(signature = (expected_version, data=None, heavy=None, signal=None, requester=None))]
     fn compare_and_swap(
         &mut self, 
         py: Python, 
         expected_version: u64, 
         data: Option<PyObject>, 
         heavy: Option<PyObject>,
-        signal: Option<PyObject>
+        signal: Option<PyObject>,
+        requester: Option<String>
     ) -> PyResult<()> {
-        let current_state = self.state.bind(py);
-        let current_version: u64 = current_state.getattr("version")?.extract()?;
-        
-        if current_version != expected_version {
-            return Err(ContextError::new_err(format!(
-                "CAS Version Mismatch: Expected {}, Found {}", 
-                expected_version, current_version
-            )));
+        // v3.3 Priority Ticket Check
+        if self.conflict_manager.is_blocked(requester) {
+             return Err(ContextError::new_err("System Busy (VIP Access Only)"));
         }
 
-        let new_state_obj = current_state.call_method(
+        let current_state_bound = self.state.bind(py);
+        let current_state = current_state_bound.borrow();
+        let current_version = current_state.version;
+        
+        if current_version != expected_version {
+            // v3.3 Smart CAS: Check Key-Level Conflicts
+            // If the specific keys we are updating haven't changed since expected_version,
+            // we can safely merge even if global version bumped.
+            
+            let mut safe = true;
+            
+            // v3.1: Check FIELD-Level Conflicts (domain.counter, not just domain)
+            // Check Data Keys
+            if let Some(ref d) = data {
+                if let Ok(d_dict) = d.downcast_bound::<PyDict>(py) {
+                    for (zone_k, zone_v) in d_dict.iter() {
+                         let zone_key = zone_k.extract::<String>()?;
+                         
+                         // Check nested fields if value is a dict
+                         if let Ok(inner_dict) = zone_v.downcast::<PyDict>() {
+                             for (ik, _) in inner_dict {
+                                 let inner_key = ik.extract::<String>()?;
+                                 let field_path = format!("{}.{}", zone_key, inner_key);  // "domain.counter"
+                                 
+                                 if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
+                                     if *last_ver > expected_version {
+                                         safe = false;
+                                         break;
+                                     }
+                                 }
+                             }
+                         } else {
+                             // Non-dict value: fall back to zone-level check
+                             if let Some(last_ver) = current_state.key_last_modified.get(&zone_key) {
+                                 if *last_ver > expected_version {
+                                     safe = false;
+                                 }
+                             }
+                         }
+                         if !safe { break; }
+                    }
+                }
+            }
+            
+            // Check Heavy Keys (if safe so far)
+            if safe {
+                if let Some(ref h) = heavy {
+                    if let Ok(h_dict) = h.downcast_bound::<PyDict>(py) {
+                        for (zone_k, zone_v) in h_dict.iter() {
+                             let zone_key = zone_k.extract::<String>()?;
+                             
+                             // Check nested fields if value is a dict
+                             if let Ok(inner_dict) = zone_v.downcast::<PyDict>() {
+                                 for (ik, _) in inner_dict {
+                                     let inner_key = ik.extract::<String>()?;
+                                     let field_path = format!("{}.{}", zone_key, inner_key);
+                                     
+                                     if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
+                                         if *last_ver > expected_version {
+                                             safe = false;
+                                             break;
+                                         }
+                                     }
+                                 }
+                             } else {
+                                 // Non-dict value: fall back to zone-level check
+                                 if let Some(last_ver) = current_state.key_last_modified.get(&zone_key) {
+                                     if *last_ver > expected_version {
+                                         safe = false;
+                                     }
+                                 }
+                             }
+                             if !safe { break; }
+                        }
+                    }
+                }
+            }
+
+            if !safe {
+                return Err(ContextError::new_err(format!(
+                    "CAS Version Mismatch (Conflict Detected): Expected {}, Found {} (Keys Changed)", 
+                    expected_version, current_version
+                )));
+            }
+            // If safe, fall through to update (Optimistic Merge)
+        }
+
+        // We must drop the borrow before calling Python method `update` on the object
+        // because `update` might need mutable access or create new object?
+        // Actually `update` is a method on `State` which is immutable self.
+        // But `call_method` might re-enter?
+        // Safe practice: drop borrow.
+        drop(current_state);
+
+
+        let new_state_obj = current_state_bound.call_method(
             "update", 
             (data, heavy, signal), 
             None
@@ -172,7 +275,8 @@ impl TheusEngine {
             local: local_dict.unbind(),
             outbox: crate::structures::Outbox {
                 messages: Arc::new(Mutex::new(Vec::new()))
-            }
+            },
+            tx: None, // v3.1: Explicit transaction handled by engine.py for now
         })?;
 
         let args = (ctx,);
@@ -240,6 +344,22 @@ impl Transaction {
     #[getter]
     fn write_timeout_ms(&self) -> u64 {
         self.write_timeout_ms
+    }
+
+    // Expose pending data for manual commit/CAS
+    #[getter]
+    fn pending_data(&self, py: Python) -> PyObject {
+        self.pending_data.clone_ref(py).into_py(py)
+    }
+
+    #[getter]
+    fn pending_heavy(&self, py: Python) -> PyObject {
+        self.pending_heavy.clone_ref(py).into_py(py)
+    }
+
+    #[getter]
+    fn pending_signal(&self, py: Python) -> PyObject {
+        self.pending_signal.clone_ref(py).into_py(py)
     }
 
     #[pyo3(signature = (data=None, heavy=None, signal=None))]
