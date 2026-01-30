@@ -59,6 +59,7 @@ coverage.xml
 
 # Environment
 .env
+!theus/scaffold/.env
 .venv
 env/
 venv/
