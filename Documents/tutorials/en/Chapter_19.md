@@ -17,7 +17,7 @@ The `heavy` zone in the context is no longer a standard dictionary. It is a stri
 
 ### 2. `@process(parallel=True)`
 This decorator marks a function for execution in the Parallel Pool.
-- **Auto-Dispatch:** `engine.execute()` automatically detects this flag and routes execution to a worker.
+- **Auto-Dispatch:** `await engine.execute()` automatically detects this flag and routes execution to a worker.
 - **Context Isolation:** The worker receives a stripped-down `ParallelContext` containing:
     - `ctx.domain` (Copy of input args + domain state)
     - `ctx.heavy` (Zero-Copy handle)

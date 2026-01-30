@@ -8,11 +8,13 @@ from .fsm import StateMachine
 
 logger = logging.getLogger("WorkflowManager")
 
+
 class WorkflowManager(IOrchestrator):
     """
     The Conductor.
     Connects: SignalBus (Ear) -> FSM (Brain) -> ThreadExecutor (Hand) -> Engine (Tool).
     """
+
     def __init__(self, engine: IEngine, scheduler: IScheduler, bus: SignalBus):
         self.engine = engine
         self.scheduler = scheduler
@@ -27,7 +29,7 @@ class WorkflowManager(IOrchestrator):
 
     def run_workflow(self, workflow_name: str, context: object) -> None:
         """
-        Start the workflow loop. 
+        Start the workflow loop.
         NOTE: This is usually BLOCKING if called directly.
         For GUI, you should call `process_signals()` periodically in the GUI loop,
         instead of calling this `run_workflow` loop.
@@ -37,14 +39,14 @@ class WorkflowManager(IOrchestrator):
         while self._running:
             try:
                 # 1. Listen for Events
-                signal = self.bus.get(timeout=0.1) # Non-blocking wait
+                signal = self.bus.get(timeout=0.1)  # Non-blocking wait
                 if signal:
                     self.process_signal(signal)
-                
+
                 # 2. Check for App Exit? (Optional)
             except KeyboardInterrupt:
                 self.stop()
-                
+
     def process_signal(self, signal: str):
         """
         Core Reactive Logic.
@@ -55,15 +57,15 @@ class WorkflowManager(IOrchestrator):
 
         # Ask Brain (FSM) what to do
         actions = self.fsm.trigger(signal)
-        
+
         if actions:
             logger.info(f"🚀 Dispatching Chain: {actions}")
-            
+
             # Define a Chain Runner to execute sequentially in the Thread
             def chain_runner():
                 results = []
                 for idx, process_name in enumerate(actions):
-                    logger.info(f"   ► Step {idx+1}/{len(actions)}: {process_name}")
+                    logger.info(f"   ► Step {idx + 1}/{len(actions)}: {process_name}")
                     # If this fails, exception propagates and stops chain
                     res = self.engine.execute_process(process_name)
                     results.append(res)
@@ -71,17 +73,17 @@ class WorkflowManager(IOrchestrator):
 
             # Execute the Chain in Background
             future = self.scheduler.submit(chain_runner)
-            
+
             # Optional: Add done callback for chain completion
             def on_done(f):
                 try:
-                    f.result() # Check for chain failure
+                    f.result()  # Check for chain failure
                     # Auto-Transition: Emit EVT_CHAIN_DONE
-                    self.bus.emit("EVT_CHAIN_DONE") 
+                    self.bus.emit("EVT_CHAIN_DONE")
                 except Exception as e:
                     logger.error(f"Chain Failed: {e}")
                     self.bus.emit("EVT_CHAIN_FAIL")
-            
+
             future.add_done_callback(on_done)
 
     def stop(self):

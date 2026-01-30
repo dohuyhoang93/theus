@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 from theus.linter import run_lint, POPLinter
 
+
 class TestCLILinter:
     """
     Test Suite for Theus POP Linter.
@@ -26,7 +27,7 @@ def clean_func(ctx):
 """
         p = clean_dir / "clean.py"
         p.write_text(clean_code, encoding="utf-8")
-        
+
         passed = run_lint(clean_dir)
         assert passed == True
 
@@ -45,18 +46,19 @@ def bad_func(ctx):
 """
         p = clean_dir / "bad.py"
         p.write_text(bad_code, encoding="utf-8")
-        
+
         passed = run_lint(clean_dir)
         assert passed == False
-        
+
         # Parse manually to check violation count
         import ast
+
         tree = ast.parse(bad_code)
         linter = POPLinter(str(p))
         linter.visit(tree)
-        
+
         codes = [v.check_id for v in linter.violations]
-        assert "POP-E01" in codes # print
-        assert "POP-E02" in codes # open
-        assert "POP-E03" in codes # requests
-        assert "POP-E04" in codes # global
+        assert "POP-E01" in codes  # print
+        assert "POP-E02" in codes  # open
+        assert "POP-E03" in codes  # requests
+        assert "POP-E04" in codes  # global

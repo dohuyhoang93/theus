@@ -59,4 +59,4 @@ Everything is now clearer and Orthogonal.
 
 ---
 **Exercise:**
-Review your code. Any variables named wrongly? E.g., `ctx.domain_ctx.is_finished` (currently Data) -> should it be `ctx.domain_ctx.sig_finished` (Signal)?
+Review your code. Any variables named wrongly? E.g., `ctx.domain.is_finished` (currently Data) -> should it be `ctx.domain.sig_finished` (Signal)?

@@ -60,8 +60,8 @@ Every data point in Theus exists in a 3-dimensional space:
 | Layer | Purpose | Lifespan | Example |
 |:------|:--------|:---------|:--------|
 | `global_ctx` | Configuration, Environment | Entire application | `max_workers`, `api_key` |
-| `domain_ctx` | Business State, Session | Per-workflow/user | `user_profile`, `cart_items` |
-| `domain_ctx` | Business State, Session | Per-workflow/user | `user_profile`, `cart_items` |
+| `domain` | Business State, Session | Per-workflow/user | `user_profile`, `cart_items` |
+| `domain` | Business State, Session | Per-workflow/user | `user_profile`, `cart_items` |
 | `local` | **(Conceptual)** Process Scope | Internal function vars | Not an explicit Context object |
 
 ### Axis 2: Semantic (Permission)
@@ -122,7 +122,7 @@ class AgentSystemContext(BaseSystemContext):
     System Context: Container for Domain and Global.
     This is passed to TheusEngine.
     """
-    domain_ctx: AgentDomainContext = field(default_factory=AgentDomainContext)
+    domain: AgentDomainContext = field(default_factory=AgentDomainContext)
     global_ctx: AgentGlobalContext = field(default_factory=AgentGlobalContext)
 ```
 
@@ -187,7 +187,7 @@ When `strict_mode=True`, Context is LOCKED immediately.
 
 ```python
 # ❌ WRONG - Raises ContextLockedError
-sys_ctx.domain_ctx.counter = 10  # Outside @process
+sys_ctx.domain.counter = 10  # Outside @process
 ```
 
 ### Legal: Via Process
@@ -220,7 +220,7 @@ When generating Theus Context code:
 - [ ] Prefix signals with `sig_` or `cmd_`
 - [ ] Prefix heavy data with `heavy_`
 - [ ] NO methods in Context classes (behavior goes in processes)
-- [ ] Define `domain_ctx` and `global_ctx` in SystemContext
+- [ ] Define `domain` and `global_ctx` in SystemContext
 
 ---
 

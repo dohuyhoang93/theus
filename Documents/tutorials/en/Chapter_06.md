@@ -71,8 +71,51 @@ A critical design choice in Theus is that **Transaction Logs are Ephemeral**.
 
 ---
 **Advanced Sabotage Exercise:**
-In `add_product` process:
-1. Set `sig_restock_needed = True`.
-2. Append an item to the list.
-3. Raise Exception at end of function.
 4. Check if `sig_restock_needed` reverts to `False` and item disappears from list after crash.
+
+---
+
+## 6. Interoperability & Serialization (DX)
+
+Theus v3.1 `SupervisorProxy` implements the **Mapping Protocol** (`collections.abc.Mapping`), allowing it to behave like a read-only dictionary in most contexts (Pydantic, Jinja2, etc.).
+
+### 6.1. Using with Pydantic
+Theus Proxies work natively with Pydantic v2 if you enable `from_attributes` (ORM Mode).
+
+```python
+from pydantic import BaseModel, ConfigDict
+
+class UserSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+
+# Works directly with Proxy!
+user_data = UserSchema.model_validate(ctx.domain.user)
+```
+
+### 6.2. JSON Serialization
+The standard `json.dumps()` library does not support custom Mappings by default. 
+
+**Recommended:** Use the `TheusEncoder` for seamless integration.
+
+```python
+import json
+from theus import TheusEncoder
+
+# ✅ Perfect: Uses IDIOMATIC custom encoder
+json.dumps(ctx.domain.user, cls=TheusEncoder)
+
+# ✅ Alternative: Cast to dict (Shallow)
+json.dumps(dict(ctx.domain.user))
+```
+
+### 6.3. FastAPI Integration
+When returning data from an API endpoint, FastAPI/Starlette will automatically handle the Mapping protocol in many cases. If you encounter issues, simply cast to dict before returning.
+
+```python
+@app.get("/user")
+def get_user():
+    # ... inside process ...
+    return dict(ctx.domain.user)
+```

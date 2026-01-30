@@ -53,7 +53,7 @@ process_recipes:
         level: "B"
         
     outputs:
-      - field: "domain_ctx.balance"
+      - field: "domain.balance"
         min: 0
         level: "S"  # Safety: balance can never be negative
         
@@ -323,7 +323,7 @@ process_recipes:
   # Daily report (relaxed)
   generate_report:
     outputs:
-      - field: "domain_ctx.report_size"
+      - field: "domain.report_size"
         max: 10000000  # 10MB limit
         level: "C"  # Just warn, don't block
 ```

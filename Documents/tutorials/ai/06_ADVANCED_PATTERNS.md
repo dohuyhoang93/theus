@@ -133,9 +133,9 @@ v3.0 prohibits nested engine calls (calling `execute_workflow` inside a process)
 ```python
 # ❌ WRONG - Causes deadlock in Rust multi-threaded core
 @process(outputs=['domain.result'])
-def bad_process(ctx):
+async def bad_process(ctx):
     # This will deadlock!
-    engine.execute_workflow("sub_workflow.yaml")
+    await engine.execute_workflow("sub_workflow.yaml")
 ```
 
 ### Solution: Pipeline Pattern
@@ -218,7 +218,7 @@ def run_in_subinterp(context_handle):
     
     # Context shared via Rust backbone
     engine = TheusEngine.from_handle(context_handle)
-    engine.execute_workflow("agent_workflow.yaml")
+    await engine.execute_workflow("agent_workflow.yaml")
 
 # Main thread
 context_handle = engine.get_context_handle()
@@ -226,7 +226,7 @@ context_handle = engine.get_context_handle()
 # Spawn sub-interpreters
 if CORE_AVAILABLE:
     interp1 = create_interp()
-    interp1.run(run_in_subinterp, context_handle)
+    await interp1.run(run_in_subinterp, context_handle)
 ```
 
 ### Heavy Zone + Sub-Interpreters
@@ -243,39 +243,39 @@ Theus `execute_workflow` is blocking (Run-to-Completion). For GUI apps:
 
 ```python
 # GUI freezes!
-def on_button_click():
-    engine.execute_workflow("long_task.yaml")
+async def on_button_click():
+    await engine.execute_workflow("long_task.yaml")
 ```
 
 ### ✅ Correct: Background Worker
 
 ```python
-import threading
-from queue import Queue
+import asyncio
 
 class TheusWorker:
     def __init__(self, engine):
         self.engine = engine
-        self.task_queue = Queue()
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
+        self.task_queue = asyncio.Queue()
     
-    def _run(self):
+    async def start(self):
         while True:
-            workflow = self.task_queue.get()
+            workflow = await self.task_queue.get()
             try:
-                self.engine.execute_workflow(workflow)
+                await self.engine.execute_workflow(workflow)
             except Exception as e:
                 print(f"Error: {e}")
+            finally:
+                self.task_queue.task_done()
     
     def submit(self, workflow):
-        self.task_queue.put(workflow)
+        self.task_queue.put_nowait(workflow)
 
 # Usage
 worker = TheusWorker(engine)
+asyncio.create_task(worker.start())
 
-def on_button_click():
-    worker.submit("long_task.yaml")  # Non-blocking
+async def on_button_click():
+    worker.submit("long_task.yaml")  # Non-blocking (async)
 ```
 
 ### Progress Updates

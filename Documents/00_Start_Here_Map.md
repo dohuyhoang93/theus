@@ -1,71 +1,54 @@
-# 🧭 Theus Documentation Map (v3.0)
+# 🧭 Theus Documentation Map (v3.0.22)
 
-> **Welcome to Theus!** This framework is vast, covering everything from high-level AI philosophy to low-level Rust memory management. To avoid getting lost, please choose the **Persona** that best fits your current goal.
+> **Welcome to Theus!** The framework has evolved significantly. This map guides you through high-level AI philosophy, Rust-powered core mechanics, and production-ready implementation patterns.
 
 ---
 
 ## 🤖 Persona 0: The AI Assistant
-**Goal:** "I am an AI coding assistant and need to understand Theus quickly to help users."
+**Goal:** "I am an AI coding assistant. Give me the technical grammar and patterns."
 
-*   **Start Here:** [**AI Quick Reference (Cheat Sheet)**](./tutorials/ai/00_QUICK_REFERENCE.md)
-    *   *Time:* 5 mins
-    *   *Outcome:* Copy-paste patterns for common tasks.
-*   **Full Guide:** [**AI Tutorials (7 Modules)**](./tutorials/ai/)
-    *   *Covers:* Core Concepts, Contracts, Engine, Flux DSL, Audit, Advanced.
+*   **Fast Track:** [**AI Quick Reference (Cheat Sheet)**](./tutorials/ai/00_QUICK_REFERENCE.md)
+*   **Deep Context:** [**AI Tutorials (10 Modules)**](./tutorials/ai/)
+    *   *Highlights:* Shared Memory (Heavy Zone), Flux DSL, and FFI Boundary Quirks.
 
 ---
 
-## 🚀 Persona 1: The AI Developer
-**Goal:** "I want to build an Agent *now*. I don't care about memory zones or Rust macros yet."
+## 🚀 Persona 1: The Implementer
+**Goal:** "I want to apply Theus-POP to my project right now."
 
-*   **Start Here:** [**AI Developer Guide (Quickstart)**](./AI_DEVELOPER_GUIDE.md)
-    *   *Time:* 15 mins
-    *   *Outcome:* A running Hello World agent.
-*   **Reference:** [**Chapter 1: Introduction**](./tutorials/en/Chapter_01.md)
+*   **The Philosophy:** [**The POP Manifesto**](./POP_Manifesto.md)
+*   **The Handbook:** [**Theus Tutorial Series (Chapters 1-23)**](./tutorials/en/)
 
 ---
 
 ## 🏗️ Persona 2: The System Architect
-**Goal:** "I need to understand how Theus ensures reliability. How does the Rust Core work? What is POP?"
+**Goal:** "I need to understand the 'POP' philosophy and the Rust/Python hybrid safety."
 
-*   **Theory:** [**POP Whitepaper v2.0 (Foundational)**](./POP_Whitepaper_v2.0.md)
-    *   *Concepts:* 3-Axis Context, Audit.
-*   **Deep Dive:** [**Theus Tutorials (Human)**](./tutorials/en/)
-    *   *Concepts:* Contracts, Engine Runtime, Flux DSL, Optimizations.
-*   **Philosophy:** [**The POP Manifesto**](./POP_Manifesto.md)
-    *   *Concepts:* "Data is Inert", "Process is Logic".
+*   **The Blueprint:** [**POP Specification**](./POP_specification.md)
+*   **The Why:** [**The POP Manifesto**](./POP_Manifesto.md) ([Vietnamese Version](./POP_Manifesto_VN.md))
+*   **Theory:** [**POP Whitepaper v2.0**](./POP_Whitepaper_v2.0.md)
+*   **Reference:** [**API Reference (v3.0)**](./Architecture/01_Specs/THEUS_API_REFERENCE.md)
 
 ---
 
-## 🎓 Persona 3: The Learner / Contributor
-**Goal:** "I want to master Theus from the ground up or contribute to the core."
 
-**Phase 1: Foundations (Python Layer)**
-1.  [**Chapter 1: The First Process**](./tutorials/en/Chapter_01.md)
-2.  [**Chapter 2: Context & Zones**](./tutorials/en/Chapter_02.md)
-3.  [**Chapter 3: The Contract (@process)**](./tutorials/en/Chapter_03.md)
-4.  [**Chapter 4: TheusEngine**](./tutorials/en/Chapter_04.md)
+## 📂 Documentation Structure (Current)
 
-**Phase 2: Advanced Orchestration**
-5.  [**Chapter 11: Workflow Flux DSL**](./tutorials/en/Chapter_11.md) ⭐ (Major v3.0 update)
-6.  [**Chapter 10: Heavy Zone Optimization**](./tutorials/en/Chapter_10.md)
-
----
-
-## 📂 Documentation Structure
-
-```
+```text
+├── Architecture/
+│   ├── 01_Specs/      # API Reference & Feature Matrices
+│   ├── 02_ADR/        # Architecture Decision Records (Historical Context)
+│   ├── 03_RFC/        # Request for Comments (Current Design Proposals)
+│   └── 04_Archive/    # Legacy Designs
+├── Benchmarks/        # Performance Reports (v3.0 vs v3.1)
+├── Incidents/         # Post-mortems & Stability Tracking
 ├── tutorials/
-│   ├── ai/          # 🆕 AI-optimized tutorials
-│   └── en/          # Human tutorials
-├── Architecture/    # Technical Design
-│   ├── Decisions/   # (ADR) Accepted Decisions
-│   ├── Proposals/   # (DR) Open Proposals
-│   ├── THEUS_FEATURES.md  # Core Features Overview
-│   └── theus_v3_x_architecture.md
-├── AI_DEVELOPER_GUIDE.md
-├── POP_Manifesto.md
+│   ├── ai/            # 🆕 10 Modules specialized for AI Agentic Systems
+│   └── en/            # 23 Chapters for Human Developers
+├── POP_Manifesto.md   # Philosophy (English/Vietnamese)
+├── POP_specification.md # The absolute source of truth
 └── POP_Whitepaper_v2.0.md
 ```
 
 ---
+*Last Updated: 2026-01-31 | Sync Status: Theus v3.0.22 Core*

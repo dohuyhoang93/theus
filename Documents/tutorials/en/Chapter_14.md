@@ -45,16 +45,16 @@ class TestPolicy(unittest.TestCase):
     def test_price_blocking_policy(self):
         # Rule: Price >= 0 (Level B)
         with self.assertRaises(AuditBlockError):
-            self.engine.execute(add_product, product_name="BadTV", price=-5)
+            await self.engine.execute(add_product, product_name="BadTV", price=-5)
             
     def test_safety_interlock_policy(self):
         # Rule: Total Value < 1 billion (Level S)
         # Setup context near overflow (using edit() backdoor)
         with self.engine.edit() as safe_ctx:
-             safe_ctx.domain_ctx.total_value = 999_999_999
+             safe_ctx.domain.total_value = 999_999_999
         
         with self.assertRaises(AuditStopError):
-             self.engine.execute(add_product, product_name="OverflowTV", price=100)
+             await self.engine.execute(add_product, product_name="OverflowTV", price=100)
 ```
 
 ## 3. Test Flux DSL Workflow

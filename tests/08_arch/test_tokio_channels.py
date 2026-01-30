@@ -4,9 +4,10 @@ import threading
 import time
 from theus import SignalHub
 
+
 class TestTokioChannels:
     """
-    Verifies that SignalHub (Rust + Tokio) can correctly broadcast messages 
+    Verifies that SignalHub (Rust + Tokio) can correctly broadcast messages
     to Python consumers running in separate threads/loops.
     """
 
@@ -25,7 +26,7 @@ class TestTokioChannels:
         Verify that we can consume messages using asyncio.to_thread wrapping the blocking recv().
         """
         hub = SignalHub()
-        
+
         # Start a subscriber task
         async def subscriber_task(rx, name):
             msgs = []
@@ -45,7 +46,7 @@ class TestTokioChannels:
         task1 = asyncio.create_task(subscriber_task(rx1, "Sub1"))
         task2 = asyncio.create_task(subscriber_task(rx2, "Sub2"))
 
-        # Give them a moment to be 'ready' (although broadcast holds history if buffer allows, 
+        # Give them a moment to be 'ready' (although broadcast holds history if buffer allows,
         # but here they are already subscribed)
         await asyncio.sleep(0.1)
 
@@ -77,6 +78,6 @@ class TestTokioChannels:
             val = rx.recv()
             print(f"DEBUG: Receiver got {val} instead of Lagged Error")
         except RuntimeError:
-            return # Success
-            
+            return  # Success
+
         pytest.fail("Did not raise RuntimeError (Channel Lagged)")

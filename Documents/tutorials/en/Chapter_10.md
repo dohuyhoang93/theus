@@ -37,7 +37,7 @@ print(arr.mean())
 3.  **Mapping:** The Python object maps this file directly to RAM.
 
 ### 2.2 Parallel Consumer (Zero-Copy)
-When you pass this array to a worker (via `engine.execute`), Theus is smart.
+When you pass this array to a worker (via `await engine.execute`), Theus is smart.
 
 ```python
 # Main Process

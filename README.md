@@ -11,10 +11,10 @@
 ## 🧭 **Where do I start?**
 
 Theus is vast. Use our **[Interactive Documentation Map](https://github.com/dohuyhoang93/theus/blob/main/Documents/00_Start_Here_Map.md)** to find your path:
-*   🚀 **I want to build an Agent now:** [Go to Quickstart](https://github.com/dohuyhoang93/theus/blob/main/Documents/AI_DEVELOPER_GUIDE.md)
+*   🚀 **I want to build an Agent now:** [Go to Tutorials](https://github.com/dohuyhoang93/theus/blob/main/Documents/tutorials/en/Chapter_01.md)
 *   🤖 **I am an AI Assistant:** [Go to AI Tutorials](https://github.com/dohuyhoang93/theus/blob/main/Documents/tutorials/ai/00_QUICK_REFERENCE.md)
-*   🏗️ **I want to check architecture:** [Go to Specs](https://github.com/dohuyhoang93/theus/blob/main/Documents/Architecture/theus_v3_0_2_architecture.md)
-*   🎓 **I want to learn from scratch:** [Go to Tutorials](https://github.com/dohuyhoang93/theus/blob/main/Documents/tutorials/en/Chapter_01.md)
+*   🏗️ **I want to check architecture:** [Go to Specs](https://github.com/dohuyhoang93/theus/blob/main/Documents/Architecture/01_Specs/THEUS_API_REFERENCE.md)
+*   🎓 **I want to learn from scratch:** [Go to Documentation Map](https://github.com/dohuyhoang93/theus/blob/main/Documents/00_Start_Here_Map.md)
 
 ---
 
@@ -47,7 +47,7 @@ When bugs aren't just annoying—they're costly:
 
 ## 📦 Installation
 
-Theus v3.0 requires **Python 3.14+** to leverage Sub-interpreter support.
+Theus v3.0.22 requires **Python 3.14+** to leverage Sub-interpreter support.
 
 ```bash
 pip install theus
@@ -76,8 +76,8 @@ from theus.structures import StateUpdate
 
 # 1. Define a Process with Contract
 @process(
-    inputs=['domain_ctx.accounts'],
-    outputs=['domain_ctx.accounts'],
+    inputs=['domain.accounts'],
+    outputs=['domain.accounts'],
     errors=['ValueError']
 )
 def transfer(ctx, from_user: str, to_user: str, amount: int):
@@ -85,8 +85,8 @@ def transfer(ctx, from_user: str, to_user: str, amount: int):
         raise ValueError("Amount must be positive")
     
     # V3 Pattern: Copy -> Modify -> Return
-    # ctx.domain_ctx.accounts is Immutable (FrozenDict)
-    accounts = dict(ctx.domain_ctx.accounts)
+    # ctx.domain.accounts is Immutable (FrozenDict)
+    accounts = dict(ctx.domain.accounts)
     
     if accounts.get(from_user, 0) < amount:
         raise ValueError("Insufficient funds")
@@ -102,8 +102,9 @@ from src.context import DemoSystemContext
 engine = TheusEngine(DemoSystemContext(), strict_mode=True)
 engine.register(transfer)
 
-# 3. Execute with Transaction Safety
-result = engine.execute(transfer, from_user="Alice", to_user="Bob", amount=500)
+# 3. Execute with Transaction Safety (Async API)
+import asyncio
+result = asyncio.run(engine.execute(transfer, from_user="Alice", to_user="Bob", amount=500))
 ```
 
 > 💡 **Available Templates:** `standard`, `ecommerce`, `hybrid`, `agent`, `minimal`
@@ -134,7 +135,7 @@ steps:
       - process: "process_next_item"
 ```
 
-Execute with:
+Execute with (Sync Bridge):
 ```python
 engine.execute_workflow("workflows/main.yaml")
 ```
@@ -163,7 +164,7 @@ Theus prioritizes **Performance** (Zero-Copy) while providing **Safety Tools**:
 > ⚠️ **Warning:** In-place mutation (e.g., `list.append`) bypasses the safety lawyer. Always use the Copy-on-Write pattern.
 
 ### The Heavy Zone & Zero-Copy Parallelism (Strategy V3)
-> **Current Status (v3.0.2):** True Parallelism is now available via `ProcessPool`.
+> **Current Status (v3.0.22):** True Parallelism is now available via `ProcessPool`.
 
 For AI workload/Tensors > 1MB, `ctx.heavy` acts as a **Shared Memory Gateway**:
 *   **Zero-Copy:** leverages shared memory to pass large datasets between processes without serialization overhead.

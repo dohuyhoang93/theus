@@ -11,7 +11,7 @@ use crate::engine::Transaction;
 
 create_exception!(theus.structures, ContextError, pyo3::exceptions::PyException);
 
-#[pyclass(module = "theus_core")]
+#[pyclass(subclass)]
 pub struct FrozenDict {
     data: Py<PyDict>,
 }
@@ -99,7 +99,7 @@ impl MetaLogEntry {
 }
 
 /// Theus v3 Immutable State
-#[pyclass(module = "theus_core")]
+#[pyclass(subclass)]
 #[derive(Clone)]
 pub struct State {
     pub data: HashMap<String, Arc<PyObject>>,
@@ -112,6 +112,29 @@ pub struct State {
     pub key_last_modified: HashMap<String, u64>,
     // v3.3: Signal Latch for Flux (Snapshot of signals in this version)
     pub last_signals: HashMap<String, String>,
+}
+
+/// Helper: Deep Merge (Copy-on-Write) for State Updates
+/// preserved existing structure while merging new deltas.
+fn deep_merge_cow(py: Python, target: PyObject, source: &Bound<PyDict>) -> PyResult<PyObject> {
+    if let Ok(target_dict) = target.downcast_bound::<PyDict>(py) {
+        let new_dict = target_dict.copy()?; // Shallow copy
+        for (k, v) in source {
+            if let Some(existing_val) = new_dict.get_item(&k)? {
+                if existing_val.is_instance_of::<PyDict>() && v.is_instance_of::<PyDict>() {
+                    let source_sub = v.downcast::<PyDict>()?;
+                    let merged = deep_merge_cow(py, existing_val.unbind(), source_sub)?;
+                    new_dict.set_item(k, merged)?;
+                    continue;
+                }
+            }
+            new_dict.set_item(k, v)?;
+        }
+        Ok(new_dict.into())
+    } else {
+        // Target not a dict, overwrite with source (copy for safety)
+        Ok(source.copy()?.into())
+    }
 }
 
 #[pymethods]
@@ -150,7 +173,6 @@ impl State {
         
         // Legacy signal dict is ignored in v3.2 to enforce Channel usage.
         // Or we could publish keys as initial messages? No, keep it clean.
-
         Ok(State {
             data: state_data,
             heavy: state_heavy,
@@ -199,7 +221,19 @@ impl State {
                 
                 // Keep zone-level tracking for backwards compatibility
                 new_state.key_last_modified.insert(zone_key.clone(), new_state.version);
-                new_state.data.insert(zone_key, Arc::new(v.into_py(py)));
+                
+                // [FIX v3.1] Deep Merge CoW Policy
+                if let Ok(inner_dict) = v.downcast::<PyDict>() {
+                    if let Some(existing_arc) = self.data.get(&zone_key) {
+                        let existing_obj = existing_arc.clone_ref(py);
+                        let merged = deep_merge_cow(py, existing_obj, inner_dict)?;
+                        new_state.data.insert(zone_key, Arc::new(merged));
+                    } else {
+                        new_state.data.insert(zone_key, Arc::new(v.into_py(py)));
+                    }
+                } else {
+                    new_state.data.insert(zone_key, Arc::new(v.into_py(py)));
+                }
             }
         }
         
@@ -220,7 +254,19 @@ impl State {
                 
                 // Keep zone-level tracking for backwards compatibility
                 new_state.key_last_modified.insert(zone_key.clone(), new_state.version);
-                new_state.heavy.insert(zone_key, Arc::new(v.into_py(py)));
+                
+                // [FIX v3.1] Deep Merge CoW Policy for Heavy Zone
+                if let Ok(inner_dict) = v.downcast::<PyDict>() {
+                    if let Some(existing_arc) = self.heavy.get(&zone_key) {
+                        let existing_obj = existing_arc.clone_ref(py);
+                        let merged = deep_merge_cow(py, existing_obj, inner_dict)?;
+                        new_state.heavy.insert(zone_key, Arc::new(merged));
+                    } else {
+                        new_state.heavy.insert(zone_key, Arc::new(v.into_py(py)));
+                    }
+                } else {
+                    new_state.heavy.insert(zone_key, Arc::new(v.into_py(py)));
+                }
             }
         }
         
@@ -445,6 +491,11 @@ impl ProcessContext {
             outbox: Outbox::new(), 
             tx,
         }
+    }
+
+    #[getter]
+    fn transaction(&self, py: Python) -> Option<PyObject> {
+        self.tx.as_ref().map(|t| t.clone_ref(py).into_py(py))
     }
 
     // v3.2 Safe Alias: global_ctx -> state.getattr("global")

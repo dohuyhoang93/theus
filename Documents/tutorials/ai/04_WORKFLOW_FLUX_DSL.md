@@ -35,7 +35,7 @@ steps:
 ### Execute from Python
 
 ```python
-engine.execute_workflow("workflows/example_workflow.yaml")
+await engine.execute_workflow("workflows/example_workflow.yaml")
 ```
 
 ---
@@ -217,7 +217,7 @@ engine = TheusEngine(sys_ctx, strict_mode=True)
 engine.scan_and_register("src/processes")
 
 # Execute workflow
-engine.execute_workflow("workflows/main.yaml")
+await engine.execute_workflow("workflows/main.yaml")
 ```
 
 Internally, `execute_workflow`:
@@ -285,7 +285,7 @@ If a process raises an exception:
 
 ```python
 try:
-    engine.execute_workflow("workflow.yaml")
+    await engine.execute_workflow("workflow.yaml")
 except RuntimeError as e:
     if "Safety Trip" in str(e):
         print("Infinite loop detected")

@@ -1,7 +1,7 @@
 # Chapter 4: TheusEngine - Operating the Machine
 
 > [!CAUTION]
-> **OVERHEAD WARNING:** Every call to `engine.execute()` triggers a **Global Lock** and a **Rust Audit**. Do not call this inside tight loops (e.g. iterating 1M array items). Use Batch Processing instead.
+> **OVERHEAD WARNING:** Every call to `await engine.execute()` triggers a **Global Lock** and a **Rust Audit**. Do not call this inside tight loops (e.g. iterating 1M array items). Use Batch Processing instead.
 
 TheusEngine v3.0 is a high-performance Rust machine. Understanding its execution flow makes debugging easier.
 
@@ -13,7 +13,7 @@ from warehouse_ctx import WarehouseContext, WarehouseConfig, WarehouseDomain
 # Setup Context
 config = WarehouseConfig(max_capacity=500)
 domain = WarehouseDomain()
-sys_ctx = WarehouseContext(global_ctx=config, domain_ctx=domain)
+sys_ctx = WarehouseContext(global_ctx=config, domain=domain)
 
 # Initialize Engine (Strict Mode is default on v3.0, good for Dev)
 engine = TheusEngine(sys_ctx, strict_mode=True)
@@ -26,10 +26,10 @@ engine = TheusEngine(sys_ctx, strict_mode=True)
 | v2.2 | v3.0 | Notes |
 |:-----|:-----|:------|
 | `engine.register_process(name, func)` | `engine.register(func)` | Name auto-detected |
-| `engine.run_process(name, **kwargs)` | `engine.execute(func_or_name, **kwargs)` | Accepts func or string |
+| `engine.run_process(name, **kwargs)` | `await engine.execute(func_or_name, **kwargs)` | Accepts func or string |
 
 ## 2. The Execution Pipeline
-When you call `engine.execute(add_product, product_name="TV", price=500)`, what actually happens?
+When you call `await engine.execute(add_product, product_name="TV", price=500)`, what actually happens?
 
 1.  **Preparation (Contract Check):**
     - Python Engine verifies the Process Contract.
@@ -67,12 +67,12 @@ When you call `engine.execute(add_product, product_name="TV", price=500)`, what 
 from theus.contracts import process
 
 @process(
-    inputs=['domain_ctx.items'],
-    outputs=['domain_ctx.items', 'domain_ctx.total_value']
+    inputs=['domain.items'],
+    outputs=['domain.items', 'domain.total_value']
 )
 def add_product(ctx, product_name: str, price: int):
-    ctx.domain_ctx.items.append({"name": product_name, "price": price})
-    ctx.domain_ctx.total_value += price
+    ctx.domain.items.append({"name": product_name, "price": price})
+    ctx.domain.total_value += price
     return "Added"
 
 # Register process (v3.0 style)
@@ -80,11 +80,11 @@ engine.register(add_product)
 
 try:
     # Execute (v3.0 style) - by function reference
-    result = engine.execute(add_product, product_name="Iphone", price=1000)
-    print("Success!", sys_ctx.domain_ctx.items)
+    result = await engine.execute(add_product, product_name="Iphone", price=1000)
+    print("Success!", sys_ctx.domain.items)
     
     # OR by name string
-    result = engine.execute("add_product", product_name="Galaxy", price=900)
+    result = await engine.execute("add_product", product_name="Galaxy", price=900)
     
 except Exception as e:
     print(f"Failed: {e}")
@@ -110,4 +110,4 @@ See Chapter 11 for Flux DSL workflow syntax.
 
 ---
 **Exercise:**
-Write a `main.py`. Run the process using the new `engine.register()` and `engine.execute()` methods. Try printing `sys_ctx.domain_ctx.sig_restock_needed` after execution to see if the Signal was updated.
+Write a `main.py`. Run the process using the new `engine.register()` and `await engine.execute()` methods. Try printing `sys_ctx.domain.sig_restock_needed` after execution to see if the Signal was updated.

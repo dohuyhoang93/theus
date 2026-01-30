@@ -51,10 +51,10 @@ class OrderRequest(BaseModel):
     quantity: int
 
 @app.post("/orders")
-def create_order(req: OrderRequest, engine: TheusEngine = Depends(get_engine)):
+async def create_order(req: OrderRequest, engine: TheusEngine = Depends(get_engine)):
     try:
         # 1. Delegate Logic to Theus (v3.0 API)
-        result = engine.execute("create_order", item_id=req.item_id, qty=req.quantity)
+        result = await engine.execute("create_order", item_id=req.item_id, qty=req.quantity)
         
         return {"status": "success", "order_id": result}
         
@@ -73,29 +73,34 @@ def create_order(req: OrderRequest, engine: TheusEngine = Depends(get_engine)):
 
 ## 3. Background Worker Pattern (GUI/Long Tasks)
 
-For long-running workflows, use a background worker:
+For long-running workflows, use `asyncio` to manage the lifecycle:
 
 ```python
-import threading
-from queue import Queue
+import asyncio
 
 class TheusWorker:
     def __init__(self, engine):
         self.engine = engine
-        self.task_queue = Queue()
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
-    
-    def _run(self):
+        self.queue = asyncio.Queue()
+
+    async def _run(self):
         while True:
-            workflow = self.task_queue.get()
+            workflow = await self.queue.get()
             try:
-                self.engine.execute_workflow(workflow)
+                await self.engine.execute_workflow(workflow)
             except Exception as e:
-                print(f"Error: {e}")
-    
-    def submit(self, workflow):
-        self.task_queue.put(workflow)
+                print(f"Workflow Error: {e}")
+            finally:
+                self.queue.task_done()
+
+    async def submit(self, workflow):
+        await self.queue.put(workflow)
+
+# Usage
+worker = TheusWorker(engine)
+asyncio.create_task(worker._run())
+await worker.submit("workflows/long_task.yaml") 
+```
 
 # Usage
 worker = TheusWorker(engine)
@@ -107,11 +112,11 @@ Web APIs are Stateless. Theus Context is Stateful.
 **Strategy: Context Hydration.**
 
 In `create_order` process:
-1.  **Read:** Load user data from DB into `ctx.domain_ctx` (if not cached).
+1.  **Read:** Load user data from DB into `ctx.domain` (if not cached).
 2.  **Process:** Logic.
-3.  **Write:** Save `ctx.domain_ctx` back to DB.
+3.  **Write:** Save `ctx.domain` back to DB.
 
-Ideally, wrap the `engine.execute` call in a DB Transaction scope to ensure Theus Commit aligns with DB Commit.
+Ideally, wrap the `await engine.execute` call in a DB Transaction scope to ensure Theus Commit aligns with DB Commit.
 
 ---
 **Exercise:**

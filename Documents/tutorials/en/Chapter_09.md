@@ -48,7 +48,7 @@ Theus allows you to choose how strictly to track errors over time using the `res
 from theus_core import AuditBlockError, AuditAbortError, AuditStopError
 
 try:
-    engine.execute(add_product, price=-5)
+    await engine.execute(add_product, price=-5)
 except AuditBlockError:
     print("Blocked softly, retrying later...")
 except AuditAbortError:

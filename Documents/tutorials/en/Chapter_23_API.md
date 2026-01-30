@@ -31,7 +31,7 @@ engine.register(my_process)
 Executes process synchronously or awaits async process.
 *   See Chapter 4 for execution pipeline details.
 ```python
-result = engine.execute("process_name", arg1=val1)
+result = await engine.execute("process_name", arg1=val1)
 ```
 
 #### `execute_parallel(process_name, **kwargs)` -> `Any`

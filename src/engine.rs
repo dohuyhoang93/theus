@@ -4,6 +4,7 @@ use crate::structures::{State, ContextError, OutboxMsg};
 use crate::conflict::{ConflictManager, RetryDecision};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use crate::structures_helper::set_nested_value;
 
 pyo3::create_exception!(theus_core, WriteTimeoutError, pyo3::exceptions::PyTimeoutError);
 
@@ -35,7 +36,7 @@ pub struct TheusEngine {
 impl TheusEngine {
     #[new]
     fn new(py: Python) -> PyResult<Self> {
-        let state = Py::new(py, State::new(None, None, None, 1, 1000, py)?)?;
+        let state = Py::new(py, State::new(None, None, None, 0, 1000, py)?)?;
         Ok(TheusEngine { 
             state,
             outbox: Arc::new(Mutex::new(Vec::new())),
@@ -87,7 +88,12 @@ impl TheusEngine {
             pending_outbox: Arc::new(Mutex::new(Vec::new())),
             start_time: None,
             write_timeout_ms,
+            delta_log: Arc::new(Mutex::new(Vec::new())),
+            shadow_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            path_to_shadow: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            full_path_map: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
+
     }
 
     fn commit_state(&mut self, state: Py<State>) {
@@ -142,11 +148,21 @@ impl TheusEngine {
              return Err(ContextError::new_err("System Busy (VIP Access Only)"));
         }
 
+        // [FIX] Enforce Strict CAS if enabled
+        let strict_mode = *self.strict_mode.lock().unwrap();
+        
         let current_state_bound = self.state.bind(py);
         let current_state = current_state_bound.borrow();
         let current_version = current_state.version;
         
         if current_version != expected_version {
+            if strict_mode {
+                 return Err(ContextError::new_err(format!(
+                    "Strict CAS Mismatch: Expected {}, Found {} (Strict Mode Enabled)", 
+                    expected_version, current_version
+                )));
+            }
+
             // v3.3 Smart CAS: Check Key-Level Conflicts
             // If the specific keys we are updating haven't changed since expected_version,
             // we can safely merge even if global version bumped.
@@ -242,17 +258,34 @@ impl TheusEngine {
             (data, heavy, signal), 
             None
         )?;
+
+        // [v3.1.2] Schema Enforcement for CAS (Critical Gatekeeper)
+        // Ensure new state is valid before replacing self.state
+        {
+             let schema_mutex = self.schema.lock().unwrap(); // Use separate var to avoid borrow conflict
+             if let Some(ref schema) = *schema_mutex {
+                 // Validate Resulting State
+                 let frozen_data = new_state_obj.getattr("data")?;
+                 let dict_data = frozen_data.call_method0("to_dict")?;
+                 
+                 if let Err(e) = schema.call_method1(py, "model_validate", (dict_data,)) {
+                     // Reject Commit!
+                     return Err(crate::config::SchemaViolationError::new_err(format!("Schema Violation (CAS): {}", e)));
+                 }
+             }
+        }
         
         self.state = new_state_obj.extract::<Py<State>>()?;
         Ok(())
     }
 
-    #[pyo3(signature = (name, func))]
+    #[pyo3(signature = (name, func, tx=None))]
     fn execute_process_async<'py>(
         &self, 
         py: Python<'py>, 
         name: String, 
-        func: PyObject
+        func: PyObject,
+        tx: Option<PyObject>
     ) -> PyResult<Bound<'py, PyAny>> {
         let _ = name; 
         
@@ -276,7 +309,7 @@ impl TheusEngine {
             outbox: crate::structures::Outbox {
                 messages: Arc::new(Mutex::new(Vec::new()))
             },
-            tx: None, // v3.1: Explicit transaction handled by engine.py for now
+            tx: tx.map(|t| t.extract(py)).transpose()?, 
         })?;
 
         let args = (ctx,);
@@ -307,7 +340,13 @@ pub struct Transaction {
     pending_outbox: Arc<Mutex<Vec<OutboxMsg>>>,
     start_time: Option<Instant>,
     write_timeout_ms: u64,
+    // [v3.1 Zero Trust] Unified Delta Log
+    pub delta_log: Arc<Mutex<Vec<crate::delta::DeltaEntry>>>, 
+    pub shadow_cache: Arc<Mutex<std::collections::HashMap<usize, (PyObject, PyObject)>>>, // id -> (original, shadow)
+    pub path_to_shadow: Arc<Mutex<std::collections::HashMap<String, PyObject>>>, // root -> shadow (for legacy commit)
+    pub full_path_map: Arc<Mutex<std::collections::HashMap<String, PyObject>>>, // full_path -> shadow (for diff merging)
 }
+
 
 #[pymethods]
 impl Transaction {
@@ -330,7 +369,12 @@ impl Transaction {
             pending_outbox: Arc::new(Mutex::new(Vec::new())),
             start_time: None,
             write_timeout_ms,
+            delta_log: Arc::new(Mutex::new(Vec::new())),
+            shadow_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            path_to_shadow: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            full_path_map: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
+
     }
     
     // ... getters ...
@@ -366,11 +410,21 @@ impl Transaction {
     fn update(&self, py: Python, data: Option<PyObject>, heavy: Option<PyObject>, signal: Option<PyObject>) -> PyResult<()> {
         if let Some(d) = data {
              let d_bound = d.bind(py);
-             self.pending_data.bind(py).call_method1("update", (d_bound,))?;
+             if let Ok(d_dict) = d_bound.downcast::<PyDict>() {
+                 // [FIX v3.1.2] Use Deep In-Place Update to prevent "Silent Overwrite" within transaction
+                 crate::structures_helper::deep_update_inplace(py, self.pending_data.bind(py), d_dict)?;
+             } else {
+                 return Err(ContextError::new_err("update data must be a dict"));
+             }
         }
         if let Some(h) = heavy {
              let h_bound = h.bind(py);
-             self.pending_heavy.bind(py).call_method1("update", (h_bound,))?;
+             if let Ok(h_dict) = h_bound.downcast::<PyDict>() {
+                 // [FIX v3.1.2] Deep In-Place Update for Heavy Zone too
+                 crate::structures_helper::deep_update_inplace(py, self.pending_heavy.bind(py), h_dict)?;
+             } else {
+                 return Err(ContextError::new_err("heavy update data must be a dict"));
+             }
         }
         if let Some(s) = signal {
              // For signals, we append the delta dict to the list to preserve sequence
@@ -379,6 +433,73 @@ impl Transaction {
         }
         Ok(())
     }
+    
+    /// Get shadow updates keyed by root path (e.g., 'domain' -> shadow_dict)
+    /// This extracts all modified root-level objects for committing to State.
+    fn get_shadow_updates(&self, py: Python) -> PyResult<PyObject> {
+        let result = PyDict::new_bound(py);
+        let path_map = self.path_to_shadow.lock().unwrap();
+        let delta_log = self.delta_log.lock().unwrap();
+        
+        // Collect unique root paths from delta_log (entries that were actually mutated)
+        let mut modified_roots: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for entry in delta_log.iter() {
+            let root = entry.path.split(['.', '[']).next().unwrap_or(&entry.path).to_string();
+            modified_roots.insert(root);
+        }
+        
+        // For each modified root, get its shadow from path_to_shadow
+        for root in &modified_roots {
+            if let Some(shadow) = path_map.get(root) {
+                result.set_item(root.clone(), shadow.clone_ref(py))?;
+            }
+        }
+        
+        // Also merge explicit tx.update calls (pending_data)
+        let pending = self.pending_data.bind(py);
+        for kv in pending.iter() {
+            let (k, v) = kv;
+            result.set_item(k, v)?;
+        }
+        
+        Ok(result.unbind().into_py(py))
+    }
+
+    /// [v3.1 Delta Replay] Build pending_data from delta_log by replaying mutations
+    fn build_pending_from_deltas(&self, py: Python) -> PyResult<PyObject> {
+        // [v3.1.2] Differential Shadow Merging: Infer Deltas from unlogged mutations
+        self.infer_shadow_deltas(py)?;
+
+        let result = PyDict::new_bound(py);
+        let delta_log = self.delta_log.lock().unwrap();
+        let result_py = result.clone().unbind().into_py(py);
+        let result_dict: Py<pyo3::types::PyDict> = result_py.extract(py)?;
+        
+        for entry in delta_log.iter() {
+            if let Some(ref val) = entry.value {
+                let _ = crate::structures_helper::set_nested_value(py, &result_dict, &entry.path, &val.clone_ref(py).into_py(py));
+            }
+        }
+        
+        // Also merge explicit tx.update calls (pending_data)
+        let pending = self.pending_data.bind(py);
+        for kv in pending.iter() {
+            let (k, v) = kv;
+            result.set_item(k, v)?;
+        }
+        
+        Ok(result.unbind().into_py(py))
+    }
+
+    /// [v3.1.1] Expose raw delta log for strict contract validation
+    fn get_delta_log(&self, _py: Python) -> PyResult<Vec<String>> {
+        let delta_log = self.delta_log.lock().unwrap();
+        // Return only paths, values not needed for validation usually
+        let paths: Vec<String> = delta_log.iter().map(|e| e.path.clone()).collect();
+        Ok(paths)
+    }
+
+
 
     fn __enter__(mut slf: PyRefMut<Self>, _py: Python) -> PyResult<Py<Self>> {
         slf.start_time = Some(Instant::now());
@@ -411,6 +532,12 @@ impl Transaction {
         let engine = self.engine.bind(py);
         let current_state_obj = engine.getattr("state")?;
         
+        // [v3.1.2] Differential Shadow Merging:
+        // 1. Infer mutations from shadows
+        self.infer_shadow_deltas(py)?;
+        // 2. Apply delta_log to pending_data
+        self.commit(py)?;
+
         // Optimistic Update: Create new state version
         let new_state_obj = current_state_obj.call_method(
             "update", 
@@ -453,15 +580,193 @@ impl Transaction {
         Ok(())
     }
 
-    /// Internal: Get shadow copy for CoW/Tracking
-    pub fn get_shadow(&self, py: Python, val: PyObject, _path: Option<String>) -> PyResult<PyObject> {
-        // Simple implementation: Deep copy
-        let copy_module = py.import("copy")?;
-        let shadow = copy_module.call_method1("deepcopy", (val,))?;
-        Ok(shadow.unbind())
+    /// [v3.1.2] Infer Deltas from Shadow Mutations (Differential Merging)
+    fn infer_shadow_deltas(&self, py: Python) -> PyResult<()> {
+        // println!("DEBUG: infer_shadow_deltas EXECUTED"); 
+        let path_map = self.full_path_map.lock().unwrap();
+        let cache = self.shadow_cache.lock().unwrap();
+        let mut new_deltas = Vec::new();
+
+        for (path, shadow) in path_map.iter() {
+            let shadow_id = shadow.bind(py).as_ptr() as usize;
+            
+            if let Some((original, _)) = cache.get(&shadow_id) {
+                 if original.bind(py).as_ptr() == shadow.bind(py).as_ptr() {
+                     continue;
+                 }
+                 
+                 let are_equal = match original.bind(py).rich_compare(shadow.bind(py), pyo3::basic::CompareOp::Eq) {
+                     Ok(res) => {
+                         match res.is_truthy() {
+                             Ok(b) => b,
+                             Err(_) => {
+                                 // Fallback for NumPy arrays: (a == b).all()
+                                 res.call_method0("all").is_ok_and(|x| x.is_truthy().unwrap_or(false))
+                             }
+                         }
+                     },
+                     Err(_) => false // specific error handling skipped for brevity
+                 };
+                 
+                 if !are_equal {
+                     new_deltas.push(crate::delta::DeltaEntry {
+                         path: path.clone(),
+                         op: "SET".to_string(),
+                         value: Some(shadow.clone_ref(py)),
+                         old_value: Some(original.clone_ref(py)),
+                         target: None,
+                         key: None,
+                     });
+                 }
+            }
+        }
+        
+        let mut log = self.delta_log.lock().unwrap();
+        log.extend(new_deltas);
+        Ok(())
     }
 
-    /// Internal: Log operation for Audit
+    /// Internal: Get shadow copy for CoW/Tracking
+    pub fn get_shadow(&self, py: Python, val: PyObject, path: Option<String>) -> PyResult<PyObject> {
+        let id = val.bind(py).as_ptr() as usize;
+        let mut cache = self.shadow_cache.lock().unwrap();
+        
+        if let Some((_, shadow)) = cache.get(&id) {
+             // println!("[Theus] get_shadow CACHE HIT: {:?} -> {:?}", id, shadow.bind(py).as_ptr());
+             return Ok(shadow.clone_ref(py));
+        }
+
+        // Heavy Zone Check (Skip copy if configured)
+        if let Some(ref p) = path {
+            let leaf = p.split('.').next_back().unwrap_or(p);
+            if crate::zones::resolve_zone(leaf) == crate::zones::ContextZone::Heavy {
+                  println!("[Theus] get_shadow HEAVY SKIP: {}", p);
+                  cache.insert(id, (val.clone_ref(py), val.clone_ref(py)));
+                  return Ok(val);
+            }
+        }
+
+        // Deep Copy
+        let copy_mod = py.import("copy")?;
+        let shadow = match copy_mod.call_method1("deepcopy", (&val,)) { 
+            Ok(s) => s.unbind(),
+            Err(e) => {
+                 eprintln!("[Theus] WARNING: Cannot copy object at {:?}: {}", path, e);
+                 cache.insert(id, (val.clone_ref(py), val.clone_ref(py)));
+                 return Ok(val);
+            }
+        };
+        
+        
+
+
+        // Disable Legacy Lock Manager on Shadow
+        let _ = shadow.bind(py).setattr("_lock_manager", py.None());
+        
+        let shadow_id = shadow.bind(py).as_ptr() as usize;
+        
+        // Track
+        cache.insert(id, (val.clone_ref(py), shadow.clone_ref(py)));
+        cache.insert(shadow_id, (val, shadow.clone_ref(py))); // Map shadow to itself to prevent re-shadowing
+        
+        // v3.1: Also store ROOT path -> shadow for commit retrieval
+        if let Some(ref p) = path {
+            let root = p.split(['.', '[']).next().unwrap_or(p).to_string();
+            {
+                let mut path_map = self.path_to_shadow.lock().unwrap();
+                // Only insert if root not already present (preserve deeper shadows if multiple accesses)
+                path_map.entry(root).or_insert_with(|| shadow.clone_ref(py));
+            }
+            // v3.1.2: Store FULL path for Differential Shadow Merging
+            let mut full_map = self.full_path_map.lock().unwrap();
+            full_map.insert(p.clone(), shadow.clone_ref(py));
+        }
+
+        
+        Ok(shadow)
+    }
+
+    /// [v3.1 Zero Trust] Commit Delta Log to Pending State
+    /// This applies the implicit mutations (captured in shadow objects) to the pending_data/heavy buffers.
+    pub fn commit(&self, py: Python) -> PyResult<()> {
+        let cache = self.shadow_cache.lock().unwrap();
+        
+        for (_, (original, shadow)) in cache.iter() {
+            // If original IS shadow (re-shadow case), skip
+            if original.bind(py).as_ptr() == shadow.bind(py).as_ptr() {
+                 continue;
+            }
+            
+            let orig_bind = original.bind(py);
+            let _type_name = orig_bind.get_type().name()?.to_string();
+            
+            // Merge Shadow back to Original?
+            // NO! We merge Shadow into PENDING buffers (which are copies of state).
+            // Wait. `original` comes from `ctx.domain...`.
+            // `ctx.domain` accesses `state` via `engine.state`.
+            // `engine.state` is immutable.
+            // So `original` IS likely inside `pending_data`? 
+            // NO. `ctx` is created from `engine.state` (current version).
+            // `pending_data` is EMPTY until we write to it.
+            // If we mutate `ctx.domain.data['x']`, we are mutating the SHADOW of 'x'.
+            // Unifying this with `pending_data` requires us to know WHERE `x` belongs in the state tree.
+            // BUT `DeltaEntry` has `path`.
+            // `shadow_cache` does NOT have path (it maps ID -> Shadow).
+            
+            // Re-evaluating Strategy:
+            // `DeltaEntry` has `path`, `value`, `old_value`.
+            // When `log_delta` is called (by Proxy), we record the CHANGE.
+            // `DeltaEntry.value` IS the new value.
+            // So iterating `delta_log` is enough to reconstruct `pending_data`?
+            // YES!
+            // `shadow_cache` ensures we are mutating a safe copy, but `delta_log` records exactly WHAT to apply.
+            // `tx.update(py, data=...)` calls `pending_data.update(...)`.
+            
+            // So `commit` should iterate `delta_log` and apply changes to `pending_data`.
+        }
+        
+        // Revised Commit Logic: Apply Delta Log
+        let log = self.delta_log.lock().unwrap();
+        for entry in log.iter() {
+            // Entry has `path` (e.g. "domain.data.idiomatic").
+            // We need to set this value in `self.pending_data`.
+            // But `pending_data` is a flat dict? No, it's a structural dict mirroring state output.
+            // Actually, `pending_data` accumulates updates.
+            // We need to expand "domain.data.idiomatic" into nesting.
+            // AND we need to handle "heavy" zone paths.
+            
+            if entry.op != "SET" { continue; }
+            if let Some(ref new_val) = entry.value {
+                 // Check Zone
+                 let is_heavy = crate::zones::resolve_zone(&entry.path) == crate::zones::ContextZone::Heavy;
+                 let target_dict = if is_heavy { &self.pending_heavy } else { &self.pending_data };
+                 
+                 // Apply to target_dict at path
+                 // We need a helper to set nested path in PyDict.
+                 set_nested_value(py, target_dict, &entry.path, new_val)?;
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// [v3.1 Zero Trust] Log operation for Audit
+    #[pyo3(name = "log_delta", signature = (path, old_val=None, new_val=None))]
+    pub fn log_delta(&self, py: Python, path: String, old_val: Option<PyObject>, new_val: Option<PyObject>) -> PyResult<()> {
+        let entry = crate::delta::DeltaEntry {
+            path: path.clone(),
+            op: "SET".to_string(),
+            value: new_val.as_ref().map(|v| v.clone_ref(py)),
+            old_value: old_val.as_ref().map(|v| v.clone_ref(py)),
+            target: None,
+            key: None,
+        };
+        
+        self.delta_log.lock().unwrap().push(entry);
+        Ok(())
+    }
+
+    /// Internal: Log operation for Audit (Full)
     #[allow(clippy::too_many_arguments)]
     pub fn log_internal(
         &self, 

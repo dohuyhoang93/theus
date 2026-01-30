@@ -5,6 +5,16 @@ use std::collections::HashSet;
 
 static LOGGED_HEAVY_PATHS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
+pub fn log_heavy_access(path: &str) {
+    let set_mutex = LOGGED_HEAVY_PATHS.get_or_init(|| Mutex::new(HashSet::new()));
+    if let Ok(mut set) = set_mutex.lock() {
+        if !set.contains(path) {
+             eprintln!("[Theus] HEAVY zone: skipping shadow copy for '{}' (Logged once)", path);
+             set.insert(path.to_string());
+        }
+    }
+}
+
 
 #[derive(Debug)]
 #[pyclass(module = "theus_core")]
@@ -21,6 +31,21 @@ pub struct DeltaEntry {
     pub target: Option<Py<PyAny>>,
     #[pyo3(get)]
     pub key: Option<String>,
+}
+
+impl Clone for DeltaEntry {
+    fn clone(&self) -> Self {
+        Python::with_gil(|py| {
+            DeltaEntry {
+                path: self.path.clone(),
+                op: self.op.clone(),
+                value: self.value.as_ref().map(|v| v.clone_ref(py)),
+                old_value: self.old_value.as_ref().map(|v| v.clone_ref(py)),
+                target: self.target.as_ref().map(|v| v.clone_ref(py)),
+                key: self.key.clone(),
+            }
+        })
+    }
 }
 
 #[pyclass(module = "theus_core")]

@@ -56,41 +56,56 @@ impl MemoryRegistry {
         let reader = BufReader::new(file);
 
         let mut active_records = Vec::new();
-        let mut zombies_cleaned = 0;
+        let mut _zombies_cleaned = 0;
+        let mut records_dropped = 0;
+        let mut lines_read = 0;
 
         for l in reader.lines().map_while(Result::ok) {
+            lines_read += 1;
             if let Ok(record) = serde_json::from_str::<AllocRecord>(&l) {
                 // Check Liveness
                 let current_pid = std::process::id();
                 let is_alive = if record.pid == current_pid {
                     true
                 } else {
-                    // sysinfo 0.30 usage
-                    sys.process(Pid::from_u32(record.pid)).is_some()
+                    let alive = sys.process(Pid::from_u32(record.pid)).is_some();
+                    if alive && record.pid == 99999999 {
+                         println!("[TheusCore] WARNING: PID 99999999 is ALIVE according to sysinfo!");
+                    }
+                    alive
                 };
 
                 if !is_alive {
                     // ZOMBIE! Unlink via open-then-drop with owner=true
+                    // Even if Open fails (already gone), we drop the record.
                     if let Ok(mut shm) = ShmemConf::new().os_id(&record.name).open() {
                         shm.set_owner(true);
-                        zombies_cleaned += 1;
+                        _zombies_cleaned += 1;
                     }
+                    records_dropped += 1;
                 } else {
                     active_records.push(record);
                 }
             }
         }
 
-        // Rewrite Registry
-        if zombies_cleaned > 0 {
-            if let Ok(mut f) = std::fs::File::create(REGISTRY_FILE) {
-                for rec in active_records {
-                    if let Ok(s) = serde_json::to_string(&rec) {
-                        let _ = writeln!(f, "{}", s);
+        if records_dropped > 0 || active_records.len() < lines_read {
+            eprintln!("[TheusCore] Registry GC: {} lines read, {} kept ({} dropped). Rewriting...", lines_read, active_records.len(), records_dropped);
+            match std::fs::File::create(REGISTRY_FILE) {
+                Ok(mut f) => {
+                    for rec in active_records {
+                        if let Ok(s) = serde_json::to_string(&rec) {
+                            let _ = writeln!(f, "{}", s);
+                        }
                     }
+                    eprintln!("[TheusCore] Cleanup SUCCESS. File rewritten.");
+                }
+                Err(e) => {
+                    eprintln!("[TheusCore] Cleanup ERROR: Failed to create reg file: {}", e);
                 }
             }
-            println!("[TheusCore] Cleaned {} zombie segments.", zombies_cleaned);
+        } else {
+             eprintln!("[TheusCore] Registry GC: No cleanup needed. All records alive?");
         }
     }
 

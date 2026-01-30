@@ -1,16 +1,16 @@
-
 import sqlite3
 import os
 
 DB_PATH = "demo.db"
 
+
 def init_db():
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
-        
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     # Outbox Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS outbox_events (
@@ -25,8 +25,10 @@ def init_db():
     conn.close()
     print(f"Database {DB_PATH} initialized.")
 
+
 def get_connection():
     return sqlite3.connect(DB_PATH)
+
 
 def insert_outbox_event(conn, event_type, payload):
     """
@@ -35,7 +37,7 @@ def insert_outbox_event(conn, event_type, payload):
     """
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO outbox_events (event_type, payload) VALUES (?, ?)", 
-        (event_type, payload)
+        "INSERT INTO outbox_events (event_type, payload) VALUES (?, ?)",
+        (event_type, payload),
     )
     # Note: We do NOT commit here. The caller (Process) should commit to ensure atomicity.

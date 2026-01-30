@@ -153,7 +153,7 @@ pub enum FSMState {
 // WorkflowEngine (PyO3 Class)
 // ============================================================================
 
-#[pyclass(module = "theus_core", subclass)]
+#[pyclass(subclass)]
 pub struct WorkflowEngine {
     steps: Vec<FluxStep>,
     max_ops: u32,

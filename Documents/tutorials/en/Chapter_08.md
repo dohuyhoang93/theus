@@ -13,7 +13,7 @@ A Rule is now much more complex:
 
 ## 2. Example `audit_recipe.yaml`
 
-> **⚠️ Note (v3.0):** Paths now use `domain_ctx.*` format.
+> **⚠️ Note (v3.0):** Paths now use `domain.*` format.
 
 ```yaml
 process_recipes:
@@ -24,12 +24,12 @@ process_recipes:
         level: "B"  # Block if price negative
         
     outputs:
-      - field: "domain_ctx.total_value"
+      - field: "domain.total_value"
         max: 1000000000  # Max 1 billion
         level: "S"       # Safety Stop if exceeded
         message: "Danger! Warehouse value overflow."
         
-      - field: "domain_ctx.items"
+      - field: "domain.items"
         max_len: 1000
         level: "A"       # Abort process if > 1000 items
         min_threshold: 1 # Warn immediately
@@ -75,10 +75,10 @@ class AuditLevel:
 
 ## 5. Input Gate & Output Gate
 - **Input Gate:** Checks arguments (`price`, `name`) *before* Process runs. Saves resources (Fail Fast).
-- **Output Gate:** Checks Context (`domain_ctx.total_value`) *after* Process runs (on Shadow) but *before* Commit.
+- **Output Gate:** Checks Context (`domain.total_value`) *after* Process runs (on Shadow) but *before* Commit.
 
 ---
 **Exercise:**
-Create `audit.yaml`. Configure rule: `price` must be >= 10. `domain_ctx.items` max_len = 5.
+Create `audit.yaml`. Configure rule: `price` must be >= 10. `domain.items` max_len = 5.
 Run process adding product with price 5 -> See Block at Input Gate.
 Run process adding 6th item -> See Abort at Output Gate.

@@ -80,7 +80,7 @@ async def main():
 ## 3. Common Error Recovery
 
 - **Error:** `AttributeError: input`
-  - **Fix:** Change `ctx.input` to `ctx.domain`. (Fixed in v3.0.2+, but good fallback).
+  - **Fix:** Change `ctx.input` to `ctx.domain`.
   
 - **Error:** `BrokenProcessPool`
   - **Fix:** Check if you are passing `Lock`, `FileHandle`, or `DatabaseConnection` in the context. Remove them.

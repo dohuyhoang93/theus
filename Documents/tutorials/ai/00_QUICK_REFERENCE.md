@@ -1,4 +1,4 @@
-# Theus Framework v3.0 - AI Quick Reference
+# Theus Framework v3.0.22 - AI Quick Reference
 
 > **Target:** AI Coding Assistants (Claude, GPT-4, Gemini, Copilot)  
 > **Purpose:** Copy-paste patterns for Theus-based projects
@@ -38,7 +38,7 @@ class MyGlobalContext(BaseGlobalContext):
 
 @dataclass
 class MySystemContext(BaseSystemContext):
-    domain_ctx: MyDomainContext = field(default_factory=MyDomainContext)
+    domain: MyDomainContext = field(default_factory=MyDomainContext)
     global_ctx: MyGlobalContext = field(default_factory=MyGlobalContext)
 ```
 
@@ -50,8 +50,8 @@ class MySystemContext(BaseSystemContext):
 from theus.contracts import process, SemanticType
 
 @process(
-    inputs=['domain_ctx.items', 'global_ctx.max_limit'],
-    outputs=['domain_ctx.items', 'domain_ctx.counter', 'domain_ctx.sig_alert'],
+    inputs=['domain.items', 'global.max_limit'],
+    outputs=['domain.items', 'domain.counter', 'domain.sig_alert'],
     errors=['ValueError'],
     semantic=SemanticType.EFFECT
 )
@@ -62,7 +62,7 @@ def my_process(ctx, item_name: str, value: int):
         raise ValueError("Value must be positive")
     
     # 2. Read inputs (immutable snapshot)
-    max_limit = ctx.global_.max_limit
+    max_limit = ctx.global.max_limit
     current_items = ctx.domain.items
     current_counter = ctx.domain.counter
     
@@ -89,8 +89,8 @@ def my_process(ctx, item_name: str, value: int):
         
     return StateUpdate(
         data={
-            'domain_ctx.items': new_items,
-            'domain_ctx.counter': new_counter
+            'domain.items': new_items,
+            'domain.counter': new_counter
         },
         signal=signals
     )
@@ -149,7 +149,7 @@ steps:
       - "finalize"
 ```
 
-### Execute Workflow
+### Execute Workflow (Sync)
 
 ```python
 engine.execute_workflow("workflows/main_workflow.yaml")
@@ -176,7 +176,7 @@ engine.execute_workflow("workflows/main_workflow.yaml")
 | Global | `global.field` | `global.max_limit` |
 | Nested | `domain.nested.field` | `domain.user.name` |
 
-> **CRITICAL:** Use `ctx.domain` in Python code. In contracts, you can use `domain` or `domain_ctx` (legacy).
+> **CRITICAL:** Use `ctx.domain` in Python code. In contracts, you can use `domain`.
 
 ---
 
@@ -195,9 +195,9 @@ engine.execute_workflow("workflows/main_workflow.yaml")
 
 | Command | Description |
 |:---|:---|
-| `python -m theus.cli init my_proj` | Create new project |
-| `python -m theus.cli check .` | Run Linter (Critical for AI) |
-| `python -m theus.cli audit gen-spec` | Generate Audit Recipe |
+| `py -m theus.cli init my_proj` | Create new project |
+| `py -m theus.cli check .` | Run Linter (Critical for AI) |
+| `py -m theus.cli audit gen-spec` | Generate Audit Recipe |
 
 ---
 
@@ -234,4 +234,4 @@ with engine.edit() as safe_ctx:
 
 ---
 
-*Generated for Theus Framework v3.0.0 - AI Developer Documentation*
+*Generated for Theus Framework v3.0.22 - AI Developer Documentation*

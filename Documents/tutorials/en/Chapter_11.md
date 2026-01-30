@@ -150,8 +150,12 @@ workflow = WorkflowEngine(
 print(workflow.state)  # FSMState.Pending
 
 # Execute
-ctx_dict = {"domain": sys_ctx.domain_ctx.__dict__, "global": sys_ctx.global_ctx.__dict__}
-executed = workflow.execute(ctx_dict, lambda name: engine.execute(name))
+ctx_dict = {"domain": sys_ctx.domain.__dict__, "global": sys_ctx.global_ctx.__dict__}
+
+async def executor(name):
+    return await engine.execute(name)
+
+executed = await workflow.execute(ctx_dict, executor)
 ```
 
 ## 6. Auto-Discovery (`scan_and_register`)

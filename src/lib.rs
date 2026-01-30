@@ -4,11 +4,12 @@ use pyo3::prelude::*;
 mod engine;
 mod structures;
 mod config;
+pub mod structures_helper;
+pub mod delta; // [Fix] Register delta module
 pub mod audit;
 mod fsm;
 
 mod guards;
-mod tracked;
 mod zones;
 mod signals;
 mod shm;

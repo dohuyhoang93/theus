@@ -1,15 +1,40 @@
 import logging
-from typing import Any, Set, Optional
+from typing import Any, Set, Optional, TYPE_CHECKING
 from .contracts import ContractViolationError
 
-# Import Core Rust Guard
+# [v3.1] Force Mandatory Rust Core
 try:
-    from theus_core import ContextGuard as RustContextGuard
+    from theus_core import ContextGuard as _RustContextGuard
     from theus_core import Transaction
-except ImportError:
-    # During build/bootstrap, this might fail. We define a dummy or re-raise.
-    # But since we are running in environment where we expect it:
-    raise ImportError("theus_core module not found. Please install with 'pip install -e ./theus_framework'")
+except ImportError as e:
+    raise ImportError(
+        "CRITICAL: 'theus_core' missing. Please install theus extension."
+    ) from e
+
+if TYPE_CHECKING:
+
+    class ContextGuard(_RustContextGuard):
+        """
+        Zero-Trust Guard for Context Access.
+        Wraps Rust implementation.
+        """
+
+        def __init__(
+            self,
+            target_obj: Any,
+            allowed_inputs: Set[str],
+            allowed_outputs: Set[str],
+            path_prefix: str = "",
+            transaction: Optional[Transaction] = None,
+            strict_mode: bool = False,
+            process_name: str = "Unknown",
+        ): ...
+        def get(self, path: str, default: Any = None) -> Any: ...
+        def set(self, path: str, value: Any) -> None: ...
+        def __getattr__(self, name: str) -> Any: ...
+else:
+    ContextGuard = _RustContextGuard
+
 
 # Keep Logger Adapter for backward compatibility
 class ContextLoggerAdapter(logging.LoggerAdapter):
@@ -17,8 +42,9 @@ class ContextLoggerAdapter(logging.LoggerAdapter):
     Auto-injects Process Name into logs.
     Usage: ctx.log.info("msg", key=value) -> [ProcessName] msg {key=value}
     """
+
     def process(self, msg, kwargs):
-        process_name = self.extra.get('process_name', 'Unknown')
+        process_name = self.extra.get("process_name", "Unknown")
         prefix = f"[{process_name}] "
         if kwargs:
             data_str = " ".join([f"{k}={v}" for k, v in kwargs.items()])
@@ -27,59 +53,85 @@ class ContextLoggerAdapter(logging.LoggerAdapter):
         else:
             return f"{prefix}{msg}", kwargs
 
-class ContextGuard(RustContextGuard):
+
+class ContextGuard:
     """
-    Hybrid Python wrapper for Rust ContextGuard.
-    Adds 'log' attribute via Python __dict__ (enabled by #[pyclass(dict)] in Rust).
+    Zero-Trust Guard for Context Access (Python Wrapper via Composition).
+    Wraps Rust implementation to provide Safe Access Control & Semantic Firewall.
     """
+
     def __init__(
-        self, 
-        target_obj: Any, 
-        allowed_inputs: Set[str], 
-        allowed_outputs: Set[str], 
-        path_prefix: str = "", 
-        transaction: Optional[Transaction] = None, 
-        strict_mode: bool = False, 
-        process_name: str = "Unknown"
+        self,
+        target_obj: Any,
+        allowed_inputs: Set[str],
+        allowed_outputs: Set[str],
+        path_prefix: str = "",
+        transaction: Optional[Transaction] = None,
+        strict_mode: bool = False,
+        process_name: str = "Unknown",
+        _inner=None,  # Internal bypass
     ):
-        # Initialize Rust Parent
-        # Rust signature: (target, inputs, outputs, tx, is_admin, strict_mode)
-        # We assume 'is_admin' defaults false or we pass it? 
-        # Looking at guards.rs: new(target, inputs, outputs, tx, is_admin, strict_mode)
-        # This Python wrapper hides 'is_admin' (defaulting False in usage?) 
-        # engine.py calls it. Let's check signature. 
-        # engine.py usually passes: target, inputs, outputs, prefix, tx, strict, name
-        
-        # We call super().__init__ which maps to Rust new()
-        # super().__init__(...) calls object.__init__ which fails with args.
-        # Rust state is already initialized by __new__ (which runs before __init__).
-        pass
-        
-        # Manually set path_prefix? Rust new_internal sets it to "".
-        # Wait, Rust `new_internal` sets `path_prefix` to "".
-        # But `engine.py` passes `path_prefix`.
-        # The Rust `new` seems to ignore `path_prefix` or expects "inputs" to be full paths?
-        # Check guards.rs: `path_prefix: "".to_string()` hardcoded in new_internal?
-        # Yes. line 38: `path_prefix: "".to_string()`.
-        # BUT current Python ContextGuard respects `path_prefix` passed in init.
-        # This is a GAP. 
-        
-        # Update: We need to support `path_prefix` in Rust `new` or set it after?
-        # Rust `ContextGuard` doesn't expose `path_prefix` setter.
-        # However, `apply_guard` creates children with correct prefix.
-        # The ROOT guard (created here) usually has prefix "" (empty) or "domain"?
-        # If engine creates Guard for "domain", prefix is "domain".
-        # Rust Guard needs to know this prefix for `full_path` construction.
-        
-        # FIX: I need to update Rust `new` to accept `path_prefix`.
-        # I will apply a patch to guards.rs to accept path_prefix.
-        # For now, let's assume I fix Rust. I will proceed with Python wrapper code assuming Rust signature matches.
-        
+        if _inner:
+            self._inner = _inner
+        else:
+            # Create Rust Core Guard
+            # Rust signature: (target, inputs, outputs, path_prefix, tx, is_admin, strict_mode)
+            self._inner = _RustContextGuard(
+                target_obj,
+                list(allowed_inputs),
+                list(allowed_outputs),
+                path_prefix,
+                transaction,
+                False,  # is_admin default
+                strict_mode,
+            )
+
         # Setup Logger
         base_logger = logging.getLogger("POP_PROCESS")
-        adapter = ContextLoggerAdapter(base_logger, {'process_name': process_name})
-        # Rust Guard is now smart enough to whitelist 'log' into __dict__
+        adapter = ContextLoggerAdapter(base_logger, {"process_name": process_name})
         self.log = adapter
+        # Inject log into Rust side if supported (it is via pyclass dict)
+        try:
+            self._inner.log = adapter
+        except AttributeError:
+            pass
 
-        # NOTE: Zone Enforcement is strictly done in Rust constructor (Strict Mode) specific logic
-        # or we rely on Rust.
+    def get(self, path: str, default: Any = None) -> Any:
+        return self._inner.get(path, default)
+
+    def set(self, path: str, value: Any) -> None:
+        self._inner.set(path, value)
+
+    def __getattr__(self, name: str) -> Any:
+        val = getattr(self._inner, name)
+        # If result is a Rust ContextGuard, wrap it again to maintain Python behavior
+        if isinstance(val, _RustContextGuard):
+            return ContextGuard(
+                target_obj=None,
+                allowed_inputs=set(),
+                allowed_outputs=set(),  # Dummy
+                _inner=val,
+                process_name=self.log.extra.get("process_name", "Unknown"),
+            )
+        return val
+
+    def __getitem__(self, key: Any) -> Any:
+        val = self._inner[key]
+        if isinstance(val, _RustContextGuard):
+            return ContextGuard(
+                target_obj=None,
+                allowed_inputs=set(),
+                allowed_outputs=set(),
+                _inner=val,
+                process_name=self.log.extra.get("process_name", "Unknown"),
+            )
+        return val
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        self._inner[key] = value
+
+    def __contains__(self, key: Any) -> bool:
+        return key in self._inner
+
+    def __iter__(self):
+        return iter(self._inner)

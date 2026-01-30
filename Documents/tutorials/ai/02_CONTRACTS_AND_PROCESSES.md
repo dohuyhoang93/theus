@@ -14,8 +14,8 @@ A Process Contract is a **legal agreement** between your code and the Theus Engi
 from theus.contracts import process, SemanticType
 
 @process(
-    inputs=['domain_ctx.items', 'global_ctx.max_limit'],
-    outputs=['domain_ctx.items', 'domain_ctx.counter'],
+    inputs=['domain.items', 'global.max_limit'],
+    outputs=['domain.items', 'domain.counter'],
     errors=['ValueError', 'KeyError'],
     semantic=SemanticType.EFFECT,
     side_effects=['http_request']
@@ -38,15 +38,7 @@ def my_process(ctx, ...):
 
 ## 2. Path Syntax
 
-### Critical Rule: Use `domain_ctx` NOT `domain`
-
-```python
-# ✅ CORRECT
-inputs=['domain_ctx.user.name']
-
-# ❌ WRONG - Rust Core will reject
-inputs=['domain.user.name']
-```
+### Critical Rule: Use `domain`
 
 ### Path Examples
 
@@ -54,7 +46,7 @@ inputs=['domain.user.name']
 |:---------------|:--------------|
 | `ctx.domain.items` | `'domain.items'` |
 | `ctx.domain.user.name` | `'domain.user.name'` |
-| `ctx.global_.max_limit` | `'global.max_limit'` |
+| `ctx.global.max_limit` | `'global.max_limit'` |
 | `ctx.domain.sig_alert` | `'domain.sig_alert'` |
 
 ### Parent Path Inheritance
@@ -121,7 +113,7 @@ def calculate_cart_total(ctx):
     """
     # 1. Read inputs (immutable)
     items = ctx.domain.cart_items
-    tax_rate = ctx.global_.tax_rate
+    tax_rate = ctx.global.tax_rate
     
     # 2. Validation
     if not items:
@@ -231,7 +223,7 @@ For simple processes, you can use `@process` without arguments:
 @process  # Equivalent to @process(inputs=[], outputs=[])
 def read_only_process(ctx):
     # Can only read, cannot write
-    print(ctx.domain_ctx.items)  # Will fail in strict mode
+    print(ctx.domain.items)  # Will fail in strict mode
 ```
 
 > **AI Note:** Always prefer explicit `inputs`/`outputs` for clarity.
@@ -245,7 +237,7 @@ When generating `@process` code:
 - [ ] Import: `from theus.contracts import process, SemanticType`
 - [ ] Declare ALL read paths in `inputs`
 - [ ] Declare ALL write paths in `outputs`
-- [ ] Use `domain_ctx` not `domain` in paths
+- [ ] Use `domain` in paths
 - [ ] Add parent path if accessing nested fields
 - [ ] Declare allowed exceptions in `errors`
 - [ ] Use `async def` for I/O-bound operations

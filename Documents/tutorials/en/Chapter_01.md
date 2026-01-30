@@ -50,7 +50,8 @@ def process_payment(ctx):
     # Trying to use object methods
     ctx.domain.cart.add_item("Apple") 
     ctx.domain.cart.total += 10
-    # Result: NOTHING happens. Theus ignores in-place mutations of objects.
+    # Result: In v3.0+, SupervisorProxy now detects and tracks these mutations, 
+    # but the Copy-on-Write pattern below is still highly recommended for clarity.
 ```
 
 ### Right Way (Transactional Thinking)

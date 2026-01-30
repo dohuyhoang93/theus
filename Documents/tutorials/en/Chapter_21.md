@@ -62,7 +62,7 @@ Theus Core objects (like `FrozenDict` or heavily optimized Rust structs) often c
 
 ```python
 # ❌ FAIL: Passing ctx.heavy (FrozenDict) directly to worker
-engine.execute_parallel(worker_func, data=ctx.heavy)
+await engine.execute_parallel(worker_func, data=ctx.heavy)
 ```
 
 ### Solution: Metadata Passing (Chapter 19 Pattern)
@@ -72,7 +72,7 @@ Do not pass the "Container" object. Pass the "Handle/Metadata" used to reconstru
 1.  **Main Process:** Extract shared memory name/metadata.
     ```python
     shm_name = ctx.heavy.input_array._shm_ref.name
-    engine.execute_parallel("worker", shm_name=shm_name, ...)
+    await engine.execute_parallel("worker", shm_name=shm_name, ...)
     ```
 2.  **Worker Process:** Reconstruct the object from metadata.
     ```python
@@ -89,9 +89,9 @@ Do not pass the "Container" object. Pass the "Handle/Metadata" used to reconstru
 
 ### Issue
 In `scaffold/src/context.py`, we saw:
-`self.domain_ctx = DemoDomain()`
-vs
 `self.domain = DemoDomain()`
+vs
+`self.domain_ctx = DemoDomain()` (Old v2.x pattern)
 
 ### Explanation
 Theus relies on strict field naming to map Python context fields to Rust State slots (`data` map). If names mismatch, data is lost (goes to `global` or ignored), causing `NoneType` errors in processes.
@@ -154,8 +154,7 @@ Methods that mutate in-place are fully supported and tracked by the Transaction 
 
 ```python
 # List append
-# WARNING: Ensure you are not violating "FrozenList" constraints (See Chapter 5)
-# This works only if you have Write Permissions (outputs=...)
+# Transparently handled by SupervisorProxy if declared in outputs
 ctx.domain.items.append("new_item")
 
 # List extend

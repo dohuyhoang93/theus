@@ -1,5 +1,6 @@
 from theus import process
 
+
 @process(parallel=True)
 def worker_read_shm(ctx):
     """
@@ -8,7 +9,9 @@ def worker_read_shm(ctx):
     which is a more advanced integration. This verifies basic pool execution.
     """
     import os
+
     return f"OK (Worker PID: {os.getpid()})"
+
 
 @process(parallel=True)
 def worker_serialization(ctx):

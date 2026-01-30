@@ -7,6 +7,7 @@ Comparing Read Performance:
 
 Goal: Verify the performance gains of the new architecture on the actual integrated system.
 """
+
 import time
 import secrets
 import sys
@@ -18,18 +19,17 @@ sys.path.insert(0, os.path.abspath("."))
 from theus_core import TheusEngine
 
 # --- SETUP ---
-DATA_SIZE = 10000 # Elements in list (Large enough to feel serialization pain)
+DATA_SIZE = 10000  # Elements in list (Large enough to feel serialization pain)
 ITERATIONS = 100000
+
 
 def make_large_data():
     return {
         "counter": 0,
         "large_list": [secrets.token_hex(16) for _ in range(DATA_SIZE)],
-        "nested": {
-            "a": 1,
-            "b": [1, 2, 3] * 100
-        }
+        "nested": {"a": 1, "b": [1, 2, 3] * 100},
     }
+
 
 print("1. Initializing Engine...")
 engine = TheusEngine()
@@ -42,10 +42,11 @@ print(f"   Population took: {time.time() - start:.4f}s")
 
 # --- BENCHMARKS ---
 
+
 def bench_legacy_read():
     """Accessing state.domain (triggers serialization/copy)"""
     start = time.time()
-    for _ in range(ITERATIONS // 10): # Slower, so fewer iters
+    for _ in range(ITERATIONS // 10):  # Slower, so fewer iters
         # Logic: state.domain creates a FrozenDict wrapper around a COPY of the data
         # actually State::domain getter calls FrozenDict::new(dict.unbind()) which wraps the existing dict?
         # Wait, in Rust code:
@@ -67,6 +68,7 @@ def bench_legacy_read():
     ops = ITERATIONS // 10
     return ops, end - start
 
+
 def bench_supervisor_read():
     """Accessing state.domain_proxy() (Zero-copy Ref)"""
     start = time.time()
@@ -76,6 +78,7 @@ def bench_supervisor_read():
     end = time.time()
     return ITERATIONS, end - start
 
+
 def bench_legacy_access():
     """Deep Access: state.domain['nested']['a']"""
     start = time.time()
@@ -84,10 +87,11 @@ def bench_legacy_access():
     # But let's verify repeated access cost.
     for _ in range(ITERATIONS // 10):
         d = state.domain
-        _ = d['nested']['a']
+        _ = d["nested"]["a"]
     end = time.time()
     ops = ITERATIONS // 10
     return ops, end - start
+
 
 def bench_supervisor_access():
     """Deep Access: state.domain_proxy().nested.a"""
@@ -99,27 +103,36 @@ def bench_supervisor_access():
     end = time.time()
     return ITERATIONS, end - start
 
+
 # --- EXECUTION ---
 
 print("\n--- TEST 1: GETTER LATENCY (ops/sec) ---")
 leg_ops, leg_time = bench_legacy_read()
-print(f"Legacy (FrozenDict): {leg_ops} ops in {leg_time:.4f}s => {leg_ops/leg_time:,.0f} ops/s")
+print(
+    f"Legacy (FrozenDict): {leg_ops} ops in {leg_time:.4f}s => {leg_ops / leg_time:,.0f} ops/s"
+)
 
 sup_ops, sup_time = bench_supervisor_read()
-print(f"Supervisor (Proxy):  {sup_ops} ops in {sup_time:.4f}s => {sup_ops/sup_time:,.0f} ops/s")
+print(
+    f"Supervisor (Proxy):  {sup_ops} ops in {sup_time:.4f}s => {sup_ops / sup_time:,.0f} ops/s"
+)
 
-speedup = (sup_ops/sup_time) / (leg_ops/leg_time)
+speedup = (sup_ops / sup_time) / (leg_ops / leg_time)
 print(f"SPEEDUP: {speedup:.2f}x")
 
 
 print("\n--- TEST 2: DEEP ACCESS LATENCY (ops/sec) ---")
 leg_ops, leg_time = bench_legacy_access()
-print(f"Legacy (['key']):      {leg_ops} ops in {leg_time:.4f}s => {leg_ops/leg_time:,.0f} ops/s")
+print(
+    f"Legacy (['key']):      {leg_ops} ops in {leg_time:.4f}s => {leg_ops / leg_time:,.0f} ops/s"
+)
 
 sup_ops, sup_time = bench_supervisor_access()
-print(f"Supervisor (.attr):    {sup_ops} ops in {sup_time:.4f}s => {sup_ops/sup_time:,.0f} ops/s")
+print(
+    f"Supervisor (.attr):    {sup_ops} ops in {sup_time:.4f}s => {sup_ops / sup_time:,.0f} ops/s"
+)
 
-speedup = (sup_ops/sup_time) / (leg_ops/leg_time)
+speedup = (sup_ops / sup_time) / (leg_ops / leg_time)
 print(f"SPEEDUP: {speedup:.2f}x")
 
 if speedup < 1.0:

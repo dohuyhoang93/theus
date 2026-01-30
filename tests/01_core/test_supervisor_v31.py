@@ -1,6 +1,7 @@
 """
 Test script for SupervisorCore and SupervisorProxy
 """
+
 from theus_core import SupervisorCore, SupervisorProxy
 
 print("=" * 60)
@@ -46,7 +47,7 @@ print(f"2.3 Proxy read_only: {proxy.read_only}")
 # Test __getitem__
 print(f"2.4 proxy['x'] = {proxy['x']}")
 
-# Test __setitem__ 
+# Test __setitem__
 proxy["z"] = 30
 print(f"2.5 Set proxy['z'] = 30, now target_dict['z'] = {target_dict.get('z')}")
 

@@ -5,45 +5,64 @@ from theus.structures import StateUpdate
 
 # TDD: Verify CAS (Compare-And-Swap) ensures Serializability via Retry Logic
 
+
 @pytest.mark.asyncio
 async def test_cas_ensures_serializability():
     """
     v3.3 Behavior: Engine auto-retries conflicts instead of raising exceptions.
     This test verifies that concurrent updates to the SAME key are serialized correctly.
-    
+
     Scenario:
     - Process A reads version=1, sleeps 100ms, tries to write x=1.
     - Process B reads version=1, writes x=2 immediately.
     - Process A's first attempt fails (CAS mismatch), Engine retries with new version.
     - Final Result: BOTH processes succeed. x should be the value from the LAST commit.
     """
-    engine = TheusEngine()
-    
+    # v3 requires explicit domain initialization for ctx.domain to be valid dict
+    engine = TheusEngine(context={"domain": {}})
+
+    from theus.contracts import process
+
+    # Define outputs to allow write
+    @process(outputs=["domain"])
     async def slow_process(ctx):
         v_start = ctx.version
         await asyncio.sleep(0.1)
-        return StateUpdate(key="x", val=1, assert_version=v_start)
+        # Check domain existence via try-except or hasattr
+        if not hasattr(ctx.domain, "counter"):
+            # This might fail if we don't have permission to write NEW keys if restricted?
+            # But outputs=["domain.counter"] allows writing that key.
+            # Note: SupervisorProxy handles attribute set.
+            pass
 
+        ctx.domain.counter = 1
+        return v_start
+
+    @process(outputs=["domain"])
     async def fast_process(ctx):
         v_start = ctx.version
-        return StateUpdate(key="x", val=2, assert_version=v_start)
+        ctx.domain.counter = 2
+        return v_start
 
     # Launch both
     t1 = asyncio.create_task(engine.execute(slow_process))
     t2 = asyncio.create_task(engine.execute(fast_process))
-    
+
     # Both should succeed (Retry Logic handles conflicts)
     await t2  # Fast finishes first
     await t1  # Slow retries and succeeds
-    
+
     # Final state: x should exist (either 1 or 2 depending on commit order)
     # The important invariant: NO exception was raised, system is live.
-    final_x = engine.state.data.get("x")
-    assert final_x is not None, "x should have been written"
-    assert final_x in [1, 2], f"x should be 1 or 2, got {final_x}"
-    
+    # Final state: x should exist (either 1 or 2 depending on commit order)
+    # The important invariant: NO exception was raised, system is live.
+    final_x = engine.state.domain.counter
+    assert final_x is not None, "counter should have been written"
+    assert final_x in [1, 2], f"counter should be 1 or 2, got {final_x}"
+
     # Version should have advanced (at least 2 commits)
     assert engine.state.version >= 2, "Version should have advanced"
+
 
 @pytest.mark.asyncio
 async def test_cas_stress_increment():
@@ -51,4 +70,3 @@ async def test_cas_stress_increment():
     # If naive, final result < 100. If safe, final result == 100.
     # Here we test that Engine correctly serializes commits or rejects stale ones.
     pass
-

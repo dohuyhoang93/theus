@@ -63,7 +63,7 @@ def process_camera(ctx):
 If you declare `outputs=["domain"]` (Root), Smart CAS assumes you might touch *anything*, reducing efficient merging.
 
 ### Best Practice: Handle "System Busy"
-If you are writing manual retry loops (bypassing `engine.execute`), handle the `System Busy` error by sleeping.
+If you are writing manual retry loops (bypassing `await engine.execute`), handle the `System Busy` error by sleeping.
 ```python
 try:
     engine.compare_and_swap(...)
@@ -71,7 +71,7 @@ except ContextError as e:
     if "System Busy" in str(e):
         time.sleep(0.05) # Respect VIP
 ```
-*Note: `engine.execute()` handles this automatically.*
+*Note: `await engine.execute()` handles this automatically.*
 
 ## 6. Fork Safety (Multiprocessing)
 

@@ -2,6 +2,7 @@
 Integration Test: ContextGuard + SupervisorProxy
 Verifies that ContextGuard returns SupervisorProxy and Transaction mutation logging works.
 """
+
 from theus_core import TheusEngine, SupervisorCore, SupervisorProxy, ContextGuard
 from theus.contracts import process, SemanticType
 
@@ -21,29 +22,29 @@ print("1.2 Data populated")
 print("\n--- Manual Transaction ---")
 with core.transaction() as tx:
     print("2.1 Transaction started")
-    
+
     # Create ContextGuard manually wrapping a DICT shadow copy
     shadow_domain = tx.get_shadow({"counter": 10, "nested": {"a": 1}}, "domain")
-    
+
     # Guard logic
     guard = ContextGuard(
-        shadow_domain, 
-        inputs=["domain"], 
-        outputs=["domain"], 
+        shadow_domain,
+        inputs=["domain"],
+        outputs=["domain"],
         path_prefix="domain",
         tx=tx,
         is_admin=False,
-        strict_mode=True
+        strict_mode=True,
     )
     print(f"2.2 ContextGuard created: {guard}")
-    
+
     # 2.3 Access nested dict
     # IMPORTANT: guard wraps a dict, so we use item access ['nested']
     # ContextGuard should return SupervisorProxy for the nested dict
-    nested_proxy = guard['nested']
+    nested_proxy = guard["nested"]
     print(f"2.3 guard['nested'] type: {type(nested_proxy)}")
     print(f"    repr: {repr(nested_proxy)}")
-    
+
     if "SupervisorProxy" not in str(type(nested_proxy)):
         print("❌ FAILURE: Expected SupervisorProxy!")
         exit(1)
@@ -57,11 +58,11 @@ with core.transaction() as tx:
     # 2.5 Modify via proxy (dot access)
     print("2.5 Modifying nested_proxy.a = 99...")
     nested_proxy.a = 99
-    
+
     # 2.6 Modify via item access (standard)
     print("2.6 Modifying nested_proxy['b'] = 2...")
-    nested_proxy['b'] = 2
-    
+    nested_proxy["b"] = 2
+
     # 2.7 Verify local reads
     print(f"    Read back .a: {nested_proxy.a}")
     print(f"    Read back ['b']: {nested_proxy['b']}")
