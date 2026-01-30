@@ -34,7 +34,7 @@ jobs:
       - name: Run Rust Tests
         run: cargo test
       - name: Run Python Tests
-        run: py -m pytest tests/
+        run: pytest tests/
 
   linux:
     needs: lint_and_test
