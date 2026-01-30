@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install .
-          pip install pytest
+          pip install pytest numpy pytest-asyncio
       - name: Run Clippy
         run: cargo clippy -- -D warnings
       - name: Run Rust Tests
