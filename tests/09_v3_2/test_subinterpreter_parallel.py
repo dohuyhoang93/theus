@@ -2,11 +2,12 @@ import pytest
 import threading
 import os
 import time
-from theus.parallel import InterpreterPool
+from theus.parallel import InterpreterPool, INTERPRETERS_SUPPORTED
 
 from theus.parallel import shared_test_task, parallel_cpu_task, slow_cpu_task
 
 
+@pytest.mark.skipif(not INTERPRETERS_SUPPORTED, reason="Sub-interpreters not supported on this Python version")
 @pytest.fixture
 def pool():
     p = InterpreterPool(size=2)
@@ -14,6 +15,7 @@ def pool():
     p.shutdown()
 
 
+@pytest.mark.skipif(not INTERPRETERS_SUPPORTED, reason="Sub-interpreters not supported on this Python version")
 def test_basic_execution(pool):
     future = pool.submit(parallel_cpu_task, 10)
     res = future.result()
@@ -24,6 +26,7 @@ def test_basic_execution(pool):
     # assert res["tid"] != threading.get_ident() # Pyo3/Sub-Interp threading model is complex, check values manually
 
 
+@pytest.mark.skipif(not INTERPRETERS_SUPPORTED, reason="Sub-interpreters not supported on this Python version")
 def test_concurrency(pool):
     # Pool size is 2
     # Submit 4 slow tasks
@@ -46,6 +49,7 @@ def test_concurrency(pool):
     assert duration > 0.5
 
 
+@pytest.mark.skipif(not INTERPRETERS_SUPPORTED, reason="Sub-interpreters not supported on this Python version")
 def test_kwargs_support(pool):
     # Use shareable task from installed module
     f = pool.submit(shared_test_task, 10, y=20)
