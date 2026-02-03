@@ -27,8 +27,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Install dependencies
         run: |
-          pip install .
           pip install pytest numpy pytest-asyncio
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+      - name: Install Theus
+        run: pip install .
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
       - name: Run Clippy
         run: cargo clippy -- -D warnings
       - name: Run Rust Tests
