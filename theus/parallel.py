@@ -78,9 +78,11 @@ class InterpreterPool:
         Submit a task to run in a sub-interpreter.
         Uses pickle to marshal function and arguments.
         """
-        # Pickle the payload
+        # Pickle the payload with sys.path to ensure module resolution in sub-interpreter
+        import sys
         try:
-            payload = pickle.dumps((func, args, kwargs))
+            # Passing sys.path ensures the worker can import the same modules as parent
+            payload = pickle.dumps((sys.path[:], func, args, kwargs))
         except Exception as e:
             f = Future()
             f.set_exception(e)
@@ -147,7 +149,16 @@ def _unpickle_runner(payload_bytes):
     """
     import pickle
 
-    func, args, kwargs = pickle.loads(payload_bytes)
+    import sys
+
+    # Unpack paths first to set up environment
+    paths, func, args, kwargs = pickle.loads(payload_bytes)
+    
+    # Restore sys.path (append missing paths to avoid duplication)
+    for p in paths:
+        if p not in sys.path:
+            sys.path.append(p)
+            
     return func(*args, **kwargs)
 
 
