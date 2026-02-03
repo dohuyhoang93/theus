@@ -7,7 +7,7 @@ from theus.structures import StateUpdate
 from theus_core import AuditSystem, AuditLevel, AuditRecipe
 
 # Import tasks module (must be importable by workers)
-import tests.parallel_suite.tasks_claims as tasks_claims
+from . import tasks_claims
 
 @pytest.mark.asyncio
 class TestArchitectureClaims:

@@ -5,7 +5,7 @@ import sys
 import time
 from theus.engine import TheusEngine
 from theus.context import BaseSystemContext
-from tests.parallel_suite import tasks
+from . import tasks
 
 # Force Sub-interpreters for this entire suite
 os.environ["THEUS_USE_PROCESSES"] = "0"
