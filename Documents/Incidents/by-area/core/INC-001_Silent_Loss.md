@@ -4,7 +4,7 @@ title: Silent Loss of Mutations in SupervisorProxy
 area: core
 severity: high
 introduced_in: v3.0.0
-fixed_in: v3.1.2
+fixed_in: v3.0.22
 status: resolved
 ---
 

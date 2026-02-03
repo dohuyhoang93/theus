@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 mod engine;
 mod structures;
 mod config;
+mod globals; // [Compliance] Register globals for process-wide state
 pub mod structures_helper;
 pub mod delta; // [Fix] Register delta module
 pub mod audit;

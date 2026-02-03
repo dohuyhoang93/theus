@@ -279,7 +279,7 @@ If loop exceeds `max_ops`:
 If a process raises an exception:
 1. Workflow transitions to `Failed` state
 2. Exception propagates to caller
-3. Context changes are rolled back (if strict_mode)
+3. Context changes are rolled back (if strict_guards)
 
 ### Handling Pattern
 

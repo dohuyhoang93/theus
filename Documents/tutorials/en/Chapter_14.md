@@ -37,7 +37,7 @@ class TestPolicy(unittest.TestCase):
         ctx = WarehouseContext()
         self.engine = TheusEngine(
             ctx,
-            strict_mode=True,
+            strict_guards=True,
             audit_recipe="specs/audit.yaml"
         )
         self.engine.register(add_product)

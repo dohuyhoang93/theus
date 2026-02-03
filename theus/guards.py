@@ -67,7 +67,7 @@ class ContextGuard:
         allowed_outputs: Set[str],
         path_prefix: str = "",
         transaction: Optional[Transaction] = None,
-        strict_mode: bool = False,
+        strict_guards: bool = False,
         process_name: str = "Unknown",
         _inner=None,  # Internal bypass
     ):
@@ -75,7 +75,7 @@ class ContextGuard:
             self._inner = _inner
         else:
             # Create Rust Core Guard
-            # Rust signature: (target, inputs, outputs, path_prefix, tx, is_admin, strict_mode)
+            # Rust signature: (target, inputs, outputs, path_prefix, tx, is_admin, strict_guards)
             self._inner = _RustContextGuard(
                 target_obj,
                 list(allowed_inputs),
@@ -83,7 +83,7 @@ class ContextGuard:
                 path_prefix,
                 transaction,
                 False,  # is_admin default
-                strict_mode,
+                strict_guards, # maps to strict_guards in Rust
             )
 
         # Setup Logger

@@ -4,7 +4,7 @@ title: Async Deadlock in Workflow Execution
 area: runtime
 severity: medium
 introduced_in: v3.0.0
-fixed_in: v3.1.0
+fixed_in: v3.0.22
 status: mitigated
 ---
 

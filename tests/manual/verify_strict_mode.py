@@ -27,17 +27,17 @@ async def legacy_mutation_process(ctx):
     try:
         # Try to append directly
         ctx.domain.items.append("mutated")
-        print("  [Process] Mutation SUCCESS (strict_mode=False behavior)")
+        print("  [Process] Mutation SUCCESS (strict_guards=False behavior)")
         return "success"
     except (AttributeError, TypeError) as e:
         print(f"  [Process] Mutation BLOCKED ({type(e).__name__}): {e}")
         raise
 
 
-async def test_strict_mode(enabled: bool):
-    print(f"\n--- Testing strict_mode={enabled} ---")
+async def test_strict_guards(enabled: bool):
+    print(f"\n--- Testing strict_guards={enabled} ---")
     sys_ctx = MySystem()
-    engine = TheusEngine(sys_ctx, strict_mode=enabled)
+    engine = TheusEngine(sys_ctx, strict_guards=enabled)
     engine.register(legacy_mutation_process)
 
     try:
@@ -49,10 +49,10 @@ async def test_strict_mode(enabled: bool):
 
 async def main():
     # 1. Test Strict Mode (Should Fail/Block)
-    await test_strict_mode(True)
+    await test_strict_guards(True)
 
     # 2. Test Loose Mode (Should Succeed)
-    await test_strict_mode(False)
+    await test_strict_guards(False)
 
 
 if __name__ == "__main__":

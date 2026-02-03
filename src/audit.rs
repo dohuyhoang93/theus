@@ -57,7 +57,10 @@ impl AuditLogEntry {
 // Ring Buffer (Append-Only, Fixed Capacity)
 // ============================================================================
 
-struct RingBuffer {
+// Ring Buffer (Append-Only, Fixed Capacity)
+// ============================================================================
+
+pub struct RingBuffer {
     buffer: Vec<AuditLogEntry>,
     capacity: usize,
     write_pos: usize,
@@ -65,7 +68,7 @@ struct RingBuffer {
 }
 
 impl RingBuffer {
-    fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         RingBuffer {
             buffer: Vec::with_capacity(capacity),
             capacity,
@@ -74,7 +77,7 @@ impl RingBuffer {
         }
     }
 
-    fn push(&mut self, entry: AuditLogEntry) {
+    pub fn push(&mut self, entry: AuditLogEntry) {
         if self.buffer.len() < self.capacity {
             self.buffer.push(entry);
         } else {
@@ -84,7 +87,7 @@ impl RingBuffer {
         self.count += 1;
     }
 
-    fn get_all(&self) -> Vec<AuditLogEntry> {
+    pub fn get_all(&self) -> Vec<AuditLogEntry> {
         if self.buffer.len() < self.capacity {
             // Not yet wrapped around
             self.buffer.clone()
@@ -99,7 +102,7 @@ impl RingBuffer {
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.buffer.len()
     }
 }
@@ -158,15 +161,24 @@ impl AuditSystem {
             reset_on_success: true,
         });
         
+        use crate::globals::GLOBAL_AUDIT_BUFFER;
+        
+        // Connect to Process-Global Buffer (One Brain)
+        let buffer = GLOBAL_AUDIT_BUFFER.get_or_init(|| {
+            Arc::new(Mutex::new(RingBuffer::new(capacity)))
+        }).clone();
+        
         AuditSystem {
             recipe: r,
             counts: HashMap::new(),
-            ring_buffer: Arc::new(Mutex::new(RingBuffer::new(capacity))),
+            ring_buffer: buffer,
         }
     }
 
     /// Log a failure event. Behavior depends on AuditLevel.
-    pub fn log_fail(&mut self, py: Python, key: String) -> PyResult<()> {
+    /// Can override global level and threshold per-call.
+    #[pyo3(signature = (key, level=None, threshold_max=None))]
+    pub fn log_fail(&mut self, py: Python, key: String, level: Option<AuditLevel>, threshold_max: Option<u32>) -> PyResult<()> {
         // First: update count (mutable borrow)
         let current_count: u32 = {
             let count = self.counts.entry(key.clone()).or_insert(0);
@@ -178,10 +190,12 @@ impl AuditSystem {
         // Log to ring buffer
         self.log_internal(&key, &format!("Fail #{}", current_count));
 
-        let threshold_max = self.recipe.threshold_max;
+        // Use Overrides (Granular) OR Fallback to Global (Defcon)
+        let effective_level = level.unwrap_or(self.recipe.level.clone());
+        let effective_threshold = threshold_max.unwrap_or(self.recipe.threshold_max);
         let threshold_min = self.recipe.threshold_min;
 
-        match self.recipe.level {
+        match effective_level {
             AuditLevel::Stop => {
                 // S-Level: Immediate halt on first failure
                 return Err(AuditStopError::new_err(format!(
@@ -196,25 +210,25 @@ impl AuditSystem {
             }
             AuditLevel::Block => {
                 // B-Level: Block after threshold exceeded
-                if current_count > threshold_max {
+                if current_count > effective_threshold {
                     return Err(AuditBlockError::new_err(format!(
                         "Audit Blocked: {} exceeded threshold {}", 
-                        key, threshold_max
+                        key, effective_threshold
                     )));
                 }
-                // Check warning threshold
+                // Check warning threshold (Global only for now)
                 if threshold_min > 0 && current_count >= threshold_min {
                     // Emit warning to Python
                     pyo3::PyErr::warn_bound(
                         py,
                         &py.get_type_bound::<AuditWarning>(),
-                        &format!("WARNING: Approaching threshold ({}/{})", current_count, threshold_max),
+                        &format!("WARNING: Approaching threshold ({}/{})", current_count, effective_threshold),
                         0
                     )?;
                     
                     // Also log to ring buffer
                     self.log_internal(&key, &format!("WARN: Approaching threshold ({}/{})", 
-                        current_count, threshold_max));
+                        current_count, effective_threshold));
                 }
             }
             AuditLevel::Count => {

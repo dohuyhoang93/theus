@@ -54,7 +54,8 @@ class TestAsyncSyncBridge:
         await engine.execute(async_trigger)
         assert engine.state.domain.async_triggered is True
 
-    def test_sync_workflow_bridge(self):
+    @pytest.mark.asyncio
+    async def test_sync_workflow_bridge(self):
         """Verify engine.execute_workflow (sync) can call async processes safely."""
         engine = TheusEngine(SimpleSystemContext())
         engine.register(sync_increment)
@@ -75,8 +76,8 @@ steps:
             tmp_path = f.name
 
         try:
-            # Call engine.execute_workflow synchronously
-            engine.execute_workflow(tmp_path)
+            # Call engine.execute_workflow (now async v3.0)
+            await engine.execute_workflow(tmp_path)
 
             # Verify results
             domain = engine.state.domain

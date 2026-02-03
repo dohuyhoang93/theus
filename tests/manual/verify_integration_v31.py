@@ -34,7 +34,7 @@ with core.transaction() as tx:
         path_prefix="domain",
         tx=tx,
         is_admin=False,
-        strict_mode=True,
+        strict_guards=True,
     )
     print(f"2.2 ContextGuard created: {guard}")
 

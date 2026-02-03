@@ -22,8 +22,8 @@ class LockManager:
 
     LockViolationError = LockViolationError  # Expose for consistent import
 
-    def __init__(self, strict_mode: bool = False):
-        self.strict_mode = strict_mode
+    def __init__(self, strict_guards: bool = False):
+        self.strict_guards = strict_guards
         self._mutex = threading.Lock()  # Protects the state
         self._writer_thread_id: Optional[int] = None
 
@@ -46,7 +46,7 @@ class LockManager:
 
         full_msg = f"{msg}\n{hint}"
 
-        if self.strict_mode:
+        if self.strict_guards:
             logger.error(full_msg)
             raise LockViolationError(full_msg)
         else:

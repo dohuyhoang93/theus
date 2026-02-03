@@ -150,7 +150,7 @@ def run_theus_engine(arr):
         # heavy zone được inject tự động bởi Engine
 
     ctx = BenchContext(domain=BenchDomain(), global_ctx=BenchGlobal())
-    engine = TheusEngine(ctx, strict_mode=False)
+    engine = TheusEngine(ctx, strict_guards=False)
 
     # 2. Inject Managed Memory (Producer side)
     # v3.1.2: Engine có Managed Allocator trong Core
@@ -173,8 +173,9 @@ def run_theus_engine(arr):
     output("Bắt đầu chạy Parallel Tasks qua Engine...")
     with ThreadPoolExecutor(max_workers=NUM_WORKERS) as exe:
         # execute_parallel sử dụng InterpreterPool hoặc ProcessPool tùy cấu hình
+        # v3.1: execute_parallel is stateless, we must pass the data explicitly (via Zero-Copy ShmArray)
         futures = [
-            exe.submit(engine.execute_parallel, "process_heavy_task")
+            exe.submit(engine.execute_parallel, "process_heavy_task", matrix=shared_arr)
             for _ in range(NUM_WORKERS)
         ]
         [f.result() for f in futures]

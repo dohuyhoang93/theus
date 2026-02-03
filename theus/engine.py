@@ -37,11 +37,11 @@ class TheusEngine:
     """
 
     def __init__(
-        self, context=None, strict_mode=True, strict_cas=False, audit_recipe=None
+        self, context=None, strict_guards=True, strict_cas=False, audit_recipe=None
     ):
         self._context = context
         self._registry = {}
-        self._strict_mode = strict_mode
+        self._strict_guards = strict_guards # Renamed from strict_mode
         self._strict_cas = strict_cas  # v3.0.4: CAS mode control
         self._audit = None
         self._schema = None  # v3.1.2: Schema Validation
@@ -56,11 +56,27 @@ class TheusEngine:
 
         if audit_config:
             # Unwrap AuditRecipeBook if necessary
+            if isinstance(audit_config, str):
+                from theus.config import ConfigFactory
+                try:
+                    book = ConfigFactory.load_recipe(audit_config)
+                    audit_config = book.rust_recipe
+                except Exception:
+                     # Fallback if file not found or invalid?
+                     # Let's assume it works or fail hard
+                     pass
+
             if hasattr(audit_config, "rust_recipe"):
                 audit_config = audit_config.rust_recipe
+            elif isinstance(audit_config, dict):
+                # [v3.1.2] Automatic Dict -> AuditRecipe conversion
+                from theus.config import AuditRecipe
+                target = audit_config.get("audit", audit_config)
+                t_max = target.get("threshold_max", 3)
+                reset = target.get("reset_on_success", True)
+                audit_config = AuditRecipe(threshold_max=int(t_max), reset_on_success=bool(reset))
 
             from theus.audit import AuditSystem
-
             self._audit = AuditSystem(audit_config)
 
         # Initialize Rust Core (Microkernel)
@@ -77,6 +93,12 @@ class TheusEngine:
                     init_data = dict(context)
 
             self._core = theus_core.TheusEngine()  # No args
+            
+            # [POP v3.1] Explicit Decoupling of Strictness Flags
+            self._core.set_strict_guards(strict_guards)
+            
+            # strict_cas -> Concurrency (Version Mismatch)
+            self._core.set_strict_cas(strict_cas)
 
             # Hydrate state via CAS (Version 0 -> Init)
             if init_data:
@@ -98,6 +120,38 @@ class TheusEngine:
                 self._allocator = None
         else:
             raise RuntimeError("Theus v3.0 requires Rust Core!")
+
+        # [v3.1.2] Audit & Validator Wiring
+        if self._audit:
+            # 1. Connect Python Audit System to Rust Core (One Brain)
+            # This ensures Rust-side CAS events log to the same RingBuffer
+            if hasattr(self._core, "set_audit_system"):
+                 self._core.set_audit_system(self._audit)
+
+            # 2. Initialize Active Validator (Gates)
+            # We need to re-parse definitions because AuditSystem only holds the Rust Recipe (Thresholds)
+            from theus.config import ConfigFactory
+            from theus.validator import AuditValidator
+            
+            definitions = {}
+            # Re-read config source
+            src = audit_recipe 
+            if not src:
+                 # If implied via None -> load default
+                 src = "audit_recipe.yaml"
+            
+            if isinstance(src, str):
+                 try:
+                     book = ConfigFactory.load_recipe(src)
+                     definitions = book.definitions
+                 except Exception:
+                     pass # Ignore if file missing during implicit load
+            elif isinstance(src, dict):
+                 definitions = src.get("process_recipes", {})
+
+            self._validator = AuditValidator(definitions, self._audit)
+        else:
+            self._validator = None
 
     def _create_restricted_view(self, ctx):
         """Create a Read-Only Proxy for Pure Processes."""
@@ -132,24 +186,29 @@ class TheusEngine:
                         except Exception as e:
                             print(f"Failed to load module {file}: {e}")
 
-    def execute_workflow(self, yaml_path, **kwargs):
-        """Execute Workflow YAML using Rust Flux DSL Engine."""
+    async def execute_workflow(self, yaml_path, **kwargs):
+        """
+        Execute Workflow YAML using Rust Flux DSL Engine.
+        Runs in a separate thread to prevent blocking the asyncio event loop (INC-008).
+        """
         from theus_core import WorkflowEngine
         import os
+        import asyncio
 
+        # Read YAML properly
         with open(yaml_path, "r", encoding="utf-8") as f:
             yaml_content = f.read()
 
         max_ops = int(os.environ.get("THEUS_MAX_LOOPS", 10000))
         debug = os.environ.get("THEUS_FLUX_DEBUG", "0").lower() in ("1", "true", "yes")
 
+        # Create Engine instance (lightweight)
         wf_engine = WorkflowEngine(yaml_content, max_ops, debug)
 
         # Build context dict for condition evaluation
         data = self.state.data
 
-        # v3.3: Inject Signal Snapshot (Fix Binding Blindness)
-        # We need to expose transient signals to the Flux condition evaluator
+        # v3.3: Inject Signal Snapshot
         signals = {}
         if hasattr(self.state, "signals"):
             signals = self.state.signals
@@ -158,11 +217,14 @@ class TheusEngine:
             "domain": data.get("domain", None),
             "global": data.get("global", None),
             "signal": signals,
-            "cmd": signals,  # Alias for convenience
+            "cmd": signals,
         }
 
-        # Execute workflow with process executor callback
-        executed = wf_engine.execute(ctx, self._run_process_sync)
+        # Offload the blocking Rust execution to a thread
+        # The callback _run_process_sync will be called from that thread.
+        executed = await asyncio.to_thread(
+            wf_engine.execute, ctx, self._run_process_sync
+        )
 
         return executed
 
@@ -223,11 +285,9 @@ class TheusEngine:
             None on success, State object on failure (strict mode),
             or raises ContextError on conflict (smart mode).
         """
-        # Strict CAS Mode: Pre-flight Check (Python Side)
-        if self._strict_cas:
-            current_version = self.state.version
-            if current_version != expected_version:
-                return self.state  # Gentle rejection
+        # [REMOVED] Python-side Pre-flight check.
+        # We delegate strictness entirely to Rust Core (v3.0).
+        # if self._strict_cas: ...
 
         # Delegate to Rust Core (Smart CAS with Key-Level detection)
         return self._core.compare_and_swap(
@@ -304,83 +364,101 @@ class TheusEngine:
                 raise e
 
     async def _attempt_execute(self, func, *args, **kwargs):
+        # [v3.1.2] Input Gate: Active Validation
+        if self._validator:
+             self._validator.validate_inputs(func.__name__, kwargs)
+
         contract = getattr(func, "_pop_contract", None)
 
         # v3.0.2: Auto-Dispatch Parallel Processes
-        if contract and contract.parallel:
-            import asyncio
-
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, lambda: self.execute_parallel(func.__name__, **kwargs)
-            )
-
         # Transaction Management (v3.1 Explicit Lifecycle)
         # We implicitly create a transaction scope for the execution.
         start_version = self.state.version
         tx = theus_core.Transaction(self._core)
+        
+        result = None
+        ran_locally = True
 
-        target_func = func
-        if contract and contract.semantic == SemanticType.PURE:
-            # Pure Wrapper Logic + Arg Capture
-            # [v3.0.4] Pass contract.inputs to create filtered restricted view
-            allowed_inputs = contract.inputs if contract else []
-            import inspect
-
-            if inspect.iscoroutinefunction(func):
-
-                async def safe_wrapper(ctx, *_, **__):
-                    restricted = self._create_restricted_view(
-                        ctx, allowed_paths=allowed_inputs
-                    )
-                    return await func(restricted, *args, **kwargs)
-
-                safe_wrapper.__name__ = func.__name__
-                target_func = safe_wrapper
-            else:
-
-                def safe_wrapper(ctx, *_, **__):
-                    restricted = self._create_restricted_view(
-                        ctx, allowed_paths=allowed_inputs
-                    )
-                    return func(restricted, *args, **kwargs)
-
-                safe_wrapper.__name__ = func.__name__
-                target_func = safe_wrapper
-        else:
-            # If not PURE (no restricted view needed), we still need to bind arguments!
-            import inspect
-
-            if inspect.iscoroutinefunction(func):
-
-                async def arg_binder(ctx, *_, **__):
-                    # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
-                    # Allows full access but enables SupervisorProxy for nested dicts
-                    # INJECT TRANSACTION:
-                    native_guard = theus_core.ContextGuard(
-                        ctx, [], [], None, tx, True, False
-                    )
-                    return await func(native_guard, *args, **kwargs)
-
-                arg_binder.__name__ = func.__name__
-                target_func = arg_binder
-            else:
-
-                def arg_binder(ctx, *_, **__):
-                    # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
-                    native_guard = theus_core.ContextGuard(
-                        ctx, [], [], None, tx, True, False
-                    )
-                    return func(native_guard, *args, **kwargs)
-
-                arg_binder.__name__ = func.__name__
-                target_func = arg_binder
-
-        # Run via Rust Core (Handles Audit, Timing, etc)
-        try:
-            result = await self._core.execute_process_async(
-                func.__name__, target_func, tx
+        # v3.0.2: Auto-Dispatch Parallel Processes
+        if contract and contract.parallel:
+            import asyncio
+            
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, lambda: self.execute_parallel(func.__name__, **kwargs)
             )
+            ran_locally = False
+            
+        if ran_locally:
+            target_func = func
+            if contract and contract.semantic == SemanticType.PURE:
+                # Pure Wrapper Logic + Arg Capture
+                # [v3.0.4] Pass contract.inputs to create filtered restricted view
+                allowed_inputs = contract.inputs if contract else []
+                import inspect
+
+                if inspect.iscoroutinefunction(func):
+
+                    async def safe_wrapper(ctx, *_, **__):
+                        restricted = self._create_restricted_view(
+                            ctx, allowed_paths=allowed_inputs
+                        )
+                        return await func(restricted, *args, **kwargs)
+
+                    safe_wrapper.__name__ = func.__name__
+                    target_func = safe_wrapper
+                else:
+
+                    def safe_wrapper(ctx, *_, **__):
+                        restricted = self._create_restricted_view(
+                            ctx, allowed_paths=allowed_inputs
+                        )
+                        return func(restricted, *args, **kwargs)
+
+                    safe_wrapper.__name__ = func.__name__
+                    target_func = safe_wrapper
+            else:
+                # If not PURE (no restricted view needed), we still need to bind arguments!
+                import inspect
+
+                if inspect.iscoroutinefunction(func):
+
+                    async def arg_binder(ctx, *_, **__):
+                        # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
+                        # Allows full access but enables SupervisorProxy for nested dicts
+                        # INJECT TRANSACTION:
+                        native_guard = theus_core.ContextGuard(
+                            ctx, [], [], None, tx, True, False
+                        )
+                        return await func(native_guard, *args, **kwargs)
+
+                    arg_binder.__name__ = func.__name__
+                    target_func = arg_binder
+                else:
+
+                    def arg_binder(ctx, *_, **__):
+                        # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
+                        native_guard = theus_core.ContextGuard(
+                            ctx, [], [], None, tx, True, False
+                        )
+                        return func(native_guard, *args, **kwargs)
+
+                    arg_binder.__name__ = func.__name__
+                    target_func = arg_binder
+
+            # Run via Rust Core (Handles Audit, Timing, etc)
+            try:
+                result = await self._core.execute_process_async(
+                    func.__name__, target_func, tx
+                )
+            except Exception as e:
+                # Local execution failure
+                # If we have audit, log fail? 
+                # Currently standard flow catches exception at line 563
+                raise e
+
+        # Common Path: Commit Logic (Local or Parallel Result)
+        try:
 
             # v3.1 Explicit Commit (Supervisor Mode)
             # Verify state version to ensure Optimistic Concurrency Control
@@ -395,12 +473,20 @@ class TheusEngine:
 
             # [v3.1.2] Schema Validation (Python Side)
             # Enforce Pydantic constraints before CAS
-            if self._schema and self._strict_mode:
+            if self._schema and self._strict_guards:
                 self._validate_schema(pending_data)
+
+            # [v3.1.2] Output Gate: Active Validation (Schema/RuleSpec)
+            if self._validator:
+                self._validator.validate_outputs(func.__name__, pending_data)
+
+            # [v3.1.2] Output Gate: Active Validation (Schema/RuleSpec)
+            if self._validator:
+                self._validator.validate_outputs(func.__name__, pending_data)
 
             # [v3.1.1] Audit Gatekeeper: Validate Contract BEFORE Commit
             # This ensures strict spec compliance (Zero Trust).
-            if contract and self._strict_mode:
+            if contract and self._strict_guards:
                 self._validate_contract_compliance(
                     func.__name__, contract, pending_data, tx
                 )
@@ -446,6 +532,37 @@ class TheusEngine:
                             # But usually safe to avoid overwriting with None if not intended
                             if result.val is not None:
                                 setattr(target, last, result.val)
+
+                # [v3.1.5 FIX] Handle Bulk Data Update
+                if result.data:
+                    for path, val in result.data.items():
+                        parts = path.split(".")
+                        root = parts[0]
+                        if root not in pending_data:
+                            # [v3.1.5] Smart CAS Optimization: 
+                            # Do NOT clone full state. Use empty dict to trigger Rust Deep Merge.
+                            # This avoids false conflicts on untouched keys.
+                            pending_data[root] = {}
+
+                        if len(parts) == 1:
+                            pending_data[root] = val
+                        else:
+                            target = pending_data[root]
+                            if target is None:
+                                target = {}
+                                pending_data[root] = target
+
+                            for part in parts[1:-1]:
+                                if isinstance(target, dict):
+                                    target = target.setdefault(part, {})
+                                else:
+                                    target = getattr(target, part)
+                            
+                            last = parts[-1]
+                            if isinstance(target, dict):
+                                target[last] = val
+                            else:
+                                setattr(target, last, val)
 
             # 2. POP Output Mapping (Implicit)
             elif contract and contract.outputs:
@@ -823,6 +940,16 @@ class TheusEngine:
         future = self._parallel_pool.submit(func, ctx)
         return future.result()
 
+    def shutdown(self):
+        """Cleanly shuts down internal resources (Pools, Heavies)."""
+        if hasattr(self, "_parallel_pool") and self._parallel_pool:
+            self._parallel_pool.shutdown()
+            self._parallel_pool = None
+            
+        if hasattr(self, "_allocator") and self._allocator:
+            self._allocator.cleanup()
+            self._allocator = None
+
     def __getattr__(self, name):
         return getattr(self._core, name)
 
@@ -842,29 +969,69 @@ class FilteredDomainProxy:
         self._allowed = allowed_keys  # Set of allowed key names (e.g., {'counter'})
         self._zone = zone_name
 
+    def get(self, key, default=None):
+        if key not in self._allowed:
+            raise ContractViolationError(
+                f"Access denied: '{self._zone}.{key}' not declared in contract inputs."
+            )
+        
+        val = default
+        if hasattr(self._data, "get"):
+            val = self._data.get(key, default)
+        else:
+            val = getattr(self._data, key, default)
+        return self._wrap_deep_guard(val)
+
     def __getitem__(self, key):
         if key not in self._allowed:
             raise ContractViolationError(
                 f"Access denied: '{self._zone}.{key}' not declared in contract inputs. "
                 f"Allowed: {list(self._allowed)}"
             )
+        
+        val = None
         if hasattr(self._data, "__getitem__"):
-            return self._data[key]
-        return getattr(self._data, key)
+            val = self._data[key]
+        else:
+            val = getattr(self._data, key)
+        return self._wrap_deep_guard(val)
+
+    def _wrap_deep_guard(self, val):
+        """Recursively protect return values from mutation."""
+        if val is None:
+            return None
+        if isinstance(val, (str, int, float, bool, bytes)):
+            return val
+        if isinstance(val, list):
+            return tuple(val) # Make immutable copy
+        if isinstance(val, dict):
+            from types import MappingProxyType
+            return MappingProxyType(val) # Zero-copy immutable view
+        if hasattr(val, "copy"):
+            # Try to return a copy if we don't know the type (e.g. Set)
+            # Or should we be strict?
+            pass
+        return val
 
     def __getattr__(self, name):
         if name.startswith("_"):
             return object.__getattribute__(self, name)
         return self[name]
 
-    def get(self, key, default=None):
-        if key not in self._allowed:
-            raise ContractViolationError(
-                f"Access denied: '{self._zone}.{key}' not declared in contract inputs."
-            )
-        if hasattr(self._data, "get"):
-            return self._data.get(key, default)
-        return getattr(self._data, key, default)
+    def __setitem__(self, key, value):
+        raise ContractViolationError(f"PURE Process cannot mutate state: '{self._zone}.{key}'")
+
+    def __setattr__(self, name, value):
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            raise ContractViolationError(f"PURE Process cannot mutate state: '{self._zone}.{name}'")
+
+    def __delitem__(self, key):
+        raise ContractViolationError(f"PURE Process cannot delete state: '{self._zone}.{key}'")
+
+    def __delattr__(self, name):
+        raise ContractViolationError(f"PURE Process cannot delete state: '{self._zone}.{name}'")
 
 
 class RestrictedStateProxy:

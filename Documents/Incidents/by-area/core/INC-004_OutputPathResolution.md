@@ -4,7 +4,7 @@ title: Output Path Resolution Overwrite
 area: core
 severity: medium
 introduced_in: v3.1.0
-fixed_in: v3.1.2
+fixed_in: v3.0.22
 status: resolved
 ---
 

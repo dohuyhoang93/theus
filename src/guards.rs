@@ -16,15 +16,15 @@ pub struct ContextGuard {
     path_prefix: String,
     tx: Option<Py<Transaction>>, 
     is_admin: bool,
-    strict_mode: bool,
+    strict_guards: bool,
     #[pyo3(get, set)]
     log: Option<PyObject>,
 }
 
 impl ContextGuard {
-    pub fn new_internal(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, path_prefix: String, tx: Option<Py<Transaction>>, is_admin: bool, strict_mode: bool) -> PyResult<Self> {
+    pub fn new_internal(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, path_prefix: String, tx: Option<Py<Transaction>>, is_admin: bool, strict_guards: bool) -> PyResult<Self> {
          // Strict Mode: Check for Forbidden Input Zones
-         if strict_mode {
+         if strict_guards {
              for inp in &inputs {
                  let zone = resolve_zone(inp);
                  match zone {
@@ -45,7 +45,7 @@ impl ContextGuard {
             path_prefix,
             tx,
             is_admin,
-            strict_mode,
+            strict_guards,
             log: None,
         })
     }
@@ -182,7 +182,7 @@ impl ContextGuard {
             path_prefix: full_path,
             tx: Some(tx.clone_ref(py)),
             is_admin: self.is_admin,
-            strict_mode: self.strict_mode,
+            strict_guards: self.strict_guards,
             log: None,
         })?.into_py(py))
     }
@@ -191,10 +191,11 @@ impl ContextGuard {
 #[pymethods]
 impl ContextGuard {
     #[new]
-    #[pyo3(signature = (target, inputs, outputs, path_prefix=None, tx=None, is_admin=false, strict_mode=false))]
-    fn new(target: PyObject, inputs: &Bound<'_, PyAny>, outputs: &Bound<'_, PyAny>, path_prefix: Option<String>, tx: Option<Py<Transaction>>, is_admin: bool, strict_mode: bool) -> PyResult<Self> {
+    #[pyo3(signature = (target, inputs, outputs, path_prefix=None, tx=None, is_admin=false, strict_guards=false))]
+    fn new(target: PyObject, inputs: &Bound<'_, PyAny>, outputs: &Bound<'_, PyAny>, path_prefix: Option<String>, tx: Option<Py<Transaction>>, is_admin: bool, strict_guards: bool) -> PyResult<Self> {
         let prefix = path_prefix.unwrap_or_default();
         
+        // ... (vector conversion omitted for brevity, logic remains same)
         let to_vec = |obj: &Bound<'_, PyAny>| -> PyResult<Vec<String>> {
             let mut result = Vec::new();
             if let Ok(iter) = obj.iter() {
@@ -210,11 +211,11 @@ impl ContextGuard {
         let inputs_vec = to_vec(inputs)?;
         let outputs_vec = to_vec(outputs)?;
 
-        Self::new_internal(target, inputs_vec, outputs_vec, prefix, tx, is_admin, strict_mode)
+        Self::new_internal(target, inputs_vec, outputs_vec, prefix, tx, is_admin, strict_guards)
     }
 
     fn __getattr__(&self, py: Python, name: String) -> PyResult<PyObject> {
-        if self.strict_mode && name.starts_with('_') {
+        if self.strict_guards && name.starts_with('_') {
              return Err(PyPermissionError::new_err(format!("Access to private attribute '{}' denied in Strict Mode", name)));
         }
 

@@ -58,20 +58,22 @@ def test_strict_cas_mode():
 
     # Try to update with stale version through Python wrapper
     print("Attempting update 'counter' with stale version=1...")
-    result = engine.compare_and_swap(
-        1, {"domain": {"counter": 200}}
-    )  # Uses Python wrapper
-
-    if result is not None:
-        print("✅ Strict CAS: Update REJECTED (returned State object)")
-        print(f"   Version unchanged: {engine.state.version}")
-        # return True -> Removed
-    else:
+    try:
+        engine.compare_and_swap(
+            1, {"domain": {"counter": 200}}
+        )  # Uses Python wrapper
+        # If we reach here, update succeeded (should NOT happen with strict_cas=True)
         print("❌ Strict CAS: Update succeeded (should have been rejected!)")
-        # return False
         raise AssertionError(
             "Strict CAS: Update succeeded (should have been rejected!)"
         )
+    except Exception as e:
+        # Expected: ContextError with "Strict CAS Mismatch"
+        if "Strict CAS Mismatch" in str(e):
+            print(f"✅ Strict CAS: Update REJECTED correctly")
+            print(f"   Error: {e}")
+        else:
+            raise  # Re-raise unexpected exceptions
 
 
 def test_default_is_smart_cas():

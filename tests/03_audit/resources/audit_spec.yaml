@@ -1,0 +1,55 @@
+# ============================================================
+# Audit Spec for Integration Testing
+# ============================================================
+# This file defines CLEAR, ISOLATED rules for testing purposes.
+# Each rule has EXPLICIT level and threshold for verification.
+# ============================================================
+
+audit:
+  # Global Defaults (Fallback if rule doesn't specify)
+  threshold_max: 100  # Very high - effectively "never block unless overridden"
+  reset_on_success: false
+
+process_recipes:
+  # ============================================================
+  # p_transfer: Transfer Money Process
+  # ============================================================
+  p_transfer:
+    inputs:
+      # RULE 1: Strict Block (Level B, Max 1)
+      # - Violation: amount < 100
+      # - Behavior: Allow 1st fail, Block 2nd fail
+      - field: "amount"
+        min: 100
+        message: "Amount must be >= 100"
+        level: "B"
+        max_threshold: 1
+
+      # RULE 2: Count Only (Level C)
+      # - Violation: dest doesn't match "User*"
+      # - Behavior: NEVER block, just count
+      - field: "dest"
+        regex: "^User.*"
+        message: "Dest should start with 'User'"
+        level: "C"
+
+    outputs:
+      # RULE 3: Global Default (No Level Override)
+      # - Violation: balance > 5000
+      # - Behavior: Use Global (max 100) - effectively never blocks in this test
+      - field: "domain.balance"
+        max: 5000
+        message: "Balance limit exceeded"
+
+  # ============================================================
+  # p_critical: Critical Safety Process (Level S)
+  # ============================================================
+  p_critical:
+    inputs:
+      # RULE 4: Immediate Stop (Level S)
+      # - Violation: ANY call with server != "SAFE"
+      # - Behavior: Immediate AuditStopError on FIRST fail
+      - field: "server"
+        regex: "^SAFE$"
+        message: "CRITICAL: Only SAFE server allowed!"
+        level: "S"

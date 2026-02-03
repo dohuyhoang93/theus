@@ -6,11 +6,16 @@ try:
     from theus_core import State as _RustState
     from theus_core import FrozenDict as _RustFrozenDict
     from theus_core import ContextError
-except ImportError as e:
-    raise ImportError(
-        "CRITICAL: Could not import 'theus_core'. Theus v3 requires the Rust extension.\n"
-        "Please ensure it is installed correctly via 'pip install .'"
-    ) from e
+    _CORE_AVAILABLE = True
+except ImportError:
+    _CORE_AVAILABLE = False
+    # Fallback placeholders for Sub-interpreters or Type Checking
+    class _RustState:
+        pass
+    class _RustFrozenDict(dict):
+        pass
+    class ContextError(Exception):
+        pass
 
 if TYPE_CHECKING:
     # Type Stubs for IDE

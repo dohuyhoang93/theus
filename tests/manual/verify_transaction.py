@@ -39,11 +39,11 @@ async def process_success(ctx):
 
 async def run_test(strict):
     print("\n========================================")
-    print(f" TESTING TRANSACTION | Strict Mode: {strict}")
+    print(f" TESTING TRANSACTION | Strict Guards: {strict}")
     print("========================================")
 
     sys_ctx = MySystem()
-    engine = TheusEngine(sys_ctx, strict_mode=strict)
+    engine = TheusEngine(sys_ctx, strict_guards=strict)
     engine.register(process_that_crashes)
     engine.register(process_success)
 

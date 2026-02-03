@@ -17,7 +17,7 @@ def engine():
     except ImportError:
         print("DEBUG: theus_core not importable normally.")
 
-    return TheusEngine(strict_mode=False)
+    return TheusEngine(strict_guards=False)
 
 
 def test_silent_overwrite_repro(engine):
@@ -117,6 +117,6 @@ if __name__ == "__main__":
         print(f"DEBUG: theus_core import error: {e}")
 
     try:
-        test_silent_overwrite_repro(TheusEngine(strict_mode=False))
+        test_silent_overwrite_repro(TheusEngine(strict_guards=False))
     except Exception as e:
         print(e)

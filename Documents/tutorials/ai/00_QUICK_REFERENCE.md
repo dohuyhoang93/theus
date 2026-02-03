@@ -105,7 +105,7 @@ def my_process(ctx, item_name: str, value: int):
 sys_ctx = MySystemContext()
 
 # 2. Initialize engine
-engine = TheusEngine(sys_ctx, strict_mode=True)
+engine = TheusEngine(sys_ctx, strict_guards=True)
 
 # 3. Register process (auto-discovers name from function)
 engine.register(my_process)

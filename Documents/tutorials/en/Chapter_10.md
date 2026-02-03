@@ -42,7 +42,9 @@ When you pass this array to a worker (via `await engine.execute`), Theus is smar
 ```python
 # Main Process
 arr = engine.heavy.alloc("input_data", shape=(1000,1000), dtype=np.float32)
-engine.compare_and_swap(..., heavy={'input': arr})
+
+# Heavy zone requires explicit CAS to avoid expensive full-state serialization
+engine.compare_and_swap(engine.state.version, heavy={'input': arr})
 
 # Worker Process
 @process(parallel=True)
@@ -65,15 +67,15 @@ Theus Core (Rust) handles this automatically:
 
 > **Note:** You never need to call `unlink()`. Theus owns the memory.
 
-## 4. Strict Mode Optimization
+## 4. Strict Guards Optimization
 For training loops where milliseconds count, you can disable the Transactional Safety Layer completely.
 
 ```python
 # Maximum Speed Mode
-engine = TheusEngine(strict_mode=False)
+engine = TheusEngine(strict_guards=False, strict_cas=False)
 ```
 
-| Defense Layer | **Strict Mode = True** (Default) | **Strict Mode = False** (Training) | **Managed Memory** (New) |
+| Defense Layer | **Strict Guards = True** (Default) | **Strict Guards = False** (Training) | **Managed Memory** (New) |
 | :--- | :--- | :--- | :--- |
 | **1. Transaction (Rollback)** | ✅ **Enabled** | ❌ **Disabled** | N/A |
 | **2. Audit Policy** | ✅ **Active** | ⚠️ **Optional** | ✅ **Active** |

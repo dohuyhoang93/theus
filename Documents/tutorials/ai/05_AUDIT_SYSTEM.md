@@ -123,7 +123,7 @@ from theus import TheusEngine
 # From file
 engine = TheusEngine(
     sys_ctx,
-    strict_mode=True,
+    strict_guards=True,
     audit_recipe="specs/audit_recipe.yaml"
 )
 

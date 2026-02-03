@@ -12,7 +12,7 @@ def verify_dx():
     print("=== 🧩 Starting DX & Interop Verification ===")
 
     # Init Engine
-    engine = TheusEngine(context={"domain": {"test": 1}}, strict_mode=False)
+    engine = TheusEngine(context={"domain": {"test": 1}}, strict_guards=False)
     state = engine.state
     proxy = state.domain  # Should be SupervisorProxy wrapping dict
 

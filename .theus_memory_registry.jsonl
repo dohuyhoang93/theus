@@ -1,4 +1,2 @@
-{"name":"theus:48af94bb:20128:test_lifecycle","pid":20128,"session":"48af94bb","size":400,"ts":0.0}
-{"name":"theus:1d61b332:20128:key1","pid":20128,"session":"1d61b332","size":40,"ts":0.0}
-{"name":"theus:1d61b332:20128:key2","pid":20128,"session":"1d61b332","size":40,"ts":0.0}
-{"name":"theus:5bce88d8:20128:my_secret","pid":20128,"session":"5bce88d8","size":40,"ts":0.0}
+{"name":"theus_theus_18340_a7d1dfd4_source_data","pid":18340,"session":"theus_18340_a7d1dfd4","size":40000000,"ts":0.0}
+{"name":"theus_theus_18340_a7d1dfd4_results_data","pid":18340,"session":"theus_18340_a7d1dfd4","size":40000000,"ts":0.0}

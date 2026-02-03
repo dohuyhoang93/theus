@@ -209,24 +209,17 @@ try:
 except ImportError:
     CORE_AVAILABLE = False
     
+### Pattern
+
+```python
 from theus import TheusEngine
 
-def run_in_subinterp(context_handle):
-    """Run agent in isolated sub-interpreter."""
-    if not CORE_AVAILABLE:
-        return  # Fallback for non-supporting envs
-    
-    # Context shared via Rust backbone
-    engine = TheusEngine.from_handle(context_handle)
-    await engine.execute_workflow("agent_workflow.yaml")
+# 1. Main Process setup
+engine = TheusEngine(sys_ctx)
 
-# Main thread
-context_handle = engine.get_context_handle()
-
-# Spawn sub-interpreters
-if CORE_AVAILABLE:
-    interp1 = create_interp()
-    await interp1.run(run_in_subinterp, context_handle)
+# 2. Spawn parallel tasks
+# If using NumPy, ensure THEUS_USE_PROCESSES="1" is set in env
+await engine.execute("heavy_ai_task", data=...)
 ```
 
 ### Heavy Zone + Sub-Interpreters

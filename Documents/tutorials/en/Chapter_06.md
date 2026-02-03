@@ -29,9 +29,11 @@ The Engine receives your Return Value and performs:
 - **Swap:** Replaces the pointer `Arc<State>` with the new state.
 - **Rollback:** If Exception occurs before Return, the new data is simply discarded. The original State was never touched.
 
-> [!CAUTION]
-> **Safety Violation:** If you perform In-Place Mutation (e.g., `ctx.domain.list.append()`) instead of Copy-on-Write, you are modifying the "Original State" directly.
-> In this case, **Rollback CANNOT save you**. The corrupt data is already in memory.
+> [!IMPORTANT]
+> **The `engine.edit()` Exception:** 
+> When using the `engine.edit()` context manager, you perform mutation directly on a **SupervisorProxy**. This *looks* like In-Place Mutation, but it is actually a **Buffered Record**. 
+> - **Rollback SAFE:** If an exception occurs within the `with engine.edit()` block, the specific buffer is discarded and the system state is untouched.
+> - **Only Raw Mutation is Dangerous:** Modifying a static variable or a global object NOT managed by the Engine is where Rollback fails.
 
 
 ## 3. Transaction Context Manager (v3.0)

@@ -179,9 +179,9 @@ heavy_video_frame: object = None
 
 ---
 
-## 5. Lock Manager (Strict Mode)
+## 5. Lock Manager (Strict Guards)
 
-When `strict_mode=True`, Context is LOCKED immediately.
+When `strict_guards=True`, Context is GUARDED immediately.
 
 ### Illegal: Direct Mutation
 

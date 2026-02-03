@@ -47,7 +47,7 @@ class TestSchemaGatekeeper(unittest.TestCase):
         # 1. Setup
         print("\n[Test] Initializing Engine with BankSystem Schema...")
         ctx = BankSystem(domain=BankAccount(balance=100))
-        engine = theus.engine.TheusEngine(ctx, strict_mode=True)
+        engine = theus.engine.TheusEngine(ctx, strict_guards=True)
 
         # Explicitly ensure Schema is registered (using new engine API)
         engine.set_schema(BankSystem)

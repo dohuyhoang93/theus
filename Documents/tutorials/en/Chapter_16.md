@@ -38,11 +38,11 @@ We count violations but discard data logs.
 *   *Problem:* Machine Learning memory explosion.
 *   *Theus Way:* Operational safety (count errors) > Forensic storage (keep data).
 
-### Why "Strict Mode" Toggle?
-We provide a kill-switch (`strict_mode=False`) for Training.
-*   *Production:* Safety First (Strict=True).
-*   *Training:* Speed First (Strict=False).
-*   *Theus Way:* One framework, two modes. Develop in Sandbox, Train in Turbo, Deploy in Iron.
+### Why "Strict Guards" Toggle?
+We provide explicit toggles (`strict_guards`, `strict_cas`) for Training vs Production.
+*   *Production:* Safety First (Guards=True, CAS=True).
+*   *Training:* Speed First (Guards=False, CAS=False).
+*   *Theus Way:* One framework, multiple modes. Develop in Sandbox, Train in Turbo, Deploy in Iron.
 
 ### Why Flux DSL over Python FSM?
 *   *Performance:* Control logic runs in Rust, bypassing Python GIL.

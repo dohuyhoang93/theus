@@ -23,7 +23,7 @@ if basedir not in sys.path:
     sys.path.insert(0, basedir)
 
 
-def run_ecommerce(engine: TheusEngine):
+async def run_ecommerce(engine: TheusEngine):
     print("\n[DEMO] Running E-Commerce Example...")
     workflow_path = os.path.join(basedir, "workflows", "ecommerce.yaml")
 
@@ -59,36 +59,28 @@ def run_ecommerce(engine: TheusEngine):
     except Exception as e:
         print(f"[WARN] Setup failed: {e}")
 
-    engine.execute_workflow(workflow_path)
+    await engine.execute_workflow(workflow_path)
 
 
-def run_async_outbox(engine: TheusEngine):
+async def run_async_outbox(engine: TheusEngine):
     print("\n[DEMO] Running Async Outbox Example...")
-    import asyncio
-
     workflow_path = os.path.join(basedir, "workflows", "async_outbox.yaml")
 
-    async def _runner():
-        # Inject Signal to Start
-        print("[Test] Injecting 'cmd_start_outbox' signal...")
-        try:
-            # We can use sync transaction update here before workflow starts
-            with engine.transaction() as tx:
-                tx.update(signal={"cmd_start_outbox": "True"})
-        except Exception as e:
-            print(f"Signal Injection Warn: {e}")
+    # Inject Signal to Start
+    print("[Test] Injecting 'cmd_start_outbox' signal...")
+    try:
+        # We can use sync transaction update here before workflow starts
+        with engine.transaction() as tx:
+            tx.update(signal={"cmd_start_outbox": "True"})
+    except Exception as e:
+        print(f"Signal Injection Warn: {e}")
 
-        print("--- Start Workflow ---")
-        # Run blocking workflow in thread pool so it doesn't block the loop
-        # This allows background tasks spawned by processes to run on this loop
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, engine.execute_workflow, workflow_path)
-        print("--- End Workflow ---")
-
-    asyncio.run(_runner())
+    print("--- Start Workflow ---")
+    await engine.execute_workflow(workflow_path)
+    print("--- End Workflow ---")
 
 
-def run_parallel_demo(engine: TheusEngine):
+async def run_parallel_demo(engine: TheusEngine):
     print("\n[DEMO] Running Parallel Processing (Managed Memory)...")
     import numpy as np
     from src.processes.parallel import process_partition
@@ -154,7 +146,7 @@ def run_parallel_demo(engine: TheusEngine):
     print("Consensus: ✅ MATCH" if total_sum_parallel > 0 else "❌ FAIL")
 
 
-def main():
+async def main():
     print("=== THEUS V3 UNIVERSAL SKELETON ===")
 
     # Standard V3 Initialization: Use ConfigFactory
@@ -199,14 +191,15 @@ def main():
         ).ask()
 
     if choice.startswith("1"):
-        run_ecommerce(engine)
+        await run_ecommerce(engine)
     elif choice.startswith("2"):
-        run_async_outbox(engine)
+        await run_async_outbox(engine)
     elif choice.startswith("3"):
-        run_parallel_demo(engine)
+        await run_parallel_demo(engine)
     else:
         print("Bye!")
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())

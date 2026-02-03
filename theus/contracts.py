@@ -84,7 +84,9 @@ def process(
                     return await func(system_ctx, *args, **filtered_kwargs)
                 except Exception as e:
                     raise e
-
+            
+            # [FIX] Copy contract to wrapper
+            wrapper._pop_contract = func._pop_contract
             return wrapper
         else:
 
@@ -95,7 +97,9 @@ def process(
                     return func(system_ctx, *args, **filtered_kwargs)
                 except Exception as e:
                     raise e
-
+            
+            # [FIX] Copy contract to wrapper
+            wrapper._pop_contract = func._pop_contract
             return wrapper
 
     # Normal factory usage @process(...)
@@ -134,6 +138,8 @@ def process(
                     # Log logic if needed
                     raise e
 
+            # [FIX] Copy contract to wrapper
+            wrapper._pop_contract = func._pop_contract
             return wrapper
         else:
 
@@ -145,6 +151,8 @@ def process(
                 except Exception as e:
                     raise e
 
+            # [FIX] Copy contract to wrapper
+            wrapper._pop_contract = func._pop_contract
             return wrapper
 
     return decorator

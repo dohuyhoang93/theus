@@ -35,7 +35,7 @@ async def spy_process(ctx):
 async def run_test(strict):
     print(f"\n--- Testing Contract Enforcement | Strict: {strict} ---")
     sys_ctx = MySystem()
-    engine = TheusEngine(sys_ctx, strict_mode=strict)
+    engine = TheusEngine(sys_ctx, strict_guards=strict)
     engine.register(spy_process)
 
     try:

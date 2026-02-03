@@ -11,7 +11,7 @@ if __name__ == "__main__":
 
     print(f"DEBUG: theus path: {theus.__file__}")
 
-    engine = TheusEngine(strict_mode=False)
+    engine = TheusEngine(strict_guards=False)
 
     print("\n[+] Testing Transaction with Dot Notation...")
     with engine.transaction() as tx:

@@ -21,7 +21,7 @@ class MockSystem(BaseSystemContext):
 def test_heavy_zone():
     sys_ctx = MockSystem()
     # Enable strict mode to ensure Guards are active (though guards are always active in TheusEngine)
-    engine = TheusEngine(sys_ctx, strict_mode=True)
+    engine = TheusEngine(sys_ctx, strict_guards=True)
 
     print("1. Initial State:")
     print(f"   heavy_tensor: {sys_ctx.global_ctx.heavy_tensor}")

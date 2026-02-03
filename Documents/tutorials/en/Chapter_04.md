@@ -15,8 +15,9 @@ config = WarehouseConfig(max_capacity=500)
 domain = WarehouseDomain()
 sys_ctx = WarehouseContext(global_ctx=config, domain=domain)
 
-# Initialize Engine (Strict Mode is default on v3.0, good for Dev)
-engine = TheusEngine(sys_ctx, strict_mode=True)
+# Initialize Engine (Strict Guards is default on v3.0, good for Dev)
+# Note: strict_cas default is False (Smart Mode)
+engine = TheusEngine(sys_ctx, strict_guards=True)
 ```
 
 ## 2. New API in v3.0
@@ -90,6 +91,39 @@ except Exception as e:
     print(f"Failed: {e}")
 ```
 
+## 4. Semantic Process Types
+
+The `@process` decorator accepts a `semantic` argument to define the execution constraints. Understanding this is critical for writing correct code.
+
+| Semantic | Purpose | Constraints | Behavior |
+| :--- | :--- | :--- | :--- |
+| **`effect`** (Default) | General Logic | None | Standard read/write access. Protected by Rust Core transaction. |
+| **`pure`** | Calculation | **Read-Only** | **Zero Trust:** Cannot modify state. Cannot accept `signal.*` inputs. Returns immutable views. |
+| **`guide`** | Orchestration | None | **Future Feature:** Currently behaves like `effect`. Reserved for Workflow Orchestrator v4. |
+
+> **Note:** Functionally, there are only two modes in v3.0: **PURE** (Restricted) and **EFFECT** (Unrestricted). The `guide` type is currently just a marker.
+
+### 🛑 Zero Trust Warning: PURE Processes
+
+When you mark a process as `semantic="pure"`, Theus enforces a **Deep Guard** policy:
+1.  **Write Blocked:** You cannot assign values (`ctx.domain.x = 1` -> `ContractViolationError`).
+2.  **Immutable Views:** Any list or dictionary you read is returned as a `tuple` or `MappingProxyType`.
+
+```python
+@process(inputs=['domain.users'], semantic="pure")
+def calculate_stats(ctx):
+    # OK: Reading values
+    user_count = len(ctx.domain.users)
+    
+    # CRASH: Attempting to mutate a list
+    # ctx.domain.users is a TUPLE, not a list!
+    ctx.domain.users.append("New User") # AttributeError: 'tuple' object has no attribute 'append'
+    
+    return user_count
+```
+
+> **Why?** PURE processes are designed to be stateless and parallel-safe. If they could mutate objects by reference, they would break the "One Brain" architecture. Theus proactively converts mutable types to immutable ones to prevent accidental "Ghost Writes".
+
 ## 5. Auto-Discovery with scan_and_register()
 
 ```python
@@ -103,7 +137,7 @@ This recursively imports all `.py` files and registers any function with `_pop_c
 
 ```python
 # Execute YAML workflow using Rust Flux DSL Engine
-engine.execute_workflow("workflows/main_workflow.yaml")
+await engine.execute_workflow("workflows/main_workflow.yaml")
 ```
 
 See Chapter 11 for Flux DSL workflow syntax.

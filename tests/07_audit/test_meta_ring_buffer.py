@@ -26,7 +26,7 @@ class TestMetaRingBuffer:
         # Create guard with normal inputs (no meta access)
         target = {"meta_log": [], "data": {}}
         guard = ContextGuard(
-            target=target, inputs=["data"], outputs=["data"], strict_mode=True
+            target=target, inputs=["data"], outputs=["data"], strict_guards=True
         )
 
         # Attempting to read meta should fail

@@ -55,7 +55,7 @@ class TestContractEnforcement(unittest.TestCase):
         )
         ctx = SchemaContext(domain=SchemaDomain(data={}))
         engine = theus.engine.TheusEngine(
-            ctx, strict_mode=True, audit_recipe=recipe_camp
+            ctx, strict_guards=True, audit_recipe=recipe_camp
         )
         engine.register(contract_limit_process)
 

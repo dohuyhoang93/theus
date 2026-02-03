@@ -123,10 +123,12 @@ steps:
 ```python
 from theus import TheusEngine
 
-engine = TheusEngine(sys_ctx, strict_mode=True)
+engine = TheusEngine(sys_ctx, strict_guards=True)
 engine.scan_and_register("src/processes")
 
 # Execute workflow
+# ⚠️ WARNING: This call is SYNCHRONOUS and blocking. 
+# In an async environment, use: await asyncio.to_thread(engine.execute_workflow, "...")
 engine.execute_workflow("workflows/agent_loop.yaml")
 ```
 

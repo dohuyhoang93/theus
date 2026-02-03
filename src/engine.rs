@@ -27,9 +27,10 @@ pub struct TheusEngine {
     outbox: Arc<Mutex<Vec<OutboxMsg>>>,
     worker: Arc<Mutex<Option<PyObject>>>,
     pub schema: Arc<Mutex<Option<PyObject>>>,
-    pub audit_system: Arc<Mutex<Option<PyObject>>>, // NEW
-    pub strict_mode: Arc<Mutex<bool>>,             // NEW
-    conflict_manager: Arc<ConflictManager>,         // NEW v3.3
+    pub audit_system: Arc<Mutex<Option<PyObject>>>, 
+    pub strict_guards: Arc<Mutex<bool>>,             // NEW: I/O Policy
+    pub strict_cas: Arc<Mutex<bool>>,                // NEW: Concurrency Policy
+    conflict_manager: Arc<ConflictManager>,
 }
 
 #[pymethods]
@@ -43,8 +44,9 @@ impl TheusEngine {
             worker: Arc::new(Mutex::new(None)),
             schema: Arc::new(Mutex::new(None)),
             audit_system: Arc::new(Mutex::new(None)),
-            strict_mode: Arc::new(Mutex::new(false)),
-            conflict_manager: Arc::new(ConflictManager::new(5, 2)), // Max 5 retries, 2ms base
+            strict_guards: Arc::new(Mutex::new(false)),
+            strict_cas: Arc::new(Mutex::new(false)),
+            conflict_manager: Arc::new(ConflictManager::new(5, 2)), 
         })
     }
     
@@ -53,9 +55,15 @@ impl TheusEngine {
         *a = Some(audit);
     }
 
-    fn set_strict_mode(&self, strict: bool) {
-        let mut s = self.strict_mode.lock().unwrap();
-        *s = strict;
+    // Explicit Feature Toggles (POP Manifesto)
+    fn set_strict_guards(&self, enabled: bool) {
+        let mut s = self.strict_guards.lock().unwrap();
+        *s = enabled;
+    }
+
+    fn set_strict_cas(&self, enabled: bool) {
+        let mut s = self.strict_cas.lock().unwrap();
+        *s = enabled;
     }
 
     fn set_schema(&self, schema: PyObject) {
@@ -148,17 +156,17 @@ impl TheusEngine {
              return Err(ContextError::new_err("System Busy (VIP Access Only)"));
         }
 
-        // [FIX] Enforce Strict CAS if enabled
-        let strict_mode = *self.strict_mode.lock().unwrap();
+        // [FIX] Enforce Strict CAS if enabled (Explicit)
+        let strict_cas = *self.strict_cas.lock().unwrap();
         
         let current_state_bound = self.state.bind(py);
         let current_state = current_state_bound.borrow();
         let current_version = current_state.version;
         
         if current_version != expected_version {
-            if strict_mode {
+            if strict_cas {
                  return Err(ContextError::new_err(format!(
-                    "Strict CAS Mismatch: Expected {}, Found {} (Strict Mode Enabled)", 
+                    "Strict CAS Mismatch: Expected {}, Found {} (Strict CAS Enabled)", 
                     expected_version, current_version
                 )));
             }

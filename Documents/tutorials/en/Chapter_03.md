@@ -7,14 +7,13 @@
 
 To avoid "brain overload," structure your thinking into three tiers. You only need the top tier for 99% of your work.
 
-### 🔻 Tier 1: The "Daily Driver" (99% Usage)
-*   **Method:** **Implicit POP (`@process` decorator)**
-*   **Mindset:** "I just return the new value. Theus handles the rest."
-*   **Complexity:** 🟢 Easy
+### 🔻 Tier 1: The "Daily Driver" (95% Usage)
+*   **Method 1:** **Implicit POP (`@process` decorator)** → "I just return the new value."
+*   **Method 2:** **Safe Edit (`engine.edit()`)** → "Safe context manager for complex mutations outside processes."
+*   **Complexity:** 🟢 Easy & Recommended
 
-### 🔻 Tier 2: The "Admin Tool" (1% Usage)
-*   **Method 1:** **Batch Transaction (`tx.update`)** → "Initializing the system."
-*   **Method 2:** **Safe Edit (`engine.edit()`)** → "Cheat Code for Unit Tests / Debugging only."
+### 🔻 Tier 2: The "Setup Tool" (5% Usage)
+*   **Method:** **Batch Transaction (`tx.update`)** → "Initializing the system or importing bulk data."
 *   **Complexity:** 🟡 Medium
 
 ### 🔻 Tier 3: The "Kernel" (System Internals Usage)
@@ -59,9 +58,23 @@ with engine.transaction() as tx:
     })
 # On exit: Theus sends the batch to Rust.
 ```
-*   **Warning:** This overwrites data at the keys you specify. Be careful not to wipe out nested data if you provide a partial dictionary!
+*   **Benefit:** In v3.0.22, this performing a **Recursive Deep Merge**. If you provide a partial dictionary, Theus merges it into the existing state, preserving sibling fields.
 
-## 3. Explicit CAS (`compare_and_swap`)
+
+## 3. Safe Edit (`engine.edit()`)
+This is the most idiomatic way to handle complex state changes in Setup scripts, API handlers, or Unit Tests.
+
+```python
+with engine.edit() as ctx:
+    # Mutate directly using Pythonic syntax
+    ctx.domain.order.status = "PAID"
+    ctx.domain.inventory['Laptop'] -= 1
+    # Siblings like 'payment' or 'other_items' are 100% safe.
+```
+*   **Type Safety:** If you gõ sai tên thuộc tính (e.g., `ctx.domain.oreder`), Python sẽ báo `AttributeError` ngay lập tức.
+*   **Auto-Rollback:** Nếu có Exception xảy ra bên trong block `edit()`, toàn bộ thay đổi sẽ bị hủy bỏ, bảo vệ trạng thái hệ thống.
+
+## 4. Explicit CAS (`compare_and_swap`)
 
 Used for building low-level primitives or high-concurrency systems.
 Theus v3 offers two flavors of CAS, controlled by `strict_cas`.
