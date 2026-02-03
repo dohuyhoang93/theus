@@ -105,6 +105,10 @@ impl RingBuffer {
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
 }
 
 // ============================================================================
@@ -191,7 +195,7 @@ impl AuditSystem {
         self.log_internal(&key, &format!("Fail #{}", current_count));
 
         // Use Overrides (Granular) OR Fallback to Global (Defcon)
-        let effective_level = level.unwrap_or(self.recipe.level.clone());
+        let effective_level = level.unwrap_or(self.recipe.level);
         let effective_threshold = threshold_max.unwrap_or(self.recipe.threshold_max);
         let threshold_min = self.recipe.threshold_min;
 

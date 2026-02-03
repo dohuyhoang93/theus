@@ -113,7 +113,7 @@ async def run_4tier_verification():
     if ver_before == ver_after:
         print("    [+] Empty update was No-Op (Version stable)")
     else:
-        print(f"    [+] Empty update bumped version (Acceptable behavior)")
+        print("    [+] Empty update bumped version (Acceptable behavior)")
 
     # 3.2 Dynamic Key Creation (Data Zone allows expansion)
     engine.compare_and_swap(engine.state.version, data={'domain': {'new_key': 999}})

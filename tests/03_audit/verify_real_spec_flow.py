@@ -130,7 +130,7 @@ async def run_verify():
         await engine4.execute(p_transfer, amount=50, dest="UserA")
         print("      [FAIL] DID NOT BLOCK! Audit might be disabled with strict_guards=False!")
     except AuditBlockError as e:
-        print(f"      [PASS] BLOCKED: Audit works INDEPENDENTLY of strict_guards!")
+        print("      [PASS] BLOCKED: Audit works INDEPENDENTLY of strict_guards!")
     
     # =================================================================
     # SUMMARY

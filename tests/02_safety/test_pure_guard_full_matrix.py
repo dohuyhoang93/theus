@@ -55,9 +55,9 @@ def attack_edge_deep(ctx):
     # B. Deep Mutation (Reference Leak)
     # If ctx.domain.safe_list returns the raw list, we can append to it!
     try:
-        l = ctx.domain.safe_list
-        l.append(999) # MUTATION!
-        return f"VULNERABLE_DEEP_LIST_APPENDED: {l}"
+        safe_list = ctx.domain.safe_list
+        safe_list.append(999) # MUTATION!
+        return f"VULNERABLE_DEEP_LIST_APPENDED: {safe_list}"
     except Exception as e:
         # Debugging: Why is it blocked?
         print(f"\n[DEBUG] Edge Case Blocked by: {type(e).__name__}: {e}")

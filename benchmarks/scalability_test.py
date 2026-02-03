@@ -28,7 +28,7 @@ def task_zerocopy(shm_name, shape, dtype):
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    print(f"=== SCALABILITY TEST: 200MB Matrix (5000x5000 float64) ===")
+    print("=== SCALABILITY TEST: 200MB Matrix (5000x5000 float64) ===")
     
     # 1. Generate Data
     print("Generating data...")
@@ -50,7 +50,7 @@ if __name__ == "__main__":
             [f.result() for f in futures]
         duration = time.time() - start
         print(f"-> Time: {duration:.4f}s")
-        print(f"-> Impact: High RAM Usage (Copy per worker), CPU Spike (Pickling)")
+        print("-> Impact: High RAM Usage (Copy per worker), CPU Spike (Pickling)")
     except Exception as e:
         print(f"-> FAILED: {e}")
 
@@ -72,7 +72,7 @@ if __name__ == "__main__":
             [f.result() for f in futures]
         duration = time.time() - start
         print(f"-> Time: {duration:.4f}s")
-        print(f"-> Impact: Near-Zero RAM overhead, Instant Startup")
+        print("-> Impact: Near-Zero RAM overhead, Instant Startup")
         
     finally:
         shm.close()

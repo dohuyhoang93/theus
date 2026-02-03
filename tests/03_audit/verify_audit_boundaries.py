@@ -59,7 +59,7 @@ class TestAuditBoundaries(unittest.IsolatedAsyncioTestCase):
         audit.log_fail("p_edge")
         # Fail 2
         audit.log_fail("p_edge")
-        print(f"    [+] Reached Max Threshold (2)")
+        print("    [+] Reached Max Threshold (2)")
         
         # Fail 3 -> BLOCK
         with self.assertRaises(AuditBlockError):

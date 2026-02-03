@@ -10,9 +10,7 @@ def process_iso_cpu(context):
     Input: context dict with { 'shm_name': str, 'size': int }
     Output: checksum (int)
     """
-    import time
     from multiprocessing import shared_memory
-    import struct
     
     # context is ParallelContext object, which holds domain dict
     # Note: domain is the kwargs passed to execute_parallel

@@ -70,7 +70,7 @@ def test_strict_cas_mode():
     except Exception as e:
         # Expected: ContextError with "Strict CAS Mismatch"
         if "Strict CAS Mismatch" in str(e):
-            print(f"✅ Strict CAS: Update REJECTED correctly")
+            print("✅ Strict CAS: Update REJECTED correctly")
             print(f"   Error: {e}")
         else:
             raise  # Re-raise unexpected exceptions
