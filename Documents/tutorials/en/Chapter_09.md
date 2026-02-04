@@ -15,6 +15,25 @@ Level defines **WHAT ACTION** the Engine will take when a rule is violated.
 ## 2. Dual-Thresholds: Error Accumulation
 Real systems have Noise. Theus v3.0 allows you to configure "Tolerance" via Thresholds (Rust Audit Tracker).
 
+### YAML Configuration Example
+```yaml
+# audit_recipe.yaml
+audit:
+  level: "Block"           # or "Stop", "Abort", "Count" (S/A/B/C also accepted)
+  threshold_min: 2         # Warning threshold
+  threshold_max: 5         # Block threshold
+  reset_on_success: true   # Standard mode (false = Flaky Detector)
+```
+
+Then load it:
+```python
+from theus.config import ConfigFactory
+from theus import TheusEngine
+
+recipe = ConfigFactory.load_recipe("audit_recipe.yaml")
+engine = TheusEngine(context={...}, audit_recipe=recipe)
+```
+
 ### How Threshold Works
 Each Rule has its own Counter in `AuditTracker`.
 - **min_threshold:** Count to start Warning (Yellow).
@@ -45,7 +64,7 @@ Theus allows you to choose how strictly to track errors over time using the `res
 ## 3. Catching Errors in Orchestrator
 
 ```python
-from theus_core import AuditBlockError, AuditAbortError, AuditStopError
+from theus.audit import AuditBlockError, AuditAbortError, AuditStopError
 
 try:
     await engine.execute(add_product, price=-5)
@@ -58,26 +77,93 @@ except AuditStopError:
     sys.exit(1)
 ```
 
+**Note:** These exceptions are re-exported from `theus.audit` for convenience. You can also import directly from `theus_core` if needed.
+
 ---
 **Exercise:**
 Configure `max_threshold: 3` for rule `price >= 0`. Call consecutively with negative price and observe the 3rd call failing.
 
 ---
 
-## 4. Design Decision: "Trust on Read, Verify on Write"
+## 4. Design Decision: "Dual Gate Validation"
 
-You might ask: *"Why doesn't Theus check if `domain.items` is valid when I read it?"*
+Theus validates data at **two checkpoints** to ensure system integrity:
 
-**The Answer:** Performance & Philosophy.
+### 4.1 Input Gate (Before Execution)
+When you call a process with arguments, Theus validates them **before** execution begins.
 
-1.  **Trust on Read:** Theus assumes data in the State is **already clean**. Why? Because it had to pass the strict **Write Audit** to get there in the previous tick.
-    *   *Analogy:* You scan your badge to verify identity when *entering* a secure building (Write). You don't scan it every time you walk into the cafeteria (Read).
-    *   **Access Control:** We DO check permissions (Can you read this?).
+```python
+# audit_recipe.yaml
+process_recipes:
+  p_signup:
+    inputs:
+      - field: "age"
+        min: 18
+        message: "User must be 18+"
+```
 
-2.  **Verify on Write:** The "Gatekeeper" stands at the exit. Before any change is committed to the database, it must pass the Schema Audit.
+```python
+# This fails at Input Gate (before signup logic runs)
+await engine.execute(p_signup, age=15)  # AuditBlockError
+```
 
-> **⚠️ Performance Warning:** If we audited every Read, a loop iterating 10,000 items would trigger 10,000 Audit Logs. This would destroy performance (100x slowdown).
-> **Rule:** If you need to validate inputs (e.g., from an external API), do it explicitly in your Python code:
-> ```python
-> if input_val < 0: raise ValueError("Bad Input")
-> ```
+**What happens:**
+1. `validate_inputs()` checks `age >= 18`
+2. Violation detected → `audit_system.log_fail("p_signup:input:age")`
+3. Counter increments; if threshold exceeded → Process **blocked**
+4. Signup logic **never executes** (failed at gate)
+
+### 4.2 Output Gate (Before Commit)
+After a process returns data, Theus validates the **pending mutations** before committing to state.
+
+```python
+# audit_recipe.yaml
+process_recipes:
+  p_update_score:
+    outputs:
+      - field: "domain.score"
+        max: 200
+        message: "Score overflow"
+```
+
+```python
+@process(outputs=["domain.score"])
+async def p_update_score(ctx):
+    return 250  # Invalid!
+
+# This fails at Output Gate (before CAS commit)
+await engine.execute(p_update_score)  # AuditBlockError
+```
+
+**What happens:**
+1. Process executes, returns `250`
+2. `validate_outputs()` checks `score <= 200`
+3. Violation detected → Audit logs, counter increments
+4. CAS **never commits** (state unchanged)
+
+### 4.3 Performance Considerations
+
+**Q:** *"Won't validating inputs slow down my loops?"*
+
+**A:** No. Validation runs **once per process call**, not per-read inside loops.
+
+```python
+@process(inputs=["domain.items"])
+async def analyze_items(ctx):
+    # Input Gate validates 'items' ONCE here
+    
+    total = 0
+    for i in range(10000):
+        # NO validation here (just normal dict access)
+        total += ctx.domain.items[i]
+    
+    return total
+```
+
+**Performance:** Validation overhead is O(1) per `execute()`, regardless of loop iterations inside the process.
+
+**External API Inputs:** Always validate untrusted data explicitly:
+```python
+if external_age < 0:
+    raise ValueError("Invalid age from API")
+```

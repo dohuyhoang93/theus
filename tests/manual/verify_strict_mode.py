@@ -1,12 +1,17 @@
 import asyncio
 from dataclasses import dataclass, field
+import sys
+import os
+# Force local source to avoid site-packages mismatch
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
 from theus import TheusEngine, process
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
 
 
 @dataclass
 class MyDomain(BaseDomainContext):
-    items: list = field(default_factory=list)
+    data_items: list = field(default_factory=list)
 
 
 @dataclass
@@ -16,19 +21,19 @@ class MyGlobal(BaseGlobalContext):
 
 @dataclass
 class MySystem(BaseSystemContext):
-    domain_ctx: MyDomain = field(default_factory=MyDomain)
     global_ctx: MyGlobal = field(default_factory=MyGlobal)
+    domain: MyDomain = field(default_factory=MyDomain)
 
 
 # A process that tries to MUTATE in-place (Legacy Way)
-@process(inputs=["domain.items"], outputs=["domain.items"])
+@process(inputs=["domain.data_items"], outputs=["domain.data_items"])
 async def legacy_mutation_process(ctx):
-    print(f"  [Process] Type of ctx.domain.items: {type(ctx.domain.items)}")
+    print(f"  [Process] Type of ctx.domain.data_items: {type(ctx.domain.data_items)}")
     try:
         # Try to append directly
-        ctx.domain.items.append("mutated")
+        ctx.domain.data_items.append("mutated")
         print("  [Process] Mutation SUCCESS (strict_guards=False behavior)")
-        return "success"
+        return ctx.domain.data_items
     except (AttributeError, TypeError) as e:
         print(f"  [Process] Mutation BLOCKED ({type(e).__name__}): {e}")
         raise

@@ -1,4 +1,9 @@
 import asyncio
+import sys
+import os
+# Force local source to avoid site-packages mismatch
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
 from dataclasses import dataclass, field
 from theus import TheusEngine, process
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
@@ -17,8 +22,14 @@ class MyGlobal(BaseGlobalContext):
 
 @dataclass
 class MySystem(BaseSystemContext):
-    domain_ctx: MyDomain = field(default_factory=MyDomain)
+    # Order matters for dataclass inheritance with defaults.
+    # BaseSystemContext has: global_ctx, domain (no defaults)
+    # To fix "non-default arg follows default", we must provide defaults for ALL if we provide for one,
+    # OR rely on keyword init.
+    
+    # We override BOTH to give them defaults matchin Base names.
     global_ctx: MyGlobal = field(default_factory=MyGlobal)
+    domain: MyDomain = field(default_factory=MyDomain)
 
 
 # Only declare 'declared'

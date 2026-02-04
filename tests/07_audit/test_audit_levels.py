@@ -115,3 +115,31 @@ class TestAuditLevels:
 
         with pytest.raises(Exception):
             audit.log_fail("test_key")  # count=6, now blocked
+
+    def test_reset_on_success_false_flaky_detector(self):
+        """Flaky Detector: Errors accumulate despite successes (reset_on_success=False)."""
+        from theus_core import AuditSystem, AuditRecipe, AuditLevel, AuditBlockError
+
+        recipe = AuditRecipe(
+            level=AuditLevel.Block,
+            threshold_max=3,
+            reset_on_success=False  # Flaky Detector Mode
+        )
+        audit = AuditSystem(recipe)
+
+        # Interleave failures and successes
+        audit.log_fail("flaky_key")      # count=1
+        audit.log_success("flaky_key")   # count STILL 1 (no reset)
+        assert audit.get_count("flaky_key") == 1
+
+        audit.log_fail("flaky_key")      # count=2
+        audit.log_success("flaky_key")   # count STILL 2
+        assert audit.get_count("flaky_key") == 2
+
+        audit.log_fail("flaky_key")      # count=3
+        audit.log_success("flaky_key")   # count STILL 3
+        assert audit.get_count("flaky_key") == 3
+
+        # 4th fail should block even though we had successes in between
+        with pytest.raises(AuditBlockError):
+            audit.log_fail("flaky_key")  # count=4 → BLOCK

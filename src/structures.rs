@@ -394,6 +394,7 @@ impl State {
                      "domain".to_string(),
                      true, // Read-Only
                      None,
+                     false, // is_shadow
                  );
                  Ok(Py::new(py, proxy)?.into_py(py))
              },
@@ -410,6 +411,7 @@ impl State {
                     "domain".to_string(),
                     read_only.unwrap_or(false),
                     None,
+                    false, // is_shadow
                 );
                 Ok(Py::new(py, proxy)?.into_py(py))
             },
@@ -426,6 +428,7 @@ impl State {
                      "global".to_string(),
                      true, // Read-Only
                      None,
+                     false, // is_shadow
                  );
                  Ok(Py::new(py, proxy)?.into_py(py))
              },

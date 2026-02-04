@@ -1,12 +1,17 @@
 import asyncio
 from dataclasses import dataclass, field
+import sys
+import os
+# Force local source to avoid site-packages mismatch
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
 from theus import TheusEngine, process
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
 
 
 @dataclass
 class MyDomain(BaseDomainContext):
-    items: list = field(default_factory=list)
+    data_list: list = field(default_factory=list)
 
 
 @dataclass
@@ -16,25 +21,25 @@ class MyGlobal(BaseGlobalContext):
 
 @dataclass
 class MySystem(BaseSystemContext):
-    domain_ctx: MyDomain = field(default_factory=MyDomain)
     global_ctx: MyGlobal = field(default_factory=MyGlobal)
+    domain: MyDomain = field(default_factory=MyDomain)
 
 
 # Process that mutates AND fails
-@process(inputs=["domain.items"], outputs=["domain.items"])
+@process(inputs=["domain.data_list"], outputs=["domain.data_list"])
 async def process_that_crashes(ctx):
     print("    -> [Process] Appending 'bad_data'...")
-    ctx.domain.items.append("bad_data")
+    ctx.domain.data_list.append("bad_data")
     print("    -> [Process] 'bad_data' appended. Now raising ValueError...")
     raise ValueError("Intentional Crash to test Rollback")
     return "should_not_reach_here"
 
 
 # Process that mutates successfully
-@process(inputs=["domain.items"], outputs=["domain.items"])
+@process(inputs=["domain.data_list"], outputs=["domain.data_list"])
 async def process_success(ctx):
-    ctx.domain.items.append("good_data")
-    return "success"
+    ctx.domain.data_list.append("good_data")
+    return ctx.domain.data_list
 
 
 async def run_test(strict):
@@ -48,7 +53,7 @@ async def run_test(strict):
     engine.register(process_success)
 
     # Initial State
-    print(f"  [Init] Items: {sys_ctx.domain_ctx.items}")
+    print(f"  [Init] Items: {sys_ctx.domain.data_list}")
 
     # Case 1: Crash -> Expect Rollback
     print("  [Step 1] Executing 'process_that_crashes'...")
@@ -59,8 +64,9 @@ async def run_test(strict):
 
     # Check State
     # In V3 Architecture (Shadow Copy), the "bad_data" exists only in Shadow.
-    # If Transaction failed/dropped, sys_ctx.domain_ctx (the Truth) should NOT change.
-    current_items = sys_ctx.domain_ctx.items
+    # If Transaction failed/dropped, engine.state.domain (the Truth) should NOT change.
+    # Note: sys_ctx is the INPUT object. Theus doesn't mutate it. We must check engine state.
+    current_items = engine.state.domain.data_list
     print(f"  [Result] Items after Crash: {current_items}")
 
     if "bad_data" in current_items:
@@ -71,7 +77,7 @@ async def run_test(strict):
     # Case 2: Success
     print("  [Step 2] Executing 'process_success'...")
     await engine.execute("process_success")
-    current_items = sys_ctx.domain_ctx.items
+    current_items = engine.state.domain.data_list
     print(f"  [Result] Items after Success: {current_items}")
 
     if "good_data" in current_items:

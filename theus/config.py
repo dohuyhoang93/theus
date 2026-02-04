@@ -76,10 +76,29 @@ class ConfigFactory:
             target = data["audit"]
 
         t_max = target.get("threshold_max", target.get("max_retries", 3))
+        t_min = target.get("threshold_min", 0)
         reset = target.get("reset_on_success", True)
+        
+        # Parse Level Enum
+        level_str = target.get("level", "Block")
+        from theus_core import AuditLevel
+        level_map = {
+            "Stop": AuditLevel.Stop,
+            "S": AuditLevel.Stop,
+            "Abort": AuditLevel.Abort,
+            "A": AuditLevel.Abort,
+            "Block": AuditLevel.Block,
+            "B": AuditLevel.Block,
+            "Count": AuditLevel.Count,
+            "C": AuditLevel.Count,
+        }
+        level_enum = level_map.get(level_str, AuditLevel.Block)
 
         rust_recipe = AuditRecipe(
-            threshold_max=int(t_max), reset_on_success=bool(reset)
+            level=level_enum,
+            threshold_max=int(t_max),
+            threshold_min=int(t_min),
+            reset_on_success=bool(reset)
         )
 
         return AuditRecipeBook(definitions=definitions, rust_recipe=rust_recipe)

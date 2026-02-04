@@ -8,7 +8,9 @@ sys.path.insert(0, os.getcwd())
 
 from theus import TheusEngine
 from theus.structures import ContextError
+import pytest
 
+@pytest.mark.asyncio
 async def test_strict_matrix():
     print("\n[TEST] Verifying Decoupled Strictness APIs (POP v3.1)")
     

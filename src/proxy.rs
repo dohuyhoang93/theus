@@ -29,23 +29,28 @@ pub struct SupervisorProxy {
     read_only: bool,
     /// Optional transaction for delta logging
     transaction: Option<Py<PyAny>>,
+    /// [INC-013] If true, this proxy wraps a Shadow Object.
+    /// Children of a Shadow are implicitly Shadows and should NOT trigger CoW.
+    is_shadow: bool,
 }
 
 #[pymethods]
 impl SupervisorProxy {
     #[new]
-    #[pyo3(signature = (target, path="".to_string(), read_only=false, transaction=None))]
+    #[pyo3(signature = (target, path="".to_string(), read_only=false, transaction=None, is_shadow=false))]
     pub fn new(
         target: Py<PyAny>,
         path: String,
         read_only: bool,
         transaction: Option<Py<PyAny>>,
+        is_shadow: bool,
     ) -> Self {
         SupervisorProxy {
             target,
             path,
             read_only,
             transaction,
+            is_shadow,
         }
     }
 
@@ -113,12 +118,24 @@ impl SupervisorProxy {
         if is_dict || has_dict {
             let tx_clone = self.transaction.as_ref().map(|t| t.clone_ref(py));
             
-            // v3.1 CoW: Get Shadow (No Stitching - maintain in shadow_cache only)
+            // [INC-013] Double Shadowing Logic
+            let mut is_child_shadow = self.is_shadow;
+
+            // v3.1 CoW: Get Shadow (No Stitching)
             let val_shadow = if let Some(ref tx) = self.transaction {
                 let tx_bound = tx.bind(py);
-                match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
-                    Ok(s) => s.unbind(),
-                    Err(_) => val
+                
+                if self.is_shadow {
+                    // Parent is Shadow -> Child is mutable part of Shadow Tree. Skip CoW.
+                    val.clone_ref(py)
+                } else {
+                    match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
+                        Ok(s) => {
+                            is_child_shadow = true; // Result of get_shadow is always tracked
+                            s.unbind()
+                        },
+                        Err(_) => val
+                    }
                 }
             } else {
                 val
@@ -129,6 +146,7 @@ impl SupervisorProxy {
                 nested_path,
                 self.read_only,
                 tx_clone,
+                is_child_shadow,
             ).into_py(py))
         } else {
             Ok(val)
@@ -195,12 +213,23 @@ impl SupervisorProxy {
         if val.bind(py).is_instance_of::<PyDict>() || val.bind(py).hasattr("__dict__")? {
             let tx_clone = self.transaction.as_ref().map(|t| t.clone_ref(py));
             
+            // [INC-013] Double Shadowing Logic
+            let mut is_child_shadow = self.is_shadow;
+
             // v3.1 CoW: Get Shadow (No Stitching)
             let val_shadow = if let Some(ref tx) = self.transaction {
                 let tx_bound = tx.bind(py);
-                match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
-                    Ok(s) => s.unbind(),
-                    Err(_) => val
+                
+                if self.is_shadow {
+                    val.clone_ref(py)
+                } else {
+                    match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
+                        Ok(s) => {
+                            is_child_shadow = true;
+                            s.unbind()
+                        },
+                        Err(_) => val
+                    }
                 }
             } else {
                 val
@@ -211,6 +240,7 @@ impl SupervisorProxy {
                 nested_path,
                 self.read_only,
                 tx_clone,
+                is_child_shadow,
             ).into_py(py))
         } else {
             Ok(val)
@@ -575,12 +605,24 @@ impl SupervisorProxy {
         // 1. Handle Dicts and Objects (Existing Logic)
         if is_dict || has_dict {
             let tx_clone = self.transaction.as_ref().map(|t| t.clone_ref(py));
+            
+            // [INC-013] Double Shadowing Logic
+            let mut is_child_shadow = self.is_shadow;
+
             // CoW: Get Shadow
             let val_shadow = if let Some(ref tx) = self.transaction {
                 let tx_bound = tx.bind(py);
-                match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
-                    Ok(s) => s.unbind(),
-                    Err(_) => val
+                
+                if self.is_shadow {
+                    val.clone_ref(py)
+                } else {
+                    match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
+                        Ok(s) => {
+                            is_child_shadow = true;
+                            s.unbind()
+                        },
+                        Err(_) => val
+                    }
                 }
             } else {
                 val
@@ -591,6 +633,7 @@ impl SupervisorProxy {
                 nested_path,
                 self.read_only,
                 tx_clone,
+                is_child_shadow,
             ).into_py(py));
         }
         
@@ -637,7 +680,8 @@ impl SupervisorProxy {
         let tuple = PyTuple::new_bound(py, vec![
             self.target.clone_ref(py),
             self.path.clone().into_py(py),
-            self.read_only.into_py(py)
+            self.read_only.into_py(py),
+            self.is_shadow.into_py(py)
         ]);
         Ok(tuple.into())
     }
@@ -647,6 +691,12 @@ impl SupervisorProxy {
         self.target = tuple.get_item(0)?.unbind();
         self.path = tuple.get_item(1)?.extract()?;
         self.read_only = tuple.get_item(2)?.extract()?;
+        // Handle backwards compat for old pickles (len=3)
+        if tuple.len() >= 4 {
+             self.is_shadow = tuple.get_item(3)?.extract()?;
+        } else {
+             self.is_shadow = false;
+        }
         self.transaction = None; // Detached from transaction after unpickle
         Ok(())
     }
@@ -658,7 +708,8 @@ impl SupervisorProxy {
              py.None(),
              "".into_py(py),
              true.into_py(py),
-             py.None()
+             py.None(),
+             false.into_py(py)
         ]);
         Ok(tuple.into())
     }

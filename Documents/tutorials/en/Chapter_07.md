@@ -6,10 +6,11 @@ Working with Immutable Snapshots requires a shift in thinking. This chapter help
 In Theus v3.0, the framework automatically chooses the safest way to expose data.
 
 ### Read-Only (`inputs` only)
-When you access `ctx.domain.items` without write permission:
-- Theus returns a **FrozenList**.
-- This is a zero-copy view of the Rust memory.
-- **Rule:** `FrozenList` is Read-Only. `items.append(x)` throws an error.
+When you access `ctx.domain.items` (a list) without write permission:
+- Theus returns a **Detached Copy** (Raw List) from the Rust memory.
+- **Behavior:** `items.append(x)` **SUCCEEDS locally** (in memory).
+- **Safety:** The Engine **REJECTS** this change during the Commit phase (Contract Violation) or simply discards it.
+- **Warning:** Do not rely on "Immutable Errors" to catch logic bugs inside the function. The failure happens at the end.
 
 ### Writable (`outputs` declared)
 When you have permission:

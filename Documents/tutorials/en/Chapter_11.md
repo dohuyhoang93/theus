@@ -48,14 +48,22 @@ steps:
 
 ### Event-Driven: flux: if (Signal)
 
-You can react to ephemeral signals using `signal.get()`.
+Theus v3.0 enables "Event-Driven" workflows via the `signal` context.
+
+> **ℹ️ Note:** `signal` is injected as a **Dictionary Snapshot** of the current signal state. It is NOT the raw Rust `SignalHub` object.
+> This is why `.get()` works (it's a python dict method).
 
 ```yaml
 steps:
-  - flux: if
-    condition: "signal.get('cmd_emergency_stop') == 'True'"
-    then:
-      - process: "p_safe_shutdown"
+  # Wait until signal is active (Dynamic Update)
+  - flux: while
+    condition: "signal.get('cmd_stop') != 'True'"
+    do:
+       # Processes inside here can update the signal via:
+       # ctx.signal['cmd_stop'] = 'True'
+      - process: "check_for_interruption"
+  
+  - process: "p_safe_shutdown"
 ```
 
 ### Nested Block: flux: run
@@ -113,8 +121,10 @@ steps:
 | Comparison | `==`, `!=`, `>`, `<`, `>=`, `<=` |
 | Boolean | `and`, `or`, `not` |
 | `len()` | `len(domain['items']) > 0` |
-| `signal` | `signal.get('cmd_stop') == 'True'` |
+| `signal` | `signal.get('cmd_stop') == 'True'` (Dict Snapshot) |
 | `True/False/None` | Literals |
+
+> **💡 Debugging Tip:** Set `THEUS_FLUX_DEBUG=1` env var to see detailed logs of Condition Evaluation and Step Execution in the terminal.
 
 ## 5. Executing Workflows
 
@@ -129,7 +139,7 @@ engine.scan_and_register("src/processes")
 # Execute workflow
 # ⚠️ WARNING: This call is SYNCHRONOUS and blocking. 
 # In an async environment, use: await asyncio.to_thread(engine.execute_workflow, "...")
-engine.execute_workflow("workflows/agent_loop.yaml")
+engine.execute_workflow("workflows/agent_loop.yaml", debug=True)
 ```
 
 ### WorkflowEngine (Advanced)
@@ -152,7 +162,12 @@ workflow = WorkflowEngine(
 print(workflow.state)  # FSMState.Pending
 
 # Execute
-ctx_dict = {"domain": sys_ctx.domain.__dict__, "global": sys_ctx.global_ctx.__dict__}
+# Engine injects: 'domain', 'global', and 'signal' (dict snapshot)
+ctx_dict = {
+    "domain": sys_ctx.domain.__dict__, 
+    "global": sys_ctx.global_ctx.__dict__,
+    "signal": sys_ctx.state.signals # Required for signal.get()
+}
 
 async def executor(name):
     return await engine.execute(name)

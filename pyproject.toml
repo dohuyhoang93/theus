@@ -47,3 +47,10 @@ features = ["pyo3/extension-module"]
 # Python package lives in the theus/ subfolder
 python-packages = ["theus"]
 module-name = "theus_core"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+norecursedirs = ["tests/manual"]
+python_files = ["test_*.py", "verify_*.py", "repro_*.py"]

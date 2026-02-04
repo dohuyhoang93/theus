@@ -18,13 +18,19 @@ Theus v3.2 solves this with a **Hybrid Architecture**:
 *   **Zero-Copy Access:** Python processes receive a lightweight "pointer" (Descriptor), not the data itself.
 *   **Lifecycle Engine:** Theus automatically tracks every allocation and cleans it up, even if processes crash.
 
-### 2.1 The New API: `engine.heavy.alloc`
-Instead of creating Numpy arrays directly, ask Theus to allocate them in the **HEAVY Zone**.
+### 2.1 The API: `HeavyZoneAllocator`
+Instead of creating Numpy arrays directly, use **HeavyZoneAllocator** to allocate them in managed shared memory.
 
 ```python
+from theus.context import HeavyZoneAllocator
+import numpy as np
+
+# Create allocator (auto-scans for zombies on init)
+allocator = HeavyZoneAllocator()
+
 # Create a 20 Million Element Float Array (approx 80MB)
-# Theus returns a 'ShmArray' which behaves exactly like a Numpy Array.
-arr = engine.heavy.alloc("camera_feed", shape=(20_000_000,), dtype=np.float32)
+# Returns a 'ShmArray' which behaves exactly like a Numpy Array
+arr = allocator.alloc("camera_feed", shape=(20_000_000,), dtype=np.float32)
 
 # Use it normally
 arr[:] = np.random.rand(20_000_000)
@@ -37,24 +43,34 @@ print(arr.mean())
 3.  **Mapping:** The Python object maps this file directly to RAM.
 
 ### 2.2 Parallel Consumer (Zero-Copy)
-When you pass this array to a worker (via `await engine.execute`), Theus is smart.
+When you pass a ShmArray to a worker (via pickle or `@process(parallel=True)`), it transfers by reference.
 
 ```python
-# Main Process
-arr = engine.heavy.alloc("input_data", shape=(1000,1000), dtype=np.float32)
+from theus.context import HeavyZoneAllocator
+from theus import TheusEngine, process
+import numpy as np
 
-# Heavy zone requires explicit CAS to avoid expensive full-state serialization
-engine.compare_and_swap(engine.state.version, heavy={'input': arr})
+# Main Process: Allocate shared memory
+allocator = HeavyZoneAllocator()
+arr = allocator.alloc("input_data", shape=(1000, 1000), dtype=np.float32)
+arr[:] = np.random.rand(1000, 1000)
+
+# Inject into Engine state via direct CAS
+engine = TheusEngine(context={...})
+engine._core.compare_and_swap(engine.state.version, None, {'input_data': arr}, None)
 
 # Worker Process
 @process(parallel=True)
 def process_data(ctx):
-    # This does NOT copy 4MB. 
-    # It takes microseconds to map the existing memory.
-    data = ctx.heavy['input'] 
+    # This does NOT copy 4MB
+    # Worker reconstructs ShmArray from shared memory name (microseconds)
+    data = ctx.heavy['input_data']
     
     # Fast calculation on shared memory
     return np.sum(data)
+
+engine.register(process_data)
+result = await engine.execute(process_data)
 ```
 
 ## 3. Safety: The Rust "Iron Gauntlet"
@@ -83,10 +99,21 @@ engine = TheusEngine(strict_guards=False, strict_cas=False)
 | **4. Performance Impact** | Medium (Safety cost) | Low | **Near Zero** |
 
 ## 5. Best Practices
-1.  **Use `alloc` for Big Data:** Anything > 1MB (Images, Audio, Replay Buffers).
+1.  **Use `HeavyZoneAllocator` for Big Data:** Anything > 1MB (Images, Audio, Replay Buffers).
 2.  **Use Standard Dicts for Metadata:** Configs, labels, IDs should stay in `ctx.data` (Context).
 3.  **Don't Re-allocate in Loops:** Allocate buffers once at startup, then overwrite contents (`arr[:] = new_data`) to save allocation overhead.
 4.  **Batch Processing:** When using Parallel Processes, chunk data logically (e.g. by index) rather than slicing the array if possible, though slicing `ShmArray` works correctly (returns a view).
+5.  **Cleanup:** Call `allocator.cleanup()` when done, or rely on `atexit` handler (automatic on normal exit).
+
+**Example cleanup:**
+```python
+allocator = HeavyZoneAllocator()
+try:
+    arr = allocator.alloc("data", shape=(1000000,), dtype=np.float32)
+    # ... use arr ...
+finally:
+    allocator.cleanup()  # Ensures unlink even on exception
+```
 
 ## 6. Architecture Summary
 Theus v3.2 transforms the Memory Management landscape:

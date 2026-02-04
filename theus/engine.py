@@ -199,8 +199,12 @@ class TheusEngine:
         with open(yaml_path, "r", encoding="utf-8") as f:
             yaml_content = f.read()
 
-        max_ops = int(os.environ.get("THEUS_MAX_LOOPS", 10000))
-        debug = os.environ.get("THEUS_FLUX_DEBUG", "0").lower() in ("1", "true", "yes")
+        # [DX] Allow overrides via kwargs, fallback to Env Var
+        max_ops = kwargs.get("max_ops", int(os.environ.get("THEUS_MAX_LOOPS", 10000)))
+        
+        # [DX] Allow explicit debug=True in kwargs
+        env_debug = os.environ.get("THEUS_FLUX_DEBUG", "0").lower() in ("1", "true", "yes")
+        debug = kwargs.get("debug", env_debug)
 
         # Create Engine instance (lightweight)
         wf_engine = WorkflowEngine(yaml_content, max_ops, debug)

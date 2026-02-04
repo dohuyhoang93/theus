@@ -141,6 +141,7 @@ impl ContextGuard {
                  full_path,
                  !can_write, 
                  if can_write { Some(tx.clone_ref(py).into_py(py)) } else { None },
+                 true, // is_shadow (Explicitly created via get_shadow)
              );
              return Ok(Py::new(py, proxy)?.into_py(py));
         }
@@ -165,6 +166,7 @@ impl ContextGuard {
                  full_path.clone(),
                  !can_write,
                  if can_write { Some(tx.clone_ref(py).into_py(py)) } else { None },
+                 true, // is_shadow
              );
              return Ok(Py::new(py, proxy)?.into_py(py));
         } else {

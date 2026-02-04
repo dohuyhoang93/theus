@@ -8,7 +8,9 @@ sys.path.insert(0, os.getcwd())
 
 from theus import TheusEngine
 from theus.structures import ContextError
+import pytest
 
+@pytest.mark.asyncio
 async def test_strict_cas_enforcement():
     print("\n[TEST] Verifying INC-011: Strict Mode Propagation to Rust Core")
     

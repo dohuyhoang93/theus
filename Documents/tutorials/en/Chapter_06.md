@@ -23,9 +23,11 @@ To modify data, you must:
 2. **Compute:** Modify the new instance.
 3. **Return:** Send the new instance back to the Engine.
 
-### 2.3. Atomic Commit
+### 2.3. Atomic Commit (Smart CAS)
 The Engine receives your Return Value and performs:
-- **Validation:** Checks if `version` is still `N` (Optimistic Lock).
+- **Validation:** 
+    - **Global Version Check:** fast path if versions match.
+    - **Smart Conflict Detection:** If versions mismatch, it checks if *your specific keys* were modified by someone else. If not, it **merges** safely.
 - **Swap:** Replaces the pointer `Arc<State>` with the new state.
 - **Rollback:** If Exception occurs before Return, the new data is simply discarded. The original State was never touched.
 
@@ -48,7 +50,7 @@ with engine.transaction() as tx:
 
 ## 4. Compare-and-Swap Pattern (v3.0)
 
-For optimistic concurrency control:
+For optimistic concurrency control, Theus v3 supports **Smart CAS**:
 
 ```python
 # Get current version
@@ -61,9 +63,14 @@ try:
         data={'counter': new_value}
     )
 except VersionMismatchError:
-    # Someone else modified state, retry
+    # Only raised if 'counter' ITSELF was modified by another process.
+    # If someone else modified 'unrelated_key', this succeeds (Merge).
     pass
 ```
+
+> [!NOTE]
+> **Field-Level Conflict Detection:**
+> Theus tracks modifications at the field level (e.g., `domain.user.name`). Two processes can update different fields of the same domain object concurrently without conflict.
 
 ## 5. The Audit Log: Transient & Ephemeral
 A critical design choice in Theus is that **Transaction Logs are Ephemeral**.

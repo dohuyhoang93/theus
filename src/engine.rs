@@ -788,4 +788,17 @@ impl Transaction {
         // Stub for audit logging from ContextGuard
         Ok(())
     }
+
+    /// [INC-013] Helper: Check if object is a tracked Shadow.
+    #[pyo3(name = "is_known_shadow")]
+    pub fn is_known_shadow(&self, py: Python, obj: PyObject) -> bool {
+        let ptr = obj.bind(py).as_ptr() as usize;
+        let cache = self.shadow_cache.lock().unwrap();
+        
+        if let Some((_, shadow)) = cache.get(&ptr) {
+             // If the pointer we queried matches the stored shadow pointer, it IS a shadow.
+             return shadow.bind(py).as_ptr() as usize == ptr;
+        }
+        false
+    }
 }
