@@ -47,6 +47,10 @@ def main():
                 if m_name.startswith("__") and m_name not in ["__init__", "__enter__", "__exit__"]: 
                     continue
                 
+                # Skip boilerplate exception methods that drift between Python versions
+                if m_name in ["add_note", "with_traceback"]:
+                    continue
+
                 # Check if it's a method/function (routine)
                 if not (inspect.isroutine(m_obj) or inspect.isfunction(m_obj) or inspect.ismethod(m_obj)):
                     continue
