@@ -14,12 +14,14 @@ class ContextZone(Enum):
     HEAVY = (
         "heavy"  # Large/External Objects (Log-only, no copy, audit via introspection)
     )
+    LOG = "log"  # Journal/Audit logs (Append-Only)
 
 
 # Prefix Definitions
 PREFIX_SIGNAL: Final = ("sig_", "cmd_")
 PREFIX_META: Final = ("meta_",)
 PREFIX_HEAVY: Final = ("heavy_",)
+PREFIX_LOG: Final = ("log_",)
 
 
 def resolve_zone(key: str) -> ContextZone:
@@ -30,6 +32,7 @@ def resolve_zone(key: str) -> ContextZone:
     - 'sig_*', 'cmd_*' -> SIGNAL
     - 'meta_*'         -> META
     - 'heavy_*'        -> HEAVY
+    - 'log_*'          -> LOG
     - Others           -> DATA
     """
     if key.startswith(PREFIX_SIGNAL):
@@ -40,5 +43,8 @@ def resolve_zone(key: str) -> ContextZone:
 
     if key.startswith(PREFIX_HEAVY):
         return ContextZone.HEAVY
+    
+    if key.startswith(PREFIX_LOG):
+        return ContextZone.LOG
 
     return ContextZone.DATA

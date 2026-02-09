@@ -108,4 +108,4 @@ When creating new projects (`theus init`):
 
 If a process fails with `CAS Version Mismatch`, it means another process updated the state concurrently.
 *   **Auto-Retry**: Theus `engine.execute` has built-in backoff for this.
-*   **Conflict Logic**: Theus v3.3 uses "Smart CAS" - it only rejects if the *specific keys* you read/wrote were modified. Unrelated updates are merged automatically.
+*   **Conflict Logic**: Theus v3.0 uses "Smart CAS" - it only rejects if the *specific keys* you read/wrote were modified. Unrelated updates are merged automatically.

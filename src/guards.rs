@@ -1,60 +1,83 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyPermissionError;
-use pyo3::types::{PyList, PyDict};
+use pyo3::types::PyDict;
 use crate::engine::Transaction;
 
 use crate::proxy::SupervisorProxy;
-use crate::zones::{resolve_zone, ContextZone};
+use crate::zones::{resolve_zone, ContextZone, get_zone_physics, CAP_READ, CAP_UPDATE, CAP_APPEND, CAP_DELETE};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use once_cell::sync::Lazy;
+
+#[derive(Hash, PartialEq, Eq, Clone, Debug)]
+pub struct SharedPolicy {
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+    pub strict_guards: bool,
+}
+
+static POLICY_REGISTRY: Lazy<Mutex<HashMap<SharedPolicy, Arc<SharedPolicy>>>> = Lazy::new(|| {
+    Mutex::new(HashMap::new())
+});
 
 #[pyclass(dict, subclass)]
 pub struct ContextGuard {
     #[pyo3(get, name = "_target")]
     target: PyObject,
-    allowed_inputs: Vec<String>,
-    allowed_outputs: Vec<String>,
+    policy: Arc<SharedPolicy>,
     path_prefix: String,
     tx: Option<Py<Transaction>>, 
     is_admin: bool,
-    strict_guards: bool,
     #[pyo3(get, set)]
     log: Option<PyObject>,
 }
 
 impl ContextGuard {
+    // ... (new_internal remains same)
     pub fn new_internal(target: PyObject, inputs: Vec<String>, outputs: Vec<String>, path_prefix: String, tx: Option<Py<Transaction>>, is_admin: bool, strict_guards: bool) -> PyResult<Self> {
-         // Strict Mode: Check for Forbidden Input Zones
-         if strict_guards {
-             for inp in &inputs {
-                 let zone = resolve_zone(inp);
-                 match zone {
-                     ContextZone::Signal | ContextZone::Meta => {
-                         return Err(PyPermissionError::new_err(
-                             format!("SECURITY VIOLATION: Input '{}' belongs to restricted Control Zone {:?}.", inp, zone)
-                         ));
-                     },
-                     _ => {}
-                 }
-             }
-         }
+          // RFC-001 Section 8: Flyweight Pattern
+          let config = SharedPolicy {
+              inputs,
+              outputs,
+              strict_guards,
+          };
+          
+          let policy = {
+              let mut registry = POLICY_REGISTRY.lock().unwrap();
+              registry.entry(config.clone()).or_insert_with(|| Arc::new(config)).clone()
+          };
 
-         Ok(ContextGuard {
-            target,
-            allowed_inputs: inputs,
-            allowed_outputs: outputs,
-            path_prefix,
-            tx,
-            is_admin,
-            strict_guards,
-            log: None,
-        })
+          // Strict Mode: Check for Forbidden Input Zones
+          if policy.strict_guards {
+              for inp in &policy.inputs {
+                  let zone = resolve_zone(inp);
+                  match zone {
+                      ContextZone::Signal | ContextZone::Meta => {
+                          return Err(PyPermissionError::new_err(
+                              format!("SECURITY VIOLATION: Input '{}' belongs to restricted Control Zone {:?}.", inp, zone)
+                          ));
+                      },
+                      _ => {}
+                  }
+              }
+          }
+
+          Ok(ContextGuard {
+             target,
+             policy,
+             path_prefix,
+             tx,
+             is_admin,
+             log: None,
+         })
     }
 
     fn check_permissions(&self, full_path: &str, is_write: bool) -> PyResult<()> {
         if self.is_admin { return Ok(()); }
         
         let is_ok = if is_write {
-             self.allowed_outputs.iter().any(|rule| {
+             self.policy.outputs.iter().any(|rule| {
                 rule == full_path || 
                 rule.starts_with(&format!("{}.", full_path)) || 
                 full_path.starts_with(&format!("{}.", rule)) || 
@@ -62,7 +85,7 @@ impl ContextGuard {
              })
         } else {
              // Read: Check Inputs OR Outputs (implicit read for output path traversal)
-             self.allowed_inputs.iter().chain(self.allowed_outputs.iter()).any(|rule| {
+             self.policy.inputs.iter().chain(self.policy.outputs.iter()).any(|rule| {
                 rule == full_path || 
                 rule.starts_with(&format!("{}.", full_path)) || 
                 full_path.starts_with(&format!("{}.", rule)) || 
@@ -105,30 +128,28 @@ impl ContextGuard {
             },
         };
 
-        if type_name == "list" {
-             let tx_bound = tx.bind(py);
-             let shadow = tx_bound.borrow_mut().get_shadow(py, val.clone_ref(py), Some(full_path.clone()))?; 
-             
-             let can_write = self.check_permissions(&full_path, true).is_ok();
-             let shadow_list = shadow.bind(py).downcast::<PyList>()?.clone().unbind();
+        
+        // [RFC-001] Logic: Calculate Intersection
+        let zone = resolve_zone(&full_path);
+        let zone_physics = get_zone_physics(&zone);
+        
+        let can_write = self.check_permissions(&full_path, true).is_ok();
+        
+        let final_caps = if self.is_admin {
+            31u8 // 15 | CAP_ADMIN: Admin bypasses EVERYTHING
+        } else {
+            let process_license = if can_write {
+                 CAP_READ | CAP_UPDATE | CAP_APPEND | CAP_DELETE 
+            } else {
+                 CAP_READ
+            };
+            zone_physics & process_license
+        };
 
-             // Refactor: Return Raw Shadow List (Passive Inference)
-             if can_write {
-                 // Writable -> Raw List (Shadow)
-                 return Ok(shadow_list.into_py(py));
-             } else {
-                 // Read-Only -> Ideally FrozenList, but since we removed it, we return Raw List for now.
-                 // This assumes 'check_permissions' handles protecting the reference.
-                 // Ideally we should implement a new LightFrozenList struct in the future.
-                 // For now, trusting client not to mutate Read-Only context inputs (or accept unsafe).
-                 return Ok(shadow_list.into_py(py));
-             }
-        }
 
         if type_name == "dict" {
              // println!("DEBUG: Dict detected at '{}'", full_path);
              // std::io::stdout().flush().unwrap();
-             let can_write = self.check_permissions(&full_path, true).is_ok();
              
              let shadow = {
                  let tx_bound = tx.bind(py);
@@ -142,6 +163,37 @@ impl ContextGuard {
                  !can_write, 
                  if can_write { Some(tx.clone_ref(py).into_py(py)) } else { None },
                  true, // is_shadow (Explicitly created via get_shadow)
+                 final_caps,
+             );
+             return Ok(Py::new(py, proxy)?.into_py(py));
+        }
+        
+        // [RFC-001] Handle Lists via SupervisorProxy if restricted capabilities
+        if type_name == "list" {
+             let tx_bound = tx.bind(py);
+             let shadow = tx_bound.borrow_mut().get_shadow(py, val.clone_ref(py), Some(full_path.clone()))?;
+             
+             // If final_caps implies Full Access, we CAN return raw list for compat?
+             // But if we return raw list, we lose logging?
+             // Transaction Shadow List IS logged? 
+             // Shadow List is just a Python List. It is NOT logged automatically.
+             // Access to it must be via SupervisorProxy or ContextGuard wrapping.
+             // Wait, `get_shadow` returns a copy. Mutations to that copy are NOT logged unless intercepted.
+             // Shadow lists in Theus ARE tracked via `log_delta` ONLY if they are inside a SupervisorProxy or if ContextGuard intercepts the mutation.
+             // If ContextGuard returns a raw list, user calls `l.append(1)`. This goes to Python's C implementation. No hook.
+             // So mutation is NOT logged?
+             // Correct. List mutations were NOT logged in v3.1 unless reassigned (`d['l'] = l`).
+             // INC-018: "List Mutation Backdoor". 
+             // So we MUST wrap lists in SupervisorProxy to fix security hole!
+             // So we ALWAYS wrap List in SupervisorProxy now.
+             
+             let proxy = SupervisorProxy::new(
+                 shadow,
+                 full_path,
+                 !can_write,
+                 if can_write { Some(tx.clone_ref(py).into_py(py)) } else { None },
+                 true,
+                 final_caps,
              );
              return Ok(Py::new(py, proxy)?.into_py(py));
         }
@@ -159,14 +211,13 @@ impl ContextGuard {
              let tx_bound = tx.bind(py);
              let shadow = tx_bound.borrow_mut().get_shadow(py, inner, Some(full_path.clone()))?; 
              
-             let can_write = self.check_permissions(&full_path, true).is_ok();
-             
              let proxy = SupervisorProxy::new(
                  shadow, 
                  full_path.clone(),
                  !can_write,
                  if can_write { Some(tx.clone_ref(py).into_py(py)) } else { None },
                  true, // is_shadow
+                 final_caps,
              );
              return Ok(Py::new(py, proxy)?.into_py(py));
         } else {
@@ -179,12 +230,10 @@ impl ContextGuard {
         
         Ok(Py::new(py, ContextGuard {
             target: shadow,
-            allowed_inputs: self.allowed_inputs.clone(),
-            allowed_outputs: self.allowed_outputs.clone(),
+            policy: self.policy.clone(),
             path_prefix: full_path,
             tx: Some(tx.clone_ref(py)),
             is_admin: self.is_admin,
-            strict_guards: self.strict_guards,
             log: None,
         })?.into_py(py))
     }
@@ -216,8 +265,35 @@ impl ContextGuard {
         Self::new_internal(target, inputs_vec, outputs_vec, prefix, tx, is_admin, strict_guards)
     }
 
+    /// [v3.3 FIX] Native getter for outbox to bypass __getattr__ shadowing from #[pyclass(dict)]
+    /// CRITICAL: Must return raw Outbox object, NOT wrapped in ContextGuard.
+    /// The Outbox struct has its own Arc<Mutex> buffer that is shared with Transaction.
+    /// Wrapping it in ContextGuard would cause add() to fail silently.
+    #[getter]
+    fn outbox(&self, py: Python) -> PyResult<PyObject> {
+        // NOTE: Try to extract ProcessContext and return raw Outbox directly
+        // This bypasses any ContextGuard wrapping that would happen via __getattr__
+        let target_bound = self.target.bind(py);
+        
+        // Check if target is ProcessContext (direct access)
+        if let Ok(pc) = target_bound.extract::<Py<crate::structures::ProcessContext>>() {
+            let pc_ref = pc.borrow(py);
+            return Ok(Py::new(py, pc_ref.outbox.clone())?.into_py(py));
+        }
+        
+        // Fallback: target is not ProcessContext (shouldn't happen in normal flow)
+        // Try direct getattr as last resort
+        target_bound.getattr("outbox").map(|v| v.unbind())
+    }
+
+    /// [RFC-001] Native getter for Flyweight Verification
+    #[getter]
+    fn policy_id(&self) -> usize {
+        Arc::as_ptr(&self.policy) as usize
+    }
+
     fn __getattr__(&self, py: Python, name: String) -> PyResult<PyObject> {
-        if self.strict_guards && name.starts_with('_') {
+        if self.policy.strict_guards && name.starts_with('_') {
              return Err(PyPermissionError::new_err(format!("Access to private attribute '{}' denied in Strict Mode", name)));
         }
 
@@ -230,6 +306,11 @@ impl ContextGuard {
         } else {
             format!("{}.{}", self.path_prefix, name)
         };
+
+        // Whitelist internal attributes
+        if name == "outbox" || name == "policy_id" {
+             return self.target.bind(py).getattr(name.as_str())?.extract();
+        }
 
         self.check_permissions(&full_path, false)?;
 
@@ -274,7 +355,9 @@ impl ContextGuard {
                 Some(self.target.clone_ref(py)),
                 Some(name.clone())
             )?;
-            } 
+            } else {
+                 return Err(PyPermissionError::new_err(format!("Security Violation: Write to '{}' denied (No active transaction).", full_path)));
+            }
         }
         
         if self.target.bind(py).is_instance_of::<PyDict>() {
@@ -355,6 +438,8 @@ impl ContextGuard {
                     Some(self.target.clone_ref(py)),
                     Some(key.to_string())
                 )?;
+            } else {
+                 return Err(PyPermissionError::new_err(format!("Security Violation: Write to '{}' denied (No active transaction).", full_path)));
             }
         }
 
@@ -375,5 +460,11 @@ impl ContextGuard {
     /// Writes to standard output for now (or could use meta logs if accessible)
     fn log(&self, message: String) {
         println!("[CTX LOG] {}", message);
+    }
+
+    /// [RFC-001] Elevate this guard to Admin status for current thread.
+    /// Used by AdminTransaction context manager.
+    fn _elevate(&mut self, enabled: bool) {
+        self.is_admin = enabled;
     }
 }

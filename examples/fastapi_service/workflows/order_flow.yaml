@@ -1,0 +1,18 @@
+# Simple Workflow Definition for complex chained logic
+# This demonstrates how to chain processes if 'create_order' was part of a larger flow.
+
+name: "Order Fulfillment Flow"
+version: "1.0"
+
+steps:
+  - name: "validate_stock"
+    process: "check_stock" # Assuming this existed
+    on_success: "place_order"
+    on_fail: "abort"
+
+  - name: "place_order"
+    process: "create_order"
+    on_success: "notify_user"
+    
+  - name: "notify_user"
+    process: "send_email" # Assuming this existed

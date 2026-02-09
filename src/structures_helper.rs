@@ -77,13 +77,36 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
                 let current_bound = current.bind(py);
                 
                 if is_last {
-                    // Set value
                     if let Ok(dict) = current_bound.downcast::<PyDict>() {
-                        dict.set_item(key, value)?;
+                        // [v3.3] Unwrap Proxy if it's a leaf
+                        let final_val = if let Ok(target) = value.bind(py).getattr("_target") {
+                            target.unbind()
+                        } else {
+                            value.clone_ref(py)
+                        };
+                        dict.set_item(key, final_val)?;
+                    } else if let Ok(target) = current_bound.getattr("_target") {
+                         // Set on Proxy's target
+                         if let Ok(target_dict) = target.downcast::<PyDict>() {
+                             let final_val = if let Ok(v_target) = value.bind(py).getattr("_target") {
+                                 v_target.unbind()
+                             } else {
+                                 value.clone_ref(py)
+                             };
+                             target_dict.set_item(key, final_val)?;
+                         } else {
+                             current_bound.setattr(key.as_str(), value)?;
+                         }
                     } else {
-                        return Err(pyo3::exceptions::PyTypeError::new_err(
-                            format!("Cannot set key '{}' on non-dict", key)
-                        ));
+                        // Fallback to setattr
+                        match current_bound.setattr(key.as_str(), value) {
+                            Ok(_) => {},
+                            Err(_) => {
+                                return Err(pyo3::exceptions::PyTypeError::new_err(
+                                    format!("Cannot set key '{}' on non-dict type '{}'", key, current_bound.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string()))
+                                ));
+                            }
+                        }
                     }
                 } else {
                     // Navigate or create
@@ -97,9 +120,17 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
                             current = new_dict.unbind().into_py(py);
                         }
                     } else {
-                        return Err(pyo3::exceptions::PyTypeError::new_err(
-                            format!("Cannot navigate key '{}' in non-dict", key)
-                        ));
+                        // Generic Fallback: Try attribute access (for Proxies/Guards)
+                        match current_bound.getattr(key.as_str()) {
+                            Ok(next_obj) => {
+                                current = next_obj.unbind();
+                            }
+                            Err(_) => {
+                                return Err(pyo3::exceptions::PyTypeError::new_err(
+                                    format!("Cannot navigate key '{}' in non-dict type '{}'", key, current_bound.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string()))
+                                ));
+                            }
+                        }
                     }
                 }
             }
@@ -232,7 +263,13 @@ pub fn deep_update_inplace(py: Python, target: &Bound<'_, PyDict>, updates: &Bou
                 target.set_item(&k, v)?;
             }
         } else {
-            target.set_item(&k, v)?;
+            // [v3.3 FIX] Unwrap Proxy before setting
+            let final_val = if let Ok(target) = v.getattr("_target") {
+                target.unbind().into_py(py)
+            } else {
+                v.clone().unbind().into_py(py)
+            };
+            target.set_item(&k, final_val)?;
         }
     }
     Ok(())
@@ -277,7 +314,22 @@ fn deep_update_at_path(py: Python, root: &Bound<'_, PyDict>, path: &str, value: 
                          }
                      }
                  } else {
-                     return Err(pyo3::exceptions::PyTypeError::new_err(format!("Cannot navigate key '{}' in non-dict", key)));
+                     // Generic Fallback: Try attribute access
+                     match current_bound.getattr(key.as_str()) {
+                         Ok(next_obj) => {
+                             current = next_obj.unbind();
+                         }
+                         Err(_) => {
+                             // Try _target fallback (Proxy)
+                             if let Ok(target) = current_bound.getattr("_target") {
+                                 if let Ok(next_obj) = target.getattr(key.as_str()) {
+                                      current = next_obj.unbind();
+                                      continue;
+                                 }
+                             }
+                             return Err(pyo3::exceptions::PyTypeError::new_err(format!("Cannot navigate key '{}' in non-dict type '{}'", key, current_bound.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string()))));
+                         }
+                     }
                  }
              }
              PathSegment::Index(idx) => {

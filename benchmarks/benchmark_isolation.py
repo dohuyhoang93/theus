@@ -7,7 +7,9 @@ from multiprocessing import shared_memory
 from concurrent.futures import ThreadPoolExecutor
 
 # Add project root to path
-sys.path.append(os.getcwd())
+# Add project root to path
+import pathlib
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
 
 from theus.engine import TheusEngine
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext

@@ -34,6 +34,10 @@ jobs:
         run: pip install .
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+      - name: Verify Type Stubs (Defense Layer)
+        run: |
+          python scripts/gen_stubs.py
+          git diff --exit-code theus/theus_core.pyi
       - name: Run Clippy
         run: cargo clippy -- -D warnings
         env:
@@ -44,6 +48,8 @@ jobs:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
       - name: Run Python Tests
         run: pytest tests/
+      - name: Run Manual Suite (Integration)
+        run: python tests/manual/run_suite.py
 
   linux:
     needs: lint_and_test

@@ -1,6 +1,8 @@
-# Chapter 22: Inside Theus Engine - Transaction Mechanism (MVCC)
+# Chapter 22: Inside Theus Engine - Transaction Mechanism
 
-How does Theus provide ACID transactions, Rollback, and Isolation while allowing Python to hold onto objects? The answer lies in a hybrid **Rust-Python MVCC (Multi-Version Concurrency Control)** architecture.
+How does Theus provide ACID transactions, Rollback, and Isolation while allowing Python to hold onto objects? The answer lies in a hybrid **Optimistic Copy-on-Write (CoW) + Versioned State** architecture.
+
+> **📝 Terminology Note**: Theus's transaction model combines **Copy-on-Write (CoW)** for data isolation with **Optimistic Locking** for conflict detection. While we sometimes refer to it as "MVCC-style" due to its versioned state snapshots, it differs from traditional database MVCC. In classic MVCC, readers see consistent snapshots based on timestamp ordering, whereas Theus creates **shadow copies** on first write and uses **Arc pointer swapping** for commits. This hybrid approach is optimized for Python's GIL and object model.
 
 This chapter demystifies the Core.
 
@@ -28,6 +30,28 @@ The process receives a `SupervisorProxy` (via `ContextGuard`).
     4.  The Proxy is updated to point to Reference B.
 
 **Result:** The Process is now working on a private Shadow Copy (B). The Global State still points to A. (Isolation).
+
+#### Step 2.1: Shadow Cache Optimization
+
+To avoid redundant copying, Theus maintains a **shadow cache** within each Transaction:
+
+```rust
+// Rust Core: Transaction.shadow_cache
+HashMap<ObjectID, (Original, Shadow)>
+```
+
+*   **Cache Hit:** If you access the same object multiple times (e.g., `ctx.domain.config.timeout`, then `ctx.domain.config.retry`), the second access reuses the existing shadow copy instead of creating a new one.
+*   **Performance Impact:** For workflows that access many nested fields, this reduces deepcopy overhead by ~50-80%.
+
+> **⚠️ Edge Case - Non-Copyable Objects**: If `copy.deepcopy` fails (e.g., for objects with thread locks or file handles), Theus falls back to using the **original reference** and logs a warning. This means mutations to such objects may leak outside the transaction boundary. Always ensure state objects are picklable/copyable.
+
+```python
+# Example of problematic object
+import threading
+ctx.domain.lock = threading.Lock()  # ❌ Cannot deepcopy
+# Theus will log: "[Theus] WARNING: Cannot copy object at domain.lock"
+# Mutations to 'lock' will bypass transaction isolation
+```
 
 ### Step 3: Delta Logging
 Every modification to Reference B is tracked in the `Transaction` struct buffer:

@@ -24,25 +24,23 @@ async def test_cas_ensures_serializability():
     from theus.contracts import process
 
     # Define outputs to allow write
-    @process(outputs=["domain"])
+    # Define outputs to allow write
+    @process(inputs=["domain"], outputs=["domain"])
     async def slow_process(ctx):
-        v_start = ctx.version
+        # v_start = ctx.version  <-- blocked by Strict Mode
         await asyncio.sleep(0.1)
         # Check domain existence via try-except or hasattr
         if not hasattr(ctx.domain, "counter"):
-            # This might fail if we don't have permission to write NEW keys if restricted?
-            # But outputs=["domain.counter"] allows writing that key.
-            # Note: SupervisorProxy handles attribute set.
             pass
 
         ctx.domain.counter = 1
-        return v_start
+        return 0
 
-    @process(outputs=["domain"])
+    @process(inputs=["domain"], outputs=["domain"])
     async def fast_process(ctx):
-        v_start = ctx.version
+        # v_start = ctx.version
         ctx.domain.counter = 2
-        return v_start
+        return 0
 
     # Launch both
     t1 = asyncio.create_task(engine.execute(slow_process))

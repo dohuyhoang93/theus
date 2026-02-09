@@ -8,7 +8,7 @@ from theus import TheusEngine
 from theus.contracts import process
 
 
-@process(inputs=[], outputs=[])
+@process(inputs=["domain", "global_ctx", "domain_ctx"], outputs=[])
 def probe_context(ctx):
     results = {}
 

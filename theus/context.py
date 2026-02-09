@@ -195,7 +195,12 @@ class LockedContextMixin:
         Default exclusion: SIGNAL, META, HEAVY (if not specified).
         """
         if exclude_zones is None:
-            exclude_zones = [ContextZone.SIGNAL, ContextZone.META, ContextZone.HEAVY]
+            exclude_zones = [
+                ContextZone.SIGNAL,
+                ContextZone.META,
+                ContextZone.HEAVY,
+                ContextZone.LOG,
+            ]
 
         data = {}
         for k, v in self.__dict__.items():

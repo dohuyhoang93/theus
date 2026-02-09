@@ -4,12 +4,12 @@ This chapter summarizes Zone knowledge to help you build Scalable Systems.
 
 ## 1. The Four Zones
 
-| Zone | Prefix | Definition | Survival Rules |
+| Zone | Prefix / Path | Definition | Survival Rules |
 | :--- | :--- | :--- | :--- |
 | **DATA** | (None) | **Single Source of Truth.** Business Assets. | Always Replayed. Must be protected by strict Audit. |
-| **SIGNAL** | `sig_`, `cmd_` | **Control Flow.** Events, Commands, Flags. | Ephemeral (1-Tick). Dynamic (Not in Dataclass). |
-| **META** | `meta_` | **Observability.** Logs, Traces, Debug info. | No effect on Business Logic. Usually Read-only or Write-once. |
-| **HEAVY** | `heavy_` | **Large Data.** Tensors, Images, Blobs. | Zero-copy, no rollback. Use for data >1MB. |
+| **SIGNAL** | `sig_`, `sig.` | **Control Flow.** Events, Commands, Flags. | Ephemeral (1-Tick). Dynamic (Not in Dataclass). |
+| **META** | `meta_`, `meta.` | **Observability.** Logs, Traces, Debug info. | No effect on Business Logic. Usually Read-only or Write-once. |
+| **HEAVY** | `heavy_`, `heavy.` | **Large Data.** Tensors, Images, Blobs. | Zero-copy, no rollback. Use for data >1MB. |
 
 ## 2. Boundary Rules
 Engine v3.0 enforces strict boundary rules:
@@ -55,7 +55,14 @@ In v3.0:
 - Dynamic Signals -> **Signal Zone** (Rust Managed Events).
 Everything is now clearer and Orthogonal.
 
-> **Note:** Do NOT declare `sig_` or `cmd_` fields in your Domain Dataclass. They are transient messages, not persistent state.
+## 5. Path vs Prefix: The Flexible Router
+As of v3, Theus Core (Rust) supports a **Flexible Router** that recognizes both flat naming and structural paths:
+
+1.  **Prefix-based (Legacy/Flat):** Using `ctx.domain.heavy_model`. Rust detects the `heavy_` prefix in the variable name.
+2.  **Structural-based (Modern/Structural):** Using `ctx.heavy['payload']`. Rust detects the `heavy` segment in the structural path.
+
+> [!IMPORTANT]
+> Both styles trigger the same **Zero-Copy Optimization**. Use structural paths (`ctx.heavy`) for data-heavy workflows and prefix naming (`heavy_`) for legacy domain models.
 
 ---
 **Exercise:**

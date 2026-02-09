@@ -1,6 +1,6 @@
-# Chapter 8: Audit System V3.1.3 - Industrial Policy Enforcement
+# Chapter 8: Audit System v3.0.3 - Industrial Policy Enforcement
 
-Forget those `if/else` data checks. Theus v3.1.3 brings Industrial-Grade Audit System backed by Rust with **Active Validation**.
+Forget those `if/else` data checks. Theus v3.0.3 brings Industrial-Grade Audit System backed by Rust with **Active Validation**.
 
 ## 1. Architecture Overview
 

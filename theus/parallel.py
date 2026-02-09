@@ -23,6 +23,26 @@ class ParallelContext:
         self.domain = domain
         self._heavy = heavy
 
+    @classmethod
+    def from_state(cls, state, **domain_kwargs):
+        """
+        Factory to hydrate a ParallelContext from a Main Process State.
+        Handles the logic of extracting/snapshotting 'heavy', 'signal', etc.
+        """
+        # 1. Snapshot Heavy Zone (Zero-Copy Descriptors)
+        heavy_snapshot = {}
+        if state and hasattr(state, "heavy"):
+            try:
+                # Convert potential FrozenDict/RustMap to dict
+                heavy_snapshot = dict(state.heavy)
+            except (TypeError, ValueError):
+                pass
+        
+        # 2. Future expansion: Signal Snapshot, etc.
+        
+        # 3. Create Context
+        return cls(domain=domain_kwargs, heavy=heavy_snapshot)
+
     @property
     def heavy(self):
         if self._heavy is None:

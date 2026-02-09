@@ -103,7 +103,8 @@ class TheusEngine:
             # Hydrate state via CAS (Version 0 -> Init)
             if init_data:
                 try:
-                    # Version 0 is start.
+                    # [v3.1 FIX] Rust Core initializes State at Version 0 (Empty)
+                    # We MUST use expected_version=0 to hydrate it successfully.
                     self._core.compare_and_swap(0, init_data)
                 except Exception as e:
                     print(f"WARNING: Initial hydration failed: {e}")
@@ -152,6 +153,28 @@ class TheusEngine:
             self._validator = AuditValidator(definitions, self._audit)
         else:
             self._validator = None
+
+        self._parallel_pool = None
+
+    @property
+    def strict_guards(self):
+        return self._strict_guards
+    
+    @strict_guards.setter
+    def strict_guards(self, enabled: bool):
+        self._strict_guards = enabled
+        if hasattr(self._core, "set_strict_guards"):
+            self._core.set_strict_guards(enabled)
+
+    @property
+    def strict_cas(self):
+        return self._strict_cas
+
+    @strict_cas.setter
+    def strict_cas(self, enabled: bool):
+        self._strict_cas = enabled
+        if hasattr(self._core, "set_strict_cas"):
+            self._core.set_strict_cas(enabled)
 
     def _create_restricted_view(self, ctx):
         """Create a Read-Only Proxy for Pure Processes."""
@@ -273,10 +296,10 @@ class TheusEngine:
         """v3.1 Managed Memory Allocator"""
         return self._allocator
 
-    def transaction(self):
-        return self._core.transaction()
+    def transaction(self, write_timeout_ms=5000):
+        return self._core.transaction(write_timeout_ms=write_timeout_ms)
 
-    def compare_and_swap(self, expected_version, data=None, heavy=None, signal=None):
+    def compare_and_swap(self, expected_version, data=None, heavy=None, signal=None, requester=None):
         """
         Compare-And-Swap with configurable conflict detection.
 
@@ -284,6 +307,9 @@ class TheusEngine:
         - strict_cas=False (default): Rust Smart CAS with Key-Level detection.
           Allows merge when specific keys haven't changed since expected_version.
         - strict_cas=True: Strict mode - rejects ALL version mismatches.
+
+        Args:
+            requester (str, optional): Name of process/worker. Required for Priority Ticket (VIP) access.
 
         Returns:
             None on success, State object on failure (strict mode),
@@ -295,7 +321,7 @@ class TheusEngine:
 
         # Delegate to Rust Core (Smart CAS with Key-Level detection)
         return self._core.compare_and_swap(
-            expected_version, data=data, heavy=heavy, signal=signal
+            expected_version, data=data, heavy=heavy, signal=signal, requester=requester
         )
 
         return self._core.compare_and_swap(
@@ -333,41 +359,82 @@ class TheusEngine:
         else:
             func = func_or_name
 
-        # Helper for Loop
-        start_version = None
+        # [v3.3] Extract Retry Config
+        # Fixes TypeError: func() got unexpected keyword argument 'retries'
+        max_retries = kwargs.pop("retries", 0)
+        current_retries = 0
 
+        # [v3.3 FIX] Hoist Transaction to preserve Outbox across CAS retries
+        # Previously tx was created inside _attempt_execute, causing message loss on retry.
         while True:
-            try:
-                result = await self._attempt_execute(func, *args, **kwargs)
+            with theus_core.Transaction(self._core) as tx:
+                try:
+                    result = await self._attempt_execute(func, tx, *args, **kwargs)
 
-                # If success, clear conflict counter
-                if hasattr(self._core, "report_success"):
-                    self._core.report_success(func.__name__)
+                    # If success, clear conflict counter
+                    if hasattr(self._core, "report_success"):
+                        self._core.report_success(func.__name__)
 
-                return result
+                    # [v3.3] Manual Flush for Flux Engine (Fix for Outbox msg loss)
+                    if hasattr(self._core, "flush_outbox"):
+                        self._core.flush_outbox()
 
-            except Exception as e:
-                # Check for CAS Conflict (ContextError)
-                err_msg = str(e)
-                is_cas_error = "CAS Version Mismatch" in err_msg
-                is_busy_error = "System Busy" in err_msg
+                    print(f"[PY-DEBUG] execute returning result={result!r}", flush=True)
+                    return result
 
-                if is_busy_error:
-                    await asyncio.sleep(0.05)
-                    continue
+                except Exception as e:
+                    # Check for CAS Conflict (ContextError)
+                    err_msg = str(e)
+                    is_cas_error = "CAS Version Mismatch" in err_msg
+                    is_busy_error = "System Busy" in err_msg
+                    
+                    # [RE-ENABLED FOR DIAGNOSIS]
+                    import sys
+                    print(f"[DEBUG] Execute Exception: {err_msg!r} | CAS={is_cas_error} | Busy={is_busy_error}", file=sys.stderr)
+                    sys.stderr.flush()
 
-                if is_cas_error and hasattr(self._core, "report_conflict"):
-                    decision = self._core.report_conflict(func.__name__)
-                    if decision.should_retry:
-                        print(
-                            f"[*] Conflict detected for {func.__name__}. Retrying in {decision.wait_ms}ms..."
-                        )
-                        await asyncio.sleep(decision.wait_ms / 1000.0)
+                    if is_busy_error:
+                        # Treat same as CAS error for retry purposes, maybe slightly shorter wait?
+                        # Actually, let's use the same backoff logic to avoid Thundering Herd on lock.
+                        is_cas_error = True 
+
+                    # [v3.3] Manual Fallback Retry Logic
+                    # Since Rust Core 'report_conflict' binding might be missing or limited
+                    should_retry = False
+                    backoff_ms = 50
+
+                    if is_cas_error:
+                        # 1. Try Rust Core Logic first
+                        if hasattr(self._core, "report_conflict"):
+                            decision = self._core.report_conflict(func.__name__)
+                            if decision.should_retry:
+                                should_retry = True
+                                backoff_ms = decision.wait_ms
+                        
+                        # 2. Fallback to Python Manual Retry with CAPPED Backoff + Full Jitter
+                        if not should_retry and current_retries < max_retries:
+                            should_retry = True
+                            current_retries += 1
+                            
+                            # [Forensic Fix] Cap backoff to prevent "Exponential Explosion"
+                            # Max wait = 1000ms (1s) to avoid 14-hour sleeps
+                            MAX_BACKOFF_MS = 1000
+                            raw_backoff = 50 * (2 ** (current_retries - 1))
+                            
+                            # Full Jitter: Uniform(0, min(Cap, Exp))
+                            import random
+                            actual_backoff = random.uniform(0, min(MAX_BACKOFF_MS, raw_backoff))
+                            
+                            backoff_ms = actual_backoff
+                            print(f"[*] CAS/Busy Conflict for {func.__name__}. Retry {current_retries}/{max_retries} in {backoff_ms:.2f}ms...")
+
+                    if should_retry:
+                        await asyncio.sleep(backoff_ms / 1000.0)
                         continue
 
-                raise e
+                    raise e
 
-    async def _attempt_execute(self, func, *args, **kwargs):
+    async def _attempt_execute(self, func, tx, *args, **kwargs):
         # [v3.1.2] Input Gate: Active Validation
         if self._validator:
              self._validator.validate_inputs(func.__name__, kwargs)
@@ -376,9 +443,8 @@ class TheusEngine:
 
         # v3.0.2: Auto-Dispatch Parallel Processes
         # Transaction Management (v3.1 Explicit Lifecycle)
-        # We implicitly create a transaction scope for the execution.
+        # Transaction is now passed from execute() to preserve Outbox across retries.
         start_version = self.state.version
-        tx = theus_core.Transaction(self._core)
         
         result = None
         ran_locally = True
@@ -431,9 +497,26 @@ class TheusEngine:
                         # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
                         # Allows full access but enables SupervisorProxy for nested dicts
                         # INJECT TRANSACTION:
+                        print(f"[PY-DEBUG] arg_binder called for {func.__name__}, ctx type: {type(ctx)}", flush=True)
+                        
+                        # [v3.3 FIX] Extract outbox BEFORE creating ContextGuard
+                        # ProcessContext.outbox is a #[pyo3(get)] read-only attribute
+                        raw_outbox = ctx.outbox
+                        
                         native_guard = theus_core.ContextGuard(
-                            ctx, [], [], None, tx, True, False
+                            ctx, 
+                            contract.inputs if contract else [], 
+                            contract.outputs if contract else [], 
+                            None, 
+                            tx, 
+                            not self.strict_guards, 
+                            False
                         )
+                        
+                        # Assign to ContextGuard's __dict__ (enabled by #[pyclass(dict)])
+                        # [v3.3] Now that Rust getter is fixed, we don't need this manual assignment?
+                        # object.__setattr__(native_guard, 'outbox', raw_outbox)
+                        print(f"[PY-DEBUG] ContextGuard created with outbox={type(native_guard.outbox)}", flush=True)
                         return await func(native_guard, *args, **kwargs)
 
                     arg_binder.__name__ = func.__name__
@@ -442,9 +525,20 @@ class TheusEngine:
 
                     def arg_binder(ctx, *_, **__):
                         # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
+                        # [v3.3 FIX] Extract outbox BEFORE creating ContextGuard
+                        raw_outbox = ctx.outbox
+                        
                         native_guard = theus_core.ContextGuard(
-                            ctx, [], [], None, tx, True, False
+                            ctx, 
+                            contract.inputs if contract else [], 
+                            contract.outputs if contract else [], 
+                            None, 
+                            tx, 
+                            not self.strict_guards, 
+                            False
                         )
+                        # Assign to ContextGuard's __dict__ (enabled by #[pyclass(dict)])
+                        # object.__setattr__(native_guard, 'outbox', raw_outbox)
                         return func(native_guard, *args, **kwargs)
 
                     arg_binder.__name__ = func.__name__
@@ -604,9 +698,16 @@ class TheusEngine:
                         # Or strict: if keys missing and len > 1, assume map failed -> None
                         vals = [None] * len(outputs)
                 else:
-                    vals = result if len(outputs) > 1 else (result,)
-                    if len(outputs) == 1 and not isinstance(result, tuple):
-                        vals = (result,)
+                    # [RFC-001 FIX] Allow None return for multi-output processes.
+                    # This allows proxy-based mutations to be the sole source of truth.
+                    if result is None:
+                        vals = [None] * len(outputs)
+                    else:
+                        if len(outputs) > 1 and not isinstance(result, (list, tuple)):
+                             raise TypeError(f"Process defined multiple outputs {outputs} but returned single value: {result}. Expected tuple/list.")
+                        vals = result if len(outputs) > 1 else (result,)
+                        if len(outputs) == 1 and not isinstance(result, tuple):
+                            vals = (result,)
 
                 for path, val in zip(outputs, vals):
                     # [FIX v3.1.3] Skip if val is None (Do not overwrite Proxy mutations)
@@ -619,8 +720,17 @@ class TheusEngine:
 
                     if root in ["heavy"]:
                         if len(rest) > 0:
+                            print(f"[DEBUG-ENGINE] Checking pending_heavy. Current: {type(tx.pending_heavy)}", flush=True)
                             if tx.pending_heavy is None:
                                 tx.pending_heavy = {}
+                                print(f"[DEBUG-ENGINE] Init pending_heavy to dict: {id(tx.pending_heavy)}", flush=True)
+                            
+                            # Check if it is frozen
+                            if isinstance(tx.pending_heavy, (dict,)):
+                                 pass
+                            else:
+                                 print(f"[DEBUG-ENGINE] WARNING: pending_heavy is {type(tx.pending_heavy)}", flush=True)
+
                             tx.pending_heavy[rest[0]] = val
                     elif root in ["domain", "global", "global_"]:
                         key = "global" if root == "global_" else root
@@ -668,13 +778,10 @@ class TheusEngine:
                                 else:
                                     setattr(target, last_field, val)
 
-            # Perform SINGLE Atomic CAS
-            self._core.compare_and_swap(
-                start_version,
-                data=pending_data,
-                heavy=tx.pending_heavy,
-                signal=tx.pending_signal,
-            )
+            # [v3.3 FIX] RELY ON Transaction.__exit__ for Atomic Commit
+            # Do NOT call self._core.compare_and_swap here, as it causes double-bumps
+            # instead, ensure all collected updates are in the Transaction object.
+            tx.update(data=pending_data)
 
             if self._audit:
                 self._audit.log_success(func.__name__)
@@ -689,14 +796,14 @@ class TheusEngine:
                     raise audit_exc from e
             raise e
 
-    def set_schema(self, schema_cls):
+    def set_schema(self, schema):
         """
         [v3.1.2] Register a Pydantic Schema for Strict Validation.
         """
-        self._schema = schema_cls
+        self._schema = schema
         if hasattr(self._core, "set_schema"):
             try:
-                self._core.set_schema(schema_cls)
+                self._core.set_schema(schema)
             except Exception as e:
                 print(f"WARNING: Rust Core set_schema failed: {e}")
 
@@ -898,47 +1005,34 @@ class TheusEngine:
     def execute_parallel(self, process_name, **kwargs):
         """
         Execute a process in parallel pool (Sub-Interpreter or Process).
-
         Uses `THEUS_USE_PROCESSES=1` env var to force ProcessPool (for NumPy compatibility).
         Uses `THEUS_POOL_SIZE=N` env var to set pool size (default: 4).
 
         Args:
-            process_name: Name of the registered process to execute.
+            process_name: Name of process to run.
             **kwargs: Arguments to pass to the process (merged into ctx.domain).
 
         Returns:
             Result from the process execution.
         """
-        from theus.parallel import ProcessPool, ParallelContext
         import os
+        # Create ParallelContext with domain kwargs
+        # v3.2 FIXED: Use centralized factory for safe hydration (INC-014)
+        from theus.parallel import ParallelContext, ProcessPool
+        
+        # Lazy Initialization
+        if self._parallel_pool is None:
+            pool_size = int(os.environ.get("THEUS_POOL_SIZE", 4))
+            self._parallel_pool = ProcessPool(size=pool_size)
 
-        use_processes = os.environ.get("THEUS_USE_PROCESSES", "0") == "1"
-        pool_size = int(os.environ.get("THEUS_POOL_SIZE", "4"))
-
-        # Create pool lazily (cached on engine instance)
-        if not hasattr(self, "_parallel_pool") or self._parallel_pool is None:
-            if use_processes:
-                self._parallel_pool = ProcessPool(size=pool_size)
-            else:
-                try:
-                    from theus.parallel import InterpreterPool
-
-                    self._parallel_pool = InterpreterPool(size=pool_size)
-                except Exception as e:
-                    print(
-                        f"WARNING: Sub-Interpreters not available ({e}), falling back to ProcessPool."
-                    )
-                    self._parallel_pool = ProcessPool(size=pool_size)
-
-        # Get registered function
         func = self._registry.get(process_name)
         if not func:
-            raise ValueError(f"Process '{process_name}' not found in registry")
+             raise ValueError(f"Process '{process_name}' not found")
 
-        # Create ParallelContext with domain kwargs
-        # NOTE: We don't pass heavy zone directly (FrozenDict is not picklable).
-        # Workers should access shared memory via engine.heavy.get() with descriptor metadata.
-        ctx = ParallelContext(domain=kwargs, heavy=None)
+        # Ensure imports are clean (ProcessPool might already be imported if lazy init ran)
+        # But ParallelContext is needed here.
+        
+        ctx = ParallelContext.from_state(self.state, **kwargs)
 
         # Submit and wait for result
         future = self._parallel_pool.submit(func, ctx)
@@ -953,6 +1047,27 @@ class TheusEngine:
         if hasattr(self, "_allocator") and self._allocator:
             self._allocator.cleanup()
             self._allocator = None
+
+    def log(self, *args, **kwargs):
+        """DX: Standard logging stub to satisfy Linter."""
+        print(*args, file=sys.stderr, **kwargs)
+
+    def attach_worker(self, worker):
+        """
+        [v3.3] Register a Relay Worker for Outbox Processing.
+        The worker function receives OutboxMsg objects.
+        """
+        self._worker_ref = worker
+        if hasattr(self._core, "attach_worker"):
+            self._core.attach_worker(worker)
+
+    def process_outbox(self):
+        """
+        [v3.3] Trigger manual processing of the Outbox queue.
+        Dispatches all pending messages to the attached worker.
+        """
+        if hasattr(self._core, "process_outbox"):
+            self._core.process_outbox()
 
     def __getattr__(self, name):
         return getattr(self._core, name)
@@ -1096,6 +1211,3 @@ class RestrictedStateProxy:
             return self._state.global_
         return FilteredDomainProxy(self._state.global_, self._global_keys, "global")
 
-    def log(self, *args, **kwargs):
-        """DX: Standard logging stub to satisfy Linter."""
-        print(*args, file=sys.stderr, **kwargs)

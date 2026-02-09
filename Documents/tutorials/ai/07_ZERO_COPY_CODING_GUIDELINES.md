@@ -1,10 +1,10 @@
 # Zero-Copy Coding Guidelines for AI Agents
 
 **Target Audience:** AI Code Generators (Agentic Systems)
-**Framework Version:** Theus v3.2+
+**Framework Version:** Theus v3.0+
 
 ## 1. Golden Rules
-When generating code for Theus V3.2, you MUST adhere to these rules to prevent system crashes and performance degradation.
+When generating code for Theus V3.0, you MUST adhere to these rules to prevent system crashes and performance degradation.
 
 ### Rule #1: parallel=True requires Statelessness
 - **Do:** Use `@process(parallel=True)` for CPU/GPU intensive tasks.
@@ -62,7 +62,7 @@ import numpy as np
 async def main():
     engine = TheusEngine(...)
     
-    # AI NOTE: v3.2 Managed Memory Pattern
+    # AI NOTE: v3.0 Managed Memory Pattern
     # 1. Allocate Shared Memory (Rust Managed)
     arr = engine.heavy.alloc("large_dataset", shape=(1000, 1000), dtype=np.float32)
     

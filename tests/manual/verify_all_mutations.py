@@ -136,7 +136,7 @@ def verify_tier_2_safe_edit(engine):
 
 def verify_tier_3_smart_cas(engine):
     print("\n--- [Tier 3] Smart CAS (strict_cas=False) ---")
-    engine._strict_cas = False
+    engine.strict_cas = False
 
     ver_start = engine.state.version
 
@@ -156,7 +156,7 @@ def verify_tier_3_smart_cas(engine):
 
 def verify_tier_3_strict_cas(engine):
     print("\n--- [Tier 3] Strict CAS (strict_cas=True) ---")
-    engine._strict_cas = True
+    engine.strict_cas = True
 
     ver_start = engine.state.version
 
@@ -167,10 +167,14 @@ def verify_tier_3_strict_cas(engine):
     # Note: State update failed above, so version bumped only once?
     # Actually engine.compare_and_swap DOES bump version if success.
 
-    res = engine.compare_and_swap(ver_start, {"domain": {"counter": 600}})
+    res = None
+    try:
+        engine.compare_and_swap(ver_start, {"domain": {"counter": 600}})
+    except Exception as e:
+        res = e
 
     if res is not None:
-        print("✅ PASS: Strict CAS rejected stale update.")
+        print(f"✅ PASS: Strict CAS rejected stale update: {res}")
         return True
     else:
         print("❌ FAIL: Strict CAS allowed update!")

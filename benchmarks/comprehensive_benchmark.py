@@ -28,6 +28,7 @@ LARGE_ARRAY_SIZE = 1000000  # 1 Million floats = ~8MB
 class BenchDomain(theus.BaseDomainContext):
     data: Dict[str, Any] = field(default_factory=dict)
     nested: Dict[str, Any] = field(default_factory=dict)
+    large_array: Any = None
 
 
 @dataclass
@@ -198,5 +199,4 @@ async def run_comprehensive_benchmark():
 if __name__ == "__main__":
     asyncio.run(run_comprehensive_benchmark())
 
-if __name__ == "__main__":
-    asyncio.run(run_comprehensive_benchmark())
+

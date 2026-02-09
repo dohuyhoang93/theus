@@ -13,6 +13,9 @@ async def test_reader_isolation():
     # For setup, we can use compare_and_swap from version 1
     engine.compare_and_swap(1, {"x": 0}, None, None)
 
+    from theus.contracts import process
+
+    @process(inputs=["data"], outputs=["data"])
     async def long_reader(ctx):
         # Finds x=0
         val1 = ctx.data["x"]
@@ -21,6 +24,7 @@ async def test_reader_isolation():
         val2 = ctx.data["x"]
         return val1, val2
 
+    @process(outputs=["x"])
     async def fast_writer(ctx):
         await asyncio.sleep(0.05)
         return {"x": 99}

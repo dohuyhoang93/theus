@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3_async_runtimes::tokio::future_into_py;
 use tokio::sync::broadcast;
 use std::sync::Arc;
 use once_cell::sync::Lazy;
@@ -77,6 +78,33 @@ impl SignalReceiver {
                     }
                 }
             })
+        })
+    }
+
+    /// Non-blocking async receive. Returns Python awaitable that can be cancelled.
+    /// 
+    /// # Example
+    /// ```python
+    /// msg = await rx.recv_async()
+    /// # or with timeout:
+    /// msg = await asyncio.wait_for(rx.recv_async(), timeout=5.0)
+    /// ```
+    fn recv_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let rx_arc = self.rx.clone();
+        
+        future_into_py(py, async move {
+            let mut rx = rx_arc.lock().await;
+            match rx.recv().await {
+                Ok(msg) => Ok(msg),
+                Err(broadcast::error::RecvError::Closed) => {
+                    Err(pyo3::exceptions::PyStopAsyncIteration::new_err("Channel Closed"))
+                },
+                Err(broadcast::error::RecvError::Lagged(count)) => {
+                    Err(pyo3::exceptions::PyRuntimeError::new_err(
+                        format!("Channel Lagged: missed {} messages", count)
+                    ))
+                }
+            }
         })
     }
 }

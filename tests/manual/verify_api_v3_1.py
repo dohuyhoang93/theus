@@ -63,7 +63,7 @@ def app_logic_process(ctx):
     # Check if we can read it back immediately (Optimistic Local Read)
     print(f"DEBUG: Local Read of counter: {ctx.domain.counter}")
 
-    return ctx.domain.counter
+    return ctx.domain.counter, ctx.domain.nested["a"]
 
 
 async def run_app_developer_api():
@@ -187,15 +187,13 @@ def run_strict_cas_test():
     )
 
     # Strict mode returns Current State on failure, or raises error?
-    # Engine wrapper returns 'self.state' (truthy) if pre-flight fails.
-    # Returns None on success.
-    res = eng_strict.compare_and_swap(ver, {"domain": {"a": 99}})
-
-    if res is not None:
-        print("   ✅ Strict CAS REJECTED update (Version Mismatch).")
-    else:
+    # Engine wrapper raises ContextError on failure!
+    try:
+        eng_strict.compare_and_swap(ver, {"domain": {"a": 99}})
         print("   ❌ Strict CAS Allow update (Checking state...)")
         print(f"   State Value A: {eng_strict.state.domain['a']}")
+    except Exception as e:
+        print(f"   ✅ Strict CAS REJECTED update (Version Mismatch): {e}")
 
 
 async def main():

@@ -86,7 +86,7 @@ A critical design choice in Theus is that **Transaction Logs are Ephemeral**.
 
 ## 6. Interoperability & Serialization (DX)
 
-Theus v3.1 `SupervisorProxy` implements the **Mapping Protocol** (`collections.abc.Mapping`), allowing it to behave like a read-only dictionary in most contexts (Pydantic, Jinja2, etc.).
+Theus v3.0 `SupervisorProxy` implements the **Mapping Protocol** (`collections.abc.Mapping`), allowing it to behave like a read-only dictionary in most contexts (Pydantic, Jinja2, etc.).
 
 ### 6.1. Using with Pydantic
 Theus Proxies work natively with Pydantic v2 if you enable `from_attributes` (ORM Mode).

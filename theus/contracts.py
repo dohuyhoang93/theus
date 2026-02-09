@@ -42,6 +42,25 @@ class ProcessContract:
         self.parallel = parallel
 
 
+class AdminTransaction:
+    """
+    [RFC-001] Context Manager to elevate context permissions (Admin Mode).
+    Bypasses Zone Physics (e.g. allows deleting from Log Zone).
+    """
+
+    def __init__(self, ctx):
+        self.ctx = ctx
+
+    def __enter__(self):
+        if hasattr(self.ctx, "_elevate"):
+             self.ctx._elevate(True)
+        return self.ctx
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if hasattr(self.ctx, "_elevate"):
+             self.ctx._elevate(False)
+
+
 def process(
     inputs: List[str] = None,
     outputs: List[str] = None,

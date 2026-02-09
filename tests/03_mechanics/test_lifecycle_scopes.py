@@ -10,7 +10,7 @@ class HeavyObj:
     pass
 
 
-@process
+@process(inputs=["local"], outputs=["local"])
 def messy_process(ctx):
     ctx.local["temp"] = HeavyObj()
     # No cleanup

@@ -4,7 +4,7 @@
 **Component:** `theus_core` (Rust) + `theus.validator` (Python)
 
 ## Overview
-This document specifies the internal workings of the Active Audit Validator deployed in Theus v3.1.3. It covers the two-layer architecture (Python Validator + Rust AuditSystem), granular level overrides, and fallback behaviors.
+This document specifies the internal workings of the Active Audit Validator deployed in Theus v3.0.3. It covers the two-layer architecture (Python Validator + Rust AuditSystem), granular level overrides, and fallback behaviors.
 
 ## Architecture
 

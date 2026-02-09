@@ -1,6 +1,6 @@
-// Import at top of file
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple, PyAny, PyModule};
+use crate::zones::{CAP_APPEND, CAP_UPDATE, CAP_DELETE};
 
 // use crate::engine::Transaction;
 
@@ -22,7 +22,8 @@ use pyo3::types::{PyDict, PyList, PyTuple, PyAny, PyModule};
 #[pyclass(module = "theus_core", subclass)]
 pub struct SupervisorProxy {
     /// The wrapped Python object
-    target: Py<PyAny>,
+    #[pyo3(get, name = "_target")]
+    pub target: Py<PyAny>,
     /// Path for logging/permission: "domain.counter"
     path: String,
     /// If true, block all writes (for PURE processes)
@@ -32,18 +33,21 @@ pub struct SupervisorProxy {
     /// [INC-013] If true, this proxy wraps a Shadow Object.
     /// Children of a Shadow are implicitly Shadows and should NOT trigger CoW.
     is_shadow: bool,
+    /// [RFC-001] Capability Bitmask
+    capabilities: u8,
 }
 
 #[pymethods]
 impl SupervisorProxy {
     #[new]
-    #[pyo3(signature = (target, path="".to_string(), read_only=false, transaction=None, is_shadow=false))]
+    #[pyo3(signature = (target, path="".to_string(), read_only=false, transaction=None, is_shadow=false, capabilities=15))]
     pub fn new(
         target: Py<PyAny>,
         path: String,
         read_only: bool,
         transaction: Option<Py<PyAny>>,
         is_shadow: bool,
+        capabilities: u8,
     ) -> Self {
         SupervisorProxy {
             target,
@@ -51,6 +55,7 @@ impl SupervisorProxy {
             read_only,
             transaction,
             is_shadow,
+            capabilities,
         }
     }
 
@@ -84,11 +89,6 @@ impl SupervisorProxy {
                         }, 
                     }
                 } else {
-                    // Enrich standard attribute error (e.g. object has no attribute)
-                    // We can just return _e, but enriched is nicer.
-                    // However, to keep it simple and avoid clippy complexity with unused _e:
-                    // If we use _e, we satisfy the compiler.
-                    // But if we want enriched, we ignore _e.
                     let _ = _e;
                      return Err(pyo3::exceptions::PyAttributeError::new_err(
                         format!(
@@ -109,13 +109,10 @@ impl SupervisorProxy {
 
         // Wrap nested dicts/objects in Proxy for continued tracking
         let is_dict = val.bind(py).is_instance_of::<PyDict>();
+        let is_list = val.bind(py).is_instance_of::<PyList>();
         let has_dict = val.bind(py).hasattr("__dict__")?;
         
-        // DEBUG PRINT
-        // println!("DEBUG: Proxy path='{}' getattr='{}' -> val_type='{}' is_dict={} has_dict={}", 
-        //    self.path, name, val.bind(py).get_type().name()?, is_dict, has_dict);
-
-        if is_dict || has_dict {
+        if is_dict || is_list || has_dict {
             let tx_clone = self.transaction.as_ref().map(|t| t.clone_ref(py));
             
             // [INC-013] Double Shadowing Logic
@@ -141,18 +138,26 @@ impl SupervisorProxy {
                 val
             };
 
+            // Recalculate capabilities for nested path
+            let child_caps = if (self.capabilities & 16) != 0 {
+                31u8 // Preserve Admin Bypass
+            } else {
+                let zone = crate::zones::resolve_zone(&nested_path);
+                let zone_physics = crate::zones::get_zone_physics(&zone);
+                self.capabilities & zone_physics
+            };
+
             Ok(SupervisorProxy::new(
                 val_shadow,
                 nested_path,
                 self.read_only,
                 tx_clone,
                 is_child_shadow,
+                child_caps,
             ).into_py(py))
         } else {
             Ok(val)
         }
-
-
     }
 
     /// Set attribute - Intercept for logging and permission check
@@ -162,6 +167,13 @@ impl SupervisorProxy {
         if self.read_only {
             return Err(pyo3::exceptions::PyPermissionError::new_err(
                 format!("PURE process cannot write to '{}.{}'", self.path, name)
+            ));
+        }
+
+        // [RFC-001] Check UPDATE Capability
+        if (self.capabilities & CAP_UPDATE) == 0 {
+             return Err(pyo3::exceptions::PyPermissionError::new_err(
+                format!("Permission Denied: UPDATE capability required for '{}.{}'. (Current Lens: {:04b})", self.path, name, self.capabilities)
             ));
         }
 
@@ -189,12 +201,20 @@ impl SupervisorProxy {
         }
 
         // Actually set the attribute/item
-        if is_dict {
-             self.target.call_method1(py, "__setitem__", (name, value))?;
+        // [v3.1.3 SECURITY FIX] Block mutations if no transaction is present!
+        // Every state change in Theus MUST be tied to a transaction for audit and rollback.
+        if self.transaction.is_some() {
+            if is_dict {
+                 self.target.call_method1(py, "__setitem__", (name, value))?;
+            } else {
+                 self.target.setattr(py, name.as_str(), value)?;
+            }
+            Ok(())
         } else {
-             self.target.setattr(py, name.as_str(), value)?;
+            Err(pyo3::exceptions::PyPermissionError::new_err(
+                format!("Supervisor blocked mutation to '{}.{}': No active transaction found. State is Immutable outside processes.", self.path, name)
+            ))
         }
-        Ok(())
     }
 
     /// Get item - For dict-like access ctx.domain["key"]
@@ -235,12 +255,22 @@ impl SupervisorProxy {
                 val
             };
 
+            // Recalculate capabilities for nested path
+            let child_caps = if (self.capabilities & 16) != 0 {
+                31u8 // Preserve Admin Bypass
+            } else {
+                let zone = crate::zones::resolve_zone(&nested_path);
+                let zone_physics = crate::zones::get_zone_physics(&zone);
+                self.capabilities & zone_physics
+            };
+
             Ok(SupervisorProxy::new(
                 val_shadow,
                 nested_path,
                 self.read_only,
                 tx_clone,
                 is_child_shadow,
+                child_caps,
             ).into_py(py))
         } else {
             Ok(val)
@@ -255,20 +285,34 @@ impl SupervisorProxy {
             ));
         }
 
+        // [RFC-001] Check UPDATE Capability
+        if (self.capabilities & CAP_UPDATE) == 0 {
+             return Err(pyo3::exceptions::PyPermissionError::new_err(
+                format!("Permission Denied: UPDATE capability required for item assignment at '{}'. (Current Lens: {:04b})", self.path, self.capabilities)
+            ));
+        }
+
+        // [v3.1.3 SECURITY FIX] Block mutations if no transaction is present!
+        if self.transaction.is_none() {
+             return Err(pyo3::exceptions::PyPermissionError::new_err(
+                format!("Supervisor blocked mutation to path '{}': No active transaction found.", self.path)
+            ));
+        }
+
+        let tx = self.transaction.as_ref().unwrap();
+
         // Log if transaction exists
-        if let Some(ref tx) = self.transaction {
-            let key_str = key.bind(py).str()?.to_string();
-            let full_path = if self.path.is_empty() {
-                key_str
-            } else {
-                format!("{}[{}]", self.path, key.bind(py).str()?)
-            };
-            
-            let old_val = self.target.call_method1(py, "get", (key.clone_ref(py),)).ok();
-            
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                let _ = tx_bound.call1((full_path, old_val, value.clone_ref(py)));
-            }
+        let key_str = key.bind(py).str()?.to_string();
+        let full_path = if self.path.is_empty() {
+            key_str
+        } else {
+            format!("{}[{}]", self.path, key.bind(py).str()?)
+        };
+        
+        let old_val = self.target.call_method1(py, "get", (key.clone_ref(py),)).ok();
+        
+        if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+            let _ = tx_bound.call1((full_path, old_val, value.clone_ref(py)));
         }
 
         self.target.call_method1(py, "__setitem__", (key, value))?;
@@ -279,7 +323,7 @@ impl SupervisorProxy {
     fn __repr__(&self, py: Python) -> PyResult<String> {
         let type_name = self.target.bind(py).get_type().name()?.to_string();
         // Don't print full target repr if it's huge, just type and path
-        Ok(format!("<SupervisorProxy[{}] at path='{}'>", type_name, self.path))
+        Ok(format!("<SupervisorProxy[{}] at path='{}' cap={:04b}>", type_name, self.path, self.capabilities))
     }
 
     fn __str__(&self, py: Python) -> PyResult<String> {
@@ -313,6 +357,130 @@ impl SupervisorProxy {
         } else {
              Err(pyo3::exceptions::PyAttributeError::new_err("Wrapped object has no to_dict"))
         }
+    }
+
+    // === List Methods (Guarded) ===
+
+    fn append(&self, py: Python, item: PyObject) -> PyResult<()> {
+        if self.capabilities & CAP_APPEND == 0 {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: APPEND capability required for .append() at '{}'", self.path)));
+        }
+        self.target.call_method1(py, "append", (item,))?;
+        
+        // Log Delta (Explicit SET for engine compatibility)
+        if let Some(ref tx) = self.transaction {
+            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+            }
+        }
+        Ok(())
+    }
+
+    fn extend(&self, py: Python, iterable: PyObject) -> PyResult<()> {
+        if self.capabilities & CAP_APPEND == 0 {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: APPEND capability required for .extend() at '{}'", self.path)));
+        }
+        self.target.call_method1(py, "extend", (iterable,))?;
+        
+        // Log Delta
+        if let Some(ref tx) = self.transaction {
+            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+            }
+        }
+        Ok(())
+    }
+
+    fn insert(&self, py: Python, index: PyObject, item: PyObject) -> PyResult<()> {
+        if self.capabilities & CAP_APPEND == 0 {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: APPEND capability required for .insert() at '{}'", self.path)));
+        }
+        self.target.call_method1(py, "insert", (index, item))?;
+        
+        // Log Delta
+        if let Some(ref tx) = self.transaction {
+            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+            }
+        }
+        Ok(())
+    }
+
+    fn remove(&self, py: Python, value: PyObject) -> PyResult<()> {
+        if self.capabilities & CAP_DELETE == 0 {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: DELETE capability required for .remove() at '{}'", self.path)));
+        }
+        self.target.call_method1(py, "remove", (value,))?;
+        
+        // Log Delta
+        if let Some(ref tx) = self.transaction {
+            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+            }
+        }
+        Ok(())
+    }
+
+    fn sort(&self, py: Python, kwargs: Option<&Bound<PyDict>>) -> PyResult<()> {
+        if self.capabilities & CAP_UPDATE == 0 {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: UPDATE capability required for .sort() at '{}'", self.path)));
+        }
+        self.target.call_method(py, "sort", (), kwargs)?;
+        
+        // Log Delta
+        if let Some(ref tx) = self.transaction {
+            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+            }
+        }
+        Ok(())
+    }
+
+    fn reverse(&self, py: Python) -> PyResult<()> {
+        if self.capabilities & CAP_UPDATE == 0 {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: UPDATE capability required for .reverse() at '{}'", self.path)));
+        }
+        self.target.call_method0(py, "reverse")?;
+        
+        // Log Delta
+        if let Some(ref tx) = self.transaction {
+            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+            }
+        }
+        Ok(())
+    }
+
+    fn clear(&self, py: Python) -> PyResult<()> {
+        if self.read_only {
+             return Err(pyo3::exceptions::PyPermissionError::new_err(
+                format!("PURE process cannot write to '{}'", self.path)
+            ));
+        }
+
+        if (self.capabilities & CAP_DELETE) == 0 {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: DELETE capability required for .clear() at '{}'", self.path)));
+        }
+
+        let is_list = self.target.bind(py).is_instance_of::<PyList>();
+        
+        // Execute clear
+        self.target.call_method0(py, "clear")?;
+
+        // Log Delta
+        if let Some(ref tx) = self.transaction {
+            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                if is_list {
+                    // For lists, log whole empty list
+                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                } else {
+                    // For dicts, we could log all keys being removed, or just use the Shadow Inference in commit.
+                    // But to be safe and explicit:
+                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                }
+            }
+        }
+        Ok(())
     }
 
     // === Getters for introspection ===
@@ -423,6 +591,13 @@ impl SupervisorProxy {
 
         let updates = dict_cls.call(header, kwargs_dict.as_ref())?;
         let updates_dict = updates.downcast::<PyDict>()?;
+        
+        // [RFC-001] Check UPDATE Capability
+        if (self.capabilities & CAP_UPDATE) == 0 {
+             return Err(pyo3::exceptions::PyPermissionError::new_err(
+                format!("Permission Denied: UPDATE capability required for .update() at '{}'. (Current Lens: {:04b})", self.path, self.capabilities)
+            ));
+        }
 
         // 2. Iterate and log each change
         if let Some(ref tx) = self.transaction {
@@ -450,38 +625,68 @@ impl SupervisorProxy {
         Ok(())
     }
 
-    fn pop(&self, py: Python, key: PyObject, default: Option<PyObject>) -> PyResult<PyObject> {
+    #[pyo3(signature = (key_or_index=None, default=None))]
+    fn pop(&self, py: Python, key_or_index: Option<PyObject>, default: Option<PyObject>) -> PyResult<PyObject> {
         if self.read_only {
-             return Err(pyo3::exceptions::PyPermissionError::new_err(
+            return Err(pyo3::exceptions::PyPermissionError::new_err(
                 format!("PURE process cannot write to '{}'", self.path)
             ));
         }
 
-        let key_str = key.bind(py).str()?.to_string();
-        let full_path = if self.path.is_empty() {
-            key_str.clone()
-        } else {
-            format!("{}.{}", self.path, key_str)
-        };
+        if (self.capabilities & CAP_DELETE) == 0 {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(
+                format!("Permission Denied: DELETE capability required for .pop() at '{}'. (Current Lens: {:04b})", self.path, self.capabilities)
+            ));
+        }
 
-        // Log if key exists
+        let is_list = self.target.bind(py).is_instance_of::<PyList>();
+
+        // Log mutation
         if let Some(ref tx) = self.transaction {
-            if self.target.call_method1(py, "__contains__", (key.clone_ref(py),))?.extract(py)? {
-                 let old_val = self.target.call_method1(py, "get", (key.clone_ref(py),)).ok();
-                 if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                    let _ = tx_bound.call1((full_path, old_val, py.None())); // New is None (deleted)
-                 }
+            if is_list {
+                // For lists, log the whole list path since indices shift
+                if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                }
+            } else if let Some(ref koi) = key_or_index {
+                // For dicts, log specific key
+                let key_str = koi.bind(py).str()?.to_string();
+                let full_path = if self.path.is_empty() {
+                    key_str.clone()
+                } else {
+                    format!("{}.{}", self.path, key_str)
+                };
+                
+                if self.target.call_method1(py, "__contains__", (koi.clone_ref(py),))?.extract(py)? {
+                     let old_val = self.target.call_method1(py, "get", (koi.clone_ref(py),)).ok();
+                     if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                        let _ = tx_bound.call1((full_path, old_val, py.None()));
+                     }
+                }
             }
         }
 
         // Execute pop
-        self.target.call_method1(py, "pop", (key, default))
+        if is_list {
+             // List.pop takes index, not (key, default)
+             let koi = key_or_index.unwrap_or_else(|| (-1i32).to_object(py));
+             self.target.call_method1(py, "pop", (koi,))
+        } else {
+             let koi = key_or_index.ok_or_else(|| pyo3::exceptions::PyTypeError::new_err("pop() expected at least 1 argument, got 0"))?;
+             self.target.call_method1(py, "pop", (koi, default))
+        }
     }
 
     fn popitem(&self, py: Python) -> PyResult<PyObject> {
         if self.read_only {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
                 format!("PURE process cannot write to '{}'", self.path)
+            ));
+        }
+
+        if (self.capabilities & CAP_DELETE) == 0 {
+             return Err(pyo3::exceptions::PyPermissionError::new_err(
+                format!("Permission Denied: DELETE capability required for .popitem() at '{}'. (Current Lens: {:04b})", self.path, self.capabilities)
             ));
         }
 
@@ -516,50 +721,17 @@ impl SupervisorProxy {
         Ok(res)
     }
 
-    fn clear(&self, py: Python) -> PyResult<()> {
+
+    fn setdefault(&self, py: Python, key: PyObject, default: Option<PyObject>) -> PyResult<PyObject> {
         if self.read_only {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
                 format!("PURE process cannot write to '{}'", self.path)
             ));
         }
 
-        if let Some(ref tx) = self.transaction {
-            // Expensive log: Must log deletion of ALL keys?
-            // Or just log "cleared"?
-            // The current log_delta is path-based. 
-            // Correct Audit: Iterate all keys and log delete for each?
-            
-            // For performance, maybe we iterate keys currently.
-            let keys_view = self.target.call_method0(py, "keys")?;
-            // We can iterate without list conversion if we are careful, but list is safer before modification
-            let builtins = py.import_bound("builtins")?;
-            let keys_list = builtins.call_method1("list", (keys_view,))?;
-            let keys_py_list = keys_list.downcast::<PyList>()?;
-
-            for k in keys_py_list.iter() {
-                 let key_str = k.str()?.to_string();
-                 let full_path = if self.path.is_empty() {
-                    key_str.clone()
-                 } else {
-                    format!("{}.{}", self.path, key_str)
-                 };
-                 
-                 let old_val = self.target.call_method1(py, "get", (k.to_object(py),)).ok();
-                 
-                 if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                    let _ = tx_bound.call1((full_path, old_val, py.None()));
-                 }
-            }
-        }
-
-        self.target.call_method0(py, "clear")?;
-        Ok(())
-    }
-
-    fn setdefault(&self, py: Python, key: PyObject, default: Option<PyObject>) -> PyResult<PyObject> {
-        if self.read_only {
+        if (self.capabilities & CAP_UPDATE) == 0 {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
-                format!("PURE process cannot write to '{}'", self.path)
+                format!("Permission Denied: UPDATE capability required for .setdefault() at '{}'. (Current Lens: {:04b})", self.path, self.capabilities)
             ));
         }
         
@@ -634,6 +806,7 @@ impl SupervisorProxy {
                 self.read_only,
                 tx_clone,
                 is_child_shadow,
+                self.capabilities, // Inherit
             ).into_py(py));
         }
         
@@ -681,7 +854,8 @@ impl SupervisorProxy {
             self.target.clone_ref(py),
             self.path.clone().into_py(py),
             self.read_only.into_py(py),
-            self.is_shadow.into_py(py)
+            self.is_shadow.into_py(py),
+            self.capabilities.into_py(py)
         ]);
         Ok(tuple.into())
     }
@@ -697,6 +871,11 @@ impl SupervisorProxy {
         } else {
              self.is_shadow = false;
         }
+        if tuple.len() >= 5 {
+             self.capabilities = tuple.get_item(4)?.extract()?;
+        } else {
+             self.capabilities = 15; // Default ALL
+        }
         self.transaction = None; // Detached from transaction after unpickle
         Ok(())
     }
@@ -709,7 +888,8 @@ impl SupervisorProxy {
              "".into_py(py),
              true.into_py(py),
              py.None(),
-             false.into_py(py)
+             false.into_py(py),
+             15u8.into_py(py)
         ]);
         Ok(tuple.into())
     }

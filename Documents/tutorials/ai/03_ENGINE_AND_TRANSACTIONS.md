@@ -42,9 +42,9 @@ engine = TheusEngine(
 
 ---
 
-## 2. Strictness Flags Explained (POP v3.1)
+## 2. Strictness Flags Explained (POP v3.0)
 
-Theus v3.1 decouples strictness into two flags for explicit control.
+Theus v3.0 decouples strictness into two flags for explicit control.
 
 | Flag | Scope | `True` (Strict) | `False` (Lenient) |
 |:---|:---|:---|:---|

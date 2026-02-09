@@ -40,6 +40,7 @@ class POPLinter(ast.NodeVisitor):
     - POP-E04: No Global State mutation (global keyword).
     - POP-E05: No Direct Context Mutation (Use Copy-on-Write).
     - POP-E06: Explicit Return Required (Must return Delta/Dict).
+    - POP-E07: Paradox Check (Contradiction between Prefix and Annotation).
     - POP-C01: Contract Integrity (Declared vs Used Inputs).
     """
 
@@ -77,6 +78,53 @@ class POPLinter(ast.NodeVisitor):
                     f"Importing from banned network module '{node.module}' is forbidden.",
                 )
             )
+        
+    def visit_ClassDef(self, node):
+        """
+        POP-E07: Paradox Check.
+        Detects Class definitions (Contexts) where prefix contradicts annotation.
+        Example: log_events: Annotated[list, Mutable]
+        """
+        # We only care about classes likely to be Contexts (BaseDomainContext, BaseSystemContext)
+        is_context = any(
+            (isinstance(base, ast.Name) and "Context" in base.id) or
+            (isinstance(base, ast.Attribute) and "Context" in base.attr)
+            for base in node.bases
+        )
+        
+        if is_context:
+            for item in node.body:
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                    name = item.target.id
+                    
+                    # Detect Restricted Prefixes
+                    restricted_prefix = None
+                    if name.startswith("log_") or name.startswith("audit_"):
+                        restricted_prefix = "Append-Only (Log)"
+                    elif name.startswith("sig_") or name.startswith("cmd_"):
+                        restricted_prefix = "Ephemeral (Signal)"
+                    elif name.startswith("meta_"):
+                        restricted_prefix = "Read-Only (Meta)"
+                    
+                    if restricted_prefix:
+                        # Check if annotation contains 'Mutable'
+                        # This works for: Annotated[list, Mutable]
+                        annotation_str = ast.dump(item.annotation)
+                        if "Mutable" in annotation_str:
+                             self.violations.append(
+                                EffectViolation(
+                                    self.filename,
+                                    item.lineno,
+                                    "POP-E07",
+                                    f"Paradox Detected: Field '{name}' has a {restricted_prefix} prefix but is marked 'Mutable'. Rename it or remove the Mutable tag to avoid semantic confusion.",
+                                    severity="ERROR"
+                                )
+                            )
+
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        self.visit_FunctionDef(node)
 
     def visit_FunctionDef(self, node):
         # 1. Check if function is a Process (decorated with @process)
@@ -190,7 +238,7 @@ class POPLinter(ast.NodeVisitor):
                         )
                     )
 
-        # POP-E05 (Enhanced): Check for destructive method calls on Context
+        # POP-E05 & POP-E07 (Behavioral Paradox): Check for destructive method calls on Context
         DESTRUCTIVE_METHODS = {
             "append",
             "extend",
@@ -205,16 +253,48 @@ class POPLinter(ast.NodeVisitor):
 
         path = self._resolve_attribute_path(node.func)
         if path and path.startswith("ctx."):
-            method_name = path.split(".")[-1]
+            parts = path.split(".")
+            # Method is the last part
+            method_name = parts[-1]
+            # Variable path is everything before the method
+            var_path = ".".join(parts[:-1])
+            leaf_name = parts[-2] if len(parts) > 1 else ""
+
             if method_name in DESTRUCTIVE_METHODS:
-                self.violations.append(
-                    EffectViolation(
-                        self.filename,
-                        node.lineno,
-                        "POP-E05",
-                        f"Direct mutation via '{method_name}()' on Context is forbidden. Return a new list/dict instead.",
+                # [RFC-001] Zone-Aware Logic
+                is_log = leaf_name.startswith("log_") or leaf_name.startswith("audit_")
+                is_meta = leaf_name.startswith("meta_")
+                
+                if is_log:
+                    # Log Zone Physics: Allow append/extend, forbid others
+                    if method_name not in ["append", "extend"]:
+                        self.violations.append(
+                            EffectViolation(
+                                self.filename,
+                                node.lineno,
+                                "POP-E07",
+                                f"Behavioral Paradox: Method '{method_name}()' is forbidden for Log Zone '{leaf_name}'. Logs are Append-Only.",
+                            )
+                        )
+                elif is_meta:
+                    self.violations.append(
+                        EffectViolation(
+                            self.filename,
+                            node.lineno,
+                            "POP-E07",
+                            f"Behavioral Paradox: Mutation '{method_name}()' is forbidden for Read-Only Meta Zone '{leaf_name}'.",
+                        )
                     )
-                )
+                else:
+                    # Standard Data Zone: Direct mutation forbidden (Must use CoW)
+                    self.violations.append(
+                        EffectViolation(
+                            self.filename,
+                            node.lineno,
+                            "POP-E05",
+                            f"Direct mutation via '{method_name}()' on Context '{leaf_name}' is forbidden. Return a new list/dict instead (CoW).",
+                        )
+                    )
 
         self.generic_visit(node)
 
@@ -293,23 +373,35 @@ class POPLinter(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _check_mutation(self, targets):
-        """POP-E05: Check for direct mutation of context attributes."""
+        """POP-E05 / POP-E07: Check for direct mutation of context attributes."""
         if not self.in_process:
             return
 
         for target in targets:
             path = self._resolve_attribute_path(target)
             if path and path.startswith("ctx."):
-                # Whitelist harmless specific attributes if any?
-                # No, context is immutable.
-                self.violations.append(
-                    EffectViolation(
-                        self.filename,
-                        target.lineno,
-                        "POP-E05",
-                        f"Direct mutation of Context '{path}' is forbidden. Use Copy-on-Write pattern.",
+                leaf_name = path.split(".")[-1]
+                
+                # [RFC-001] Restricted Zone Assignment Check
+                if leaf_name.startswith(("log_", "audit_", "meta_", "sig_", "cmd_")):
+                     self.violations.append(
+                        EffectViolation(
+                            self.filename,
+                            target.lineno,
+                            "POP-E07",
+                            f"Assignment Paradox: Direct assignment to restricted zone '{leaf_name}' is forbidden. These paths are managed by Core Physics or specialized methods.",
+                        )
                     )
-                )
+                else:
+                    # Standard Data mutation
+                    self.violations.append(
+                        EffectViolation(
+                            self.filename,
+                            target.lineno,
+                            "POP-E05",
+                            f"Direct mutation of Context '{path}' is forbidden. Use Copy-on-Write pattern (return a Delta).",
+                        )
+                    )
 
     def visit_Return(self, node):
         """POP-E06: Check return values."""
@@ -339,9 +431,14 @@ def run_lint(target_dir: Path, output_format: str = "table") -> bool:
             f"[cyan]🔍 Running POP Linter Check (v3.1) on {target_dir}...[/cyan]"
         )
 
-    for py_file in target_dir.rglob("*.py"):
+    files_to_scan = [target_dir] if target_dir.is_file() else list(target_dir.rglob("*.py"))
+
+    for py_file in files_to_scan:
+        if not py_file.name.endswith(".py"):
+            continue
+            
         if (
-            "tests" in str(py_file)
+            "tests" in str(py_file) and "manual" not in str(py_file)
             or "site-packages" in str(py_file)
             or "migrations" in str(py_file)
         ):

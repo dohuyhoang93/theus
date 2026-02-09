@@ -28,6 +28,9 @@ async def test_strict_cas_enforcement():
     # To test 'Strict CAS', we just need version mismatch.
     
     # Manually bump version via a hidden backdoor or just a valid update
+    from theus.contracts import process
+    
+    @process(inputs=["domain"], outputs=["domain"])
     async def bumper(ctx):
         ctx.domain.counter = 1
         return "Bumped"

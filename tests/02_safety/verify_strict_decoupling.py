@@ -23,6 +23,9 @@ async def test_strict_matrix():
     engine_1 = TheusEngine({"domain": {"counter": 0}}, strict_guards=True, strict_cas=False)
     
     # Bump version manually
+    from theus.contracts import process
+    
+    @process(inputs=["domain"], outputs=["domain"])
     async def bumper(ctx): ctx.domain.counter = 1
     engine_1.register(bumper)
     await engine_1.execute(bumper)
@@ -45,6 +48,7 @@ async def test_strict_matrix():
     engine_2 = TheusEngine({"domain": {"counter": 0}}, strict_guards=True, strict_cas=True)
     
     # Bump
+    @process(inputs=["domain"], outputs=["domain"])
     async def bumper2(ctx): ctx.domain.counter = 1
     engine_2.register(bumper2)
     await engine_2.execute(bumper2)

@@ -32,7 +32,7 @@ if hasattr(req, "get"): # It behaves like a dict
 
 **Option B: Explicit Conversion (Safe)**
 ```python
-# SupervisorProxy v3.1+ has a helper
+# SupervisorProxy v3.0+ has a helper
 req_dict = req.to_dict() 
 if isinstance(req_dict, dict): # ✅ PASS
     ...
@@ -129,7 +129,29 @@ val = ctx.domain['user']['name']
 # Best for optional fields
 val = ctx.domain.get('missing_key', 'default')
 ```
-*   *Note*: Accessing a nested object returns a `SupervisorProxy` wrapper, not a raw dict.
+
+> **⚠️ Important**: Accessing a nested object returns a `SupervisorProxy` wrapper, not a raw dict.
+
+### 5.1. Nested Proxy Unwrapping
+
+When iterating or serializing deep structures, be aware that `.items()` and `.values()` return **wrapped proxies**, not raw Python objects.
+
+```python
+# ❌ Potential Issue: Nested proxies in iteration
+for key, val in ctx.domain.config.items():
+    # 'val' might still be a SupervisorProxy if it's a dict/object
+    json.dumps(val)  # This will FAIL
+
+# ✅ Solution A: Use .to_dict() for full unwrapping
+config_dict = ctx.domain.config.to_dict()
+for key, val in config_dict.items():
+    json.dumps(val)  # Works
+
+# ✅ Solution B: Manual unwrapping per item
+for key, val in ctx.domain.config.items():
+    clean_val = val.to_dict() if hasattr(val, 'to_dict') else val
+    json.dumps(clean_val)
+```
 
 ## 6. Mutation Patterns (Writing)
 
@@ -149,20 +171,48 @@ ctx.domain['counter'] = 101
 ctx.domain.config.update({"timeout": 500, "retry": 3})
 ```
 
-### Collection Mutation (Lists/Sets)
+### 6.1. Advanced Dict Methods
+
+SupervisorProxy supports all standard dict mutation methods with full audit logging.
+
+```python
+# Pop with default
+val = ctx.domain.cache.pop('expired_key', None)
+
+# Set default (only if key missing)
+ctx.domain.settings.setdefault('theme', 'dark')
+
+# Clear all keys (Expensive: logs each deletion)
+ctx.domain.temp_data.clear()
+
+# Pop arbitrary item (dict only)
+key, val = ctx.domain.queue.popitem()
+```
+
+### 6.2. Collection Mutation (Lists/Sets)
+
 Methods that mutate in-place are fully supported and tracked by the Transaction engine.
 
 ```python
-# List append
-# Transparently handled by SupervisorProxy if declared in outputs
+# List append (tracked)
 ctx.domain.items.append("new_item")
 
-# List extend
+# List extend (tracked)
 ctx.domain.logs.extend(["log1", "log2"])
 
-# Pop/Remove
+# Pop/Remove (tracked)
 item = ctx.domain.queue.pop(0)
 ```
+
+> **💡 Best Practice**: For clarity and explicit transaction boundaries, prefer reassignment over in-place mutation:
+> ```python
+> # Good (Explicit)
+> ctx.domain.items = ctx.domain.items + ["new_item"]
+> 
+> # Also works (Implicit tracking)
+> ctx.domain.items.append("new_item") 
+> ```
+> The first style makes it clearer that you're modifying state and creates a new list object, avoiding potential aliasing issues.
 
 ## 7. Iteration & Type Checking Constraints
 

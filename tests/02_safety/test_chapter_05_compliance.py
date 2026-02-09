@@ -48,7 +48,8 @@ async def test_claim_inputs_read_only(engine):
         await engine.execute("task_read_only_violation")
     
     # Rust Core throws various errors, usually ContextError or TypeError for Frozen objects
-    assert "Immutable" in str(exc.value) or "Frozen" in str(exc.value) or "Access Denied" in str(exc.value)
+    msg = str(exc.value)
+    assert "Immutable" in msg or "Frozen" in msg or "Access Denied" in msg or "PURE process cannot" in msg or "Illegal" in msg
 
 @pytest.mark.asyncio
 async def test_claim_outputs_shadow(engine):

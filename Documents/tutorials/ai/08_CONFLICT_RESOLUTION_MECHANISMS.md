@@ -43,7 +43,7 @@ struct ConflictManager {
 2.  **Global Check:** `current.version == expected.version`?
     -   Yes: UPDATE -> Commit.
     -   No: Proceed to Smart Check.
-3.  **Smart Check (Field-Level v3.1):** For each modified field `F` in Update:
+3.  **Smart Check (Field-Level v3.0):** For each modified field `F` in Update:
     -   Lookup: `last_modified = key_last_modified[F]`.
     -   Tracked Path: e.g., `domain.counter` (exact path), not just `domain`.
     -   Rule: Is `last_modified <= expected.version`?
