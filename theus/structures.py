@@ -73,10 +73,23 @@ class FunctionResult:
     key: Optional[str] = None
 
 
-import numpy as np
-class ShmArray(np.ndarray):
-    """NumPy array backed by SharedMemory."""
-    pass
+# [DX] Theus v3 requires NumPy for Managed Memory but should load basic structures without it.
+try:
+    import numpy as np
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    _NUMPY_AVAILABLE = False
+    np = None
+
+if _NUMPY_AVAILABLE:
+    class ShmArray(np.ndarray):
+        """NumPy array backed by SharedMemory."""
+        pass
+else:
+    class ShmArray:
+        """Placeholder when NumPy is missing (e.g. Sub-interpreters)."""
+        def __init__(self, *args, **kwargs):
+            raise ImportError("ShmArray requires NumPy which is missing or incompatible in this context.")
 
 
 class ManagedAllocator:

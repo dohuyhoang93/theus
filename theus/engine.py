@@ -1028,17 +1028,19 @@ class TheusEngine:
                 from theus.parallel import ProcessPool
                 self._parallel_pool = ProcessPool(size=pool_size)
             elif force_interpreters and INTERPRETERS_SUPPORTED:
+                # Force means we trust the user, even if probe fails (expert mode)
                 from theus.parallel import InterpreterPool
                 self._parallel_pool = InterpreterPool(size=pool_size)
             elif sys.platform == "win32":
                 # Windows is safer with Processes by default
                 from theus.parallel import ProcessPool
                 self._parallel_pool = ProcessPool(size=pool_size)
-            elif INTERPRETERS_SUPPORTED:
+            elif InterpreterPool.is_compatible():
+                # On Linux/Unix, use Sub-interpreters ONLY if compatible
                 from theus.parallel import InterpreterPool
                 self._parallel_pool = InterpreterPool(size=pool_size)
             else:
-                # Fallback to Processes
+                # Fallback to Processes (e.g. Linux with NumPy < 2.1 or incompatible PyO3 core)
                 from theus.parallel import ProcessPool
                 self._parallel_pool = ProcessPool(size=pool_size)
 

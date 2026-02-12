@@ -1,7 +1,13 @@
 """
 Kiểm chứng 5 rủi ro Shadow Copy — kết quả ghi VÀO FILE (bypass Rust trace noise).
 """
-import sys, time, gc, tracemalloc, io, os, traceback
+import sys
+import time
+import gc
+import tracemalloc
+import io
+import os
+import traceback
 
 RESULTS_FILE = os.path.join(os.path.dirname(__file__), "shadow_risk_results.txt")
 
@@ -39,7 +45,7 @@ def main():
             mem_delta_mb = (mem_after - mem_before) / (1024 * 1024)
 
         tracemalloc.stop()
-        log(f"  Dict: 10K keys × 100 items")
+        log("  Dict: 10K keys × 100 items")
         log(f"  Memory delta: {mem_delta_mb:.2f} MB")
         log(f"  Access time: {access_ms:.2f} ms")
         if mem_delta_mb > 1.0:
@@ -173,7 +179,7 @@ def main():
 
             delta_log = tx.get_delta_log()
             log(f"  List size: {len(big_list)}")
-            log(f"  Appends: 5")
+            log("  Appends: 5")
             log(f"  Delta entries: {len(delta_log)}")
 
             total_items = 0
@@ -215,13 +221,13 @@ def main():
             _ = root_h["buffer"]
             heavy_ms = (time.perf_counter() - t_start) * 1000
 
-        log(f"  Data: 50K keys × 3 items")
+        log("  Data: 50K keys × 3 items")
         log(f"  Data Zone (deepcopy): {data_ms:.2f} ms")
         log(f"  Heavy Zone (zero-copy): {heavy_ms:.2f} ms")
         speedup = data_ms / max(heavy_ms, 0.001)
         log(f"  Speedup: {speedup:.1f}x")
         if speedup > 5:
-            log(f"  ✅ CONFIRMED: Deepcopy overhead có đo được")
+            log("  ✅ CONFIRMED: Deepcopy overhead có đo được")
         elif data_ms > 10:
             log(f"  ⚠️ PARTIAL: Overhead tồn tại ({data_ms:.0f}ms) nhưng speedup chỉ {speedup:.1f}x")
         else:

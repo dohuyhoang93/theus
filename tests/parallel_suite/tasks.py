@@ -5,11 +5,7 @@ import sys
 # Try importing StateUpdate. 
 # In the sub-interpreter (with the fix), this should work as a Pure Python class
 # even if theus_core fails to load.
-try:
-    from theus.structures import StateUpdate
-except ImportError:
-    # This should verify our fix works. If this raises, the fix failed.
-    StateUpdate = None
+from theus.structures import StateUpdate
 
 from theus.contracts import process
 

@@ -33,11 +33,11 @@ def get_project_root():
 def run_step(cmd, env, title):
     """Run a command with visible logging and correct CWD."""
     project_root = get_project_root()
-    print(f"\n==================================================")
+    print("\n==================================================")
     print(f"🚀 [STEP] {title}")
     print(f"   Exec: {' '.join(cmd)}")
     print(f"   CWD:  {project_root}")
-    print(f"==================================================")
+    print("==================================================")
     
     start_time = time.time()
     try:
@@ -83,7 +83,7 @@ def step_verify_parity(env):
     run_step([sys.executable, "tests/verify_api_parity.py"], env, "Verifying API Parity")
 
 def main():
-    print(f"🛡️  Theus Local CI Automation Tool")
+    print("🛡️  Theus Local CI Automation Tool")
     print(f"   Python: {sys.version.split()[0]}")
     print(f"   Platform: {platform.system()}")
     

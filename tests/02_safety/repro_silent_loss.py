@@ -64,7 +64,7 @@ def test_silent_loss_fix():
              print(f"[WARN] Items Proxy ID unstable! {id(items_proxy)} -> {id(items_check)}")
         
         if "new_item" not in items_check:
-             print(f"[FATAL] Immediate Check Failed! Appended item lost.")
+             print("[FATAL] Immediate Check Failed! Appended item lost.")
              print(f"[FATAL] Original ID: {id(items_proxy)} vs Fresh ID: {id(items_check)}")
 
         # Set Mutation

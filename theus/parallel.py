@@ -139,6 +139,25 @@ class InterpreterPool:
                 pass
 
 
+    @staticmethod
+    def is_compatible() -> bool:
+        """
+        Check if sub-interpreters can load theus_core and numpy.
+        Returns False if any core dependency fails to load in an isolated context.
+        """
+        if not INTERPRETERS_SUPPORTED:
+            return False
+            
+        try:
+            interp = interpreters.create()
+            # bytes are shareable
+            res = interp.call(_probe_dependencies)
+            interp.close()
+            return res
+        except Exception:
+            return False
+
+
 class ProcessPool:
     """
     Backwards Compatible Pool that uses Multiprocessing (Spawn).
@@ -189,6 +208,16 @@ def _unpickle_runner(payload_bytes):
     func, args, kwargs = pickle.loads(inner_payload)
     
     return func(*args, **kwargs)
+
+
+def _probe_dependencies():
+    """Probe if core modules can be loaded in the current interpreter."""
+    try:
+        import theus_core
+        import numpy
+        return True
+    except ImportError:
+        return False
 
 
 def shared_test_task(x, y=0):

@@ -3,7 +3,13 @@ Kiểm chứng 5 rủi ro Shadow Copy — UPDATE SAU KHI FIX.
 Risk 4 được mong đợi sẽ RAISE RuntimeError.
 Trace logging noise đã được xóa, Benchmark Bonus sẽ chính xác.
 """
-import sys, time, gc, tracemalloc, io, os, traceback
+import sys
+import time
+import gc
+import tracemalloc
+import io
+import os
+import traceback
 
 RESULTS_FILE = os.path.join(os.path.dirname(__file__), "shadow_risk_results_v2.txt")
 
@@ -42,7 +48,7 @@ def main():
             mem_delta_mb = (mem_after - mem_before) / (1024 * 1024)
 
         tracemalloc.stop()
-        log(f"  Dict: 10K keys × 100 items")
+        log("  Dict: 10K keys × 100 items")
         log(f"  Memory delta: {mem_delta_mb:.2f} MB")
         log(f"  Access time: {access_ms:.2f} ms")
         if mem_delta_mb > 1.0:
@@ -141,7 +147,7 @@ def main():
                 
                 # Nếu không raise, check xem có phải fallback về original không
                 inner = domain.supervisor_target
-                log(f"  ❌ FAILED: No exception raised! Isolation compromised.")
+                log("  ❌ FAILED: No exception raised! Isolation compromised.")
                 log(f"     Inner ID: {id(inner):#x}")
             except RuntimeError as e:
                 # Expecting 'Transaction isolation failure ... Poison deepcopy failed!'
@@ -195,7 +201,7 @@ def main():
             access_ms = (t2 - t1) * 1000
             heavy_ms = (t2 - t0) * 1000 # Total
 
-        log(f"  Data: 50K keys × 3 items")
+        log("  Data: 50K keys × 3 items")
         log(f"  Data Zone (deepcopy): {data_ms:.2f} ms")
         log(f"  Heavy Zone Total: {heavy_ms:.2f} ms")
         log(f"    - Proxy Init: {init_ms:.2f} ms")
@@ -205,7 +211,7 @@ def main():
         log(f"  Speedup: {speedup:.1f}x")
         
         if access_ms < 2.0:
-            log(f"  ✅ SUCCESS: Access time is O(1) (<2ms). 37ms overhead was likely init/setup.")
+            log("  ✅ SUCCESS: Access time is O(1) (<2ms). 37ms overhead was likely init/setup.")
         else:
             log(f"  ⚠️ WARNING: Access time slow ({access_ms:.2f}ms).")
             
