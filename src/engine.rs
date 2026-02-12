@@ -118,6 +118,7 @@ impl TheusEngine {
             shadow_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
             path_to_shadow: Arc::new(Mutex::new(std::collections::HashMap::new())),
             full_path_map: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            shadows_inferred: Arc::new(Mutex::new(false)),
         })
 
     }
@@ -374,6 +375,7 @@ pub struct Transaction {
     pub shadow_cache: Arc<Mutex<std::collections::HashMap<usize, (PyObject, PyObject)>>>, // id -> (original, shadow)
     pub path_to_shadow: Arc<Mutex<std::collections::HashMap<String, PyObject>>>, // root -> shadow (for legacy commit)
     pub full_path_map: Arc<Mutex<std::collections::HashMap<String, PyObject>>>, // full_path -> shadow (for diff merging)
+    pub shadows_inferred: Arc<Mutex<bool>>, // [v3.3] Prevent double-inference hangs
 }
 
 
@@ -402,6 +404,7 @@ impl Transaction {
             shadow_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
             path_to_shadow: Arc::new(Mutex::new(std::collections::HashMap::new())),
             full_path_map: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            shadows_inferred: Arc::new(Mutex::new(false)),
         })
 
     }
@@ -421,14 +424,18 @@ impl Transaction {
 
     // Expose pending data for manual commit/CAS
     #[getter]
-    fn pending_data(&self, py: Python) -> PyObject {
-        self.pending_data.clone_ref(py).into_py(py)
+    fn pending_data(&self, py: Python) -> PyResult<PyObject> {
+        // [v3.3 Fix] Reconstruct pending data from Delta Log + Explicit Updates
+        // This ensures schema validation sees Proxy-mediated changes.
+        self.build_pending_from_deltas(py)
     }
 
     #[getter]
     fn pending_heavy(&self, py: Python) -> PyObject {
         self.pending_heavy.clone_ref(py).into_py(py)
     }
+
+
 
     #[getter]
     fn pending_signal(&self, py: Python) -> PyObject {
@@ -499,25 +506,30 @@ impl Transaction {
         // [v3.1.2] Differential Shadow Merging: Infer Deltas from unlogged mutations
         self.infer_shadow_deltas(py)?;
 
-        let result = PyDict::new_bound(py);
-        let delta_log = self.delta_log.lock().unwrap();
-        let result_py = result.clone().unbind().into_py(py);
-        let result_dict: Py<pyo3::types::PyDict> = result_py.extract(py)?;
+        // Start with empty dict
+        let result = PyDict::new_bound(py).unbind();
         
-        for entry in delta_log.iter() {
-            if let Some(ref val) = entry.value {
-                let _ = crate::structures_helper::set_nested_value(py, &result_dict, &entry.path, &val.clone_ref(py).into_py(py));
+        // 1. Replay Delta Log (from Proxies & Shadow Inference)
+        {
+            let delta_log = self.delta_log.lock().unwrap();
+            for entry in delta_log.iter() {
+                // Only consider SET operations with a value
+                if entry.op == "SET" {
+                    if let Some(ref new_val) = entry.value {
+                         crate::structures_helper::set_nested_value(py, &result, &entry.path, new_val)?;
+                    }
+                }
             }
         }
         
-        // Also merge explicit tx.update calls (pending_data)
+        // 2. Merge explicit tx.update calls (pending_data)
+        // [FIX] Use deep merge to combine delta-reconstructed state with explicit pending_data
         let pending = self.pending_data.bind(py);
-        for kv in pending.iter() {
-            let (k, v) = kv;
-            result.set_item(k, v)?;
+        if pending.len() > 0 {
+             crate::structures_helper::deep_update_inplace(py, result.bind(py), pending)?;
         }
         
-        Ok(result.unbind().into_py(py))
+        Ok(result.into_py(py))
     }
 
     /// [v3.1.2] Expose raw delta log for strict contract validation
@@ -531,14 +543,12 @@ impl Transaction {
     /// [v3.3] Manual Flush for Flux Engine / execute()
     fn flush_outbox(&self, py: Python) -> PyResult<()> {
         let mut pending = self.pending_outbox.lock().unwrap();
-        eprintln!("DEBUG: Transaction::flush_outbox pending_count={}", pending.len());
         if pending.is_empty() { return Ok(()); }
         
         let msgs = pending.drain(..).collect::<Vec<_>>();
         
         let engine = self.engine.bind(py);
         let engine_ref = engine.borrow();
-        eprintln!("DEBUG: Transaction::flush_outbox transferring {} msgs to engine", msgs.len());
         engine_ref.outbox.lock().unwrap().extend(msgs);
         Ok(())
     }
@@ -626,20 +636,43 @@ impl Transaction {
 
     /// [v3.1.2] Infer Deltas from Shadow Mutations (Differential Merging)
     fn infer_shadow_deltas(&self, py: Python) -> PyResult<()> {
-        // println!("DEBUG: infer_shadow_deltas EXECUTED"); 
-        let path_map = self.full_path_map.lock().unwrap();
-        let cache = self.shadow_cache.lock().unwrap();
+        // [v3.3] Idempotency Check: Prevent hangs during Transaction.__exit__ if already inferred
+        {
+            let mut inferred = self.shadows_inferred.lock().unwrap();
+            if *inferred {
+                return Ok(());
+            }
+            *inferred = true;
+        }
+
+        // [DEADLOCK FIX] Snapshot paths to avoid holding full_path_map (Order: Cache -> Path in get_shadow)
+        // We must NOT hold full_path_map lock while acquiring shadow_cache.
+        let entries: Vec<(String, PyObject)> = {
+             let path_map = self.full_path_map.lock().unwrap();
+             path_map.iter().map(|(k, v)| (k.clone(), v.clone_ref(py))).collect()
+        };
+
+
+
         let mut new_deltas = Vec::new();
 
-        for (path, shadow) in path_map.iter() {
-            let shadow_id = shadow.bind(py).as_ptr() as usize;
+        for (path, current) in entries {
+            let current_id = current.bind(py).as_ptr() as usize;
             
-            if let Some((original, _)) = cache.get(&shadow_id) {
-                 if original.bind(py).as_ptr() == shadow.bind(py).as_ptr() {
-                     continue;
+            // Lock cache briefly to get original
+            let original_opt = {
+                let cache = self.shadow_cache.lock().unwrap();
+                cache.get(&current_id).map(|(orig, _)| orig.clone_ref(py))
+            };
+
+            if let Some(original) = original_opt {
+                 if original.bind(py).as_ptr() == current.bind(py).as_ptr() {
+                      continue;
                  }
                  
-                 let are_equal = match original.bind(py).rich_compare(shadow.bind(py), pyo3::basic::CompareOp::Eq) {
+                 // Perform Python Comparison (MAY RELEASE GIL / RE-ENTER)
+                 // Critical: Do not hold any Rust locks here.
+                 let are_equal = match original.bind(py).rich_compare(current.bind(py), pyo3::basic::CompareOp::Eq) {
                      Ok(res) => {
                          match res.is_truthy() {
                              Ok(b) => b,
@@ -649,15 +682,21 @@ impl Transaction {
                              }
                          }
                      },
-                     Err(_) => false // specific error handling skipped for brevity
+                     Err(_) => false 
                  };
                  
                  if !are_equal {
+                     // NOTE: For first-access (non-cache-hit) paths, user receives and mutates
+                     // the deepcopy (`original`), so it holds the user's intended state.
+                     // For cache-hit paths, user mutates `current` (original_val) in-place,
+                     // but we still push `original` (deepcopy) here. The parent-delta filtering
+                     // in commit() handles the cache-hit case by skipping stale parent deltas
+                     // when a more specific child delta exists.
                      new_deltas.push(crate::delta::DeltaEntry {
                          path: path.clone(),
                          op: "SET".to_string(),
-                         value: Some(shadow.clone_ref(py)),
-                         old_value: Some(original.clone_ref(py)),
+                         value: Some(original.clone_ref(py)),
+                         old_value: Some(current.clone_ref(py)),
                          target: None,
                          key: None,
                      });
@@ -665,52 +704,54 @@ impl Transaction {
             }
         }
         
-        let mut log = self.delta_log.lock().unwrap();
-        log.extend(new_deltas);
+        if !new_deltas.is_empty() {
+            let mut log = self.delta_log.lock().unwrap();
+            log.extend(new_deltas);
+        }
         Ok(())
     }
 
     /// Internal: Get shadow copy for CoW/Tracking
     pub fn get_shadow(&self, py: Python, val: PyObject, path: Option<String>) -> PyResult<PyObject> {
         let id = val.bind(py).as_ptr() as usize;
+
         let mut cache = self.shadow_cache.lock().unwrap();
         
-        if let Some((_, shadow)) = cache.get(&id) {
-             // println!("[Theus] get_shadow CACHE HIT: {:?} -> {:?}", id, shadow.bind(py).as_ptr());
-             return Ok(shadow.clone_ref(py));
+        if let Some((orig, _shadow)) = cache.get(&id) {
+             // NOTE: [v3.3.1 FIX] Return `orig` (the deepcopy). User mutations MUST go to
+             // the deepcopy so infer_shadow_deltas can detect them by comparing orig vs current.
+             return Ok(orig.clone_ref(py));
         }
 
         // Heavy Zone Check (Skip copy if configured)
         if let Some(ref p) = path {
             if crate::zones::resolve_zone(p) == crate::zones::ContextZone::Heavy {
-                  println!("[Theus] get_shadow HEAVY SKIP: {}", p);
                   cache.insert(id, (val.clone_ref(py), val.clone_ref(py)));
                   return Ok(val);
             }
         }
 
         // Deep Copy
+        // NOTE: [v3.3.2 FIX] Fail-fast on deepcopy failure instead of silently returning
+        // the original object. Silent fallback breaks transaction isolation.
         let copy_mod = py.import("copy")?;
         let shadow = match copy_mod.call_method1("deepcopy", (&val,)) { 
             Ok(s) => s.unbind(),
             Err(e) => {
-                 eprintln!("[Theus] WARNING (DEBUG): Cannot copy object at {:?}: {}", path, e);
-                 cache.insert(id, (val.clone_ref(py), val.clone_ref(py)));
-                 return Ok(val);
+                 let type_name = val.bind(py).get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string());
+                 return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                     format!("Transaction isolation failure: cannot deepcopy object of type '{}' at path {:?}. \
+                              Store non-copyable objects in Heavy Zone instead. Original error: {}", type_name, path, e)
+                 ));
             }
         };
         
-        
-
-
         // Disable Legacy Lock Manager on Shadow
         let _ = shadow.bind(py).setattr("_lock_manager", py.None());
         
-        let shadow_id = shadow.bind(py).as_ptr() as usize;
-        
-        // Track
-        cache.insert(id, (val.clone_ref(py), shadow.clone_ref(py)));
-        cache.insert(shadow_id, (val, shadow.clone_ref(py))); // Map shadow to itself to prevent re-shadowing
+        // Cache the mapping: Active ID -> (Original, Shadow)
+        // Original is the deepcopy, Shadow is the active object (val)
+        cache.insert(id, (shadow.clone_ref(py), val.clone_ref(py)));
         
         // v3.1: Also store ROOT path -> shadow for commit retrieval
         if let Some(ref p) = path {
@@ -721,72 +762,49 @@ impl Transaction {
                 path_map.entry(root).or_insert_with(|| shadow.clone_ref(py));
             }
             // v3.1.2: Store FULL path for Differential Shadow Merging
+            // [FIX v3.3] Track ACTIVE object in full_path_map, not the copy!
             let mut full_map = self.full_path_map.lock().unwrap();
-            full_map.insert(p.clone(), shadow.clone_ref(py));
+            full_map.insert(p.clone(), val.clone_ref(py));
         }
 
-        
         Ok(shadow)
     }
 
     /// [v3.1 Zero Trust] Commit Delta Log to Pending State
     /// This applies the implicit mutations (captured in shadow objects) to the pending_data/heavy buffers.
     pub fn commit(&self, py: Python) -> PyResult<()> {
-        let cache = self.shadow_cache.lock().unwrap();
-        
-        for (_, (original, shadow)) in cache.iter() {
-            // If original IS shadow (re-shadow case), skip
-            if original.bind(py).as_ptr() == shadow.bind(py).as_ptr() {
-                 continue;
+        // NOTE: shadow_cache iteration below is a no-op analysis block.
+        // We scope the lock tightly to avoid holding it during set_nested_value,
+        // which could re-enter get_shadow and deadlock.
+        {
+            let cache = self.shadow_cache.lock().unwrap();
+            // NOTE: This loop performs no mutations — it's a legacy analysis block.
+            // The actual commit logic uses delta_log below.
+            for (_, (original, shadow)) in cache.iter() {
+                if original.bind(py).as_ptr() == shadow.bind(py).as_ptr() {
+                     continue;
+                }
             }
-            
-            let orig_bind = original.bind(py);
-            let _type_name = orig_bind.get_type().name()?.to_string();
-            
-            // Merge Shadow back to Original?
-            // NO! We merge Shadow into PENDING buffers (which are copies of state).
-            // Wait. `original` comes from `ctx.domain...`.
-            // `ctx.domain` accesses `state` via `engine.state`.
-            // `engine.state` is immutable.
-            // So `original` IS likely inside `pending_data`? 
-            // NO. `ctx` is created from `engine.state` (current version).
-            // `pending_data` is EMPTY until we write to it.
-            // If we mutate `ctx.domain.data['x']`, we are mutating the SHADOW of 'x'.
-            // Unifying this with `pending_data` requires us to know WHERE `x` belongs in the state tree.
-            // BUT `DeltaEntry` has `path`.
-            // `shadow_cache` does NOT have path (it maps ID -> Shadow).
-            
-            // Re-evaluating Strategy:
-            // `DeltaEntry` has `path`, `value`, `old_value`.
-            // When `log_delta` is called (by Proxy), we record the CHANGE.
-            // `DeltaEntry.value` IS the new value.
-            // So iterating `delta_log` is enough to reconstruct `pending_data`?
-            // YES!
-            // `shadow_cache` ensures we are mutating a safe copy, but `delta_log` records exactly WHAT to apply.
-            // `tx.update(py, data=...)` calls `pending_data.update(...)`.
-            
-            // So `commit` should iterate `delta_log` and apply changes to `pending_data`.
-        }
+        } // shadow_cache lock dropped here — CRITICAL for deadlock prevention
         
         // Revised Commit Logic: Apply Delta Log
+        // NOTE: [v3.3.1 Fix] Sort deltas by path length (ascending) before applying.
+        // This ensures parent paths (e.g., "domain") are set BEFORE child paths
+        // (e.g., "domain[items]"), so the more specific child delta always wins.
+        // Without sorting, a stale parent delta can overwrite a correct child delta.
         let log = self.delta_log.lock().unwrap();
-        for entry in log.iter() {
-            // Entry has `path` (e.g. "domain.data.idiomatic").
-            // We need to set this value in `self.pending_data`.
-            // But `pending_data` is a flat dict? No, it's a structural dict mirroring state output.
-            // Actually, `pending_data` accumulates updates.
-            // We need to expand "domain.data.idiomatic" into nesting.
-            // AND we need to handle "heavy" zone paths.
-            
-            if entry.op != "SET" { continue; }
+        let mut sorted_entries: Vec<&crate::delta::DeltaEntry> = log.iter()
+            .filter(|e| e.op == "SET" && e.value.is_some())
+            .collect();
+        sorted_entries.sort_by_key(|e| e.path.len());
+        
+        for entry in &sorted_entries {
             if let Some(ref new_val) = entry.value {
                  // Check Zone
                  let is_heavy = crate::zones::resolve_zone(&entry.path) == crate::zones::ContextZone::Heavy;
                  let target_dict = if is_heavy { &self.pending_heavy } else { &self.pending_data };
                  
                  // [v3.3 Fix] Heavy Zone Namespace Mapping
-                 // state.heavy is a flat map {key: val}, but path is "heavy.key".
-                 // We must strip the prefix to avoid nesting.
                  let final_path = if is_heavy {
                      entry.path.strip_prefix("heavy.").unwrap_or(&entry.path)
                  } else {

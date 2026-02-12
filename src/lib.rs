@@ -24,6 +24,7 @@ mod proxy;
 /// Theus Core Rust Extension
 #[pymodule]
 fn theus_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    eprintln!("[THEUS-CORE] Loaded Version: 3.0.22 (Target Env Build)");
     // v3.1 Supervisor/Proxy
     supervisor::register(py, m)?;
 

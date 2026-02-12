@@ -4,10 +4,17 @@ import sys
 import os
 import time
 
+# Ensure project root is in sys.path BEFORE changing directory
+# This allows independent execution to prefer local build over site-packages
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 def main():
     # Find all verify_*.py scripts in the same directory
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    scripts = glob.glob("verify_*.py")
+    # Support both verify_*.py and test_*.py in manual suite
+    scripts = glob.glob("verify_*.py") + glob.glob("test_*.py")
     scripts.sort()
 
     print(f"Found {len(scripts)} verification scripts.")
@@ -21,11 +28,12 @@ def main():
         print("-" * 30)
         
         t0 = time.time()
-        # flush=True to ensure we see output
+        # Ensure children prefer local build
+        env = os.environ.copy()
+        env["PYTHONPATH"] = ROOT + os.pathsep + env.get("PYTHONPATH", "")
+        
         try:
-            # Run with python -u (unbuffered) to see output in real-time if we were piping, 
-            # but here we let it inherit stdout/stderr so it prints directly to console.
-            res = subprocess.run([sys.executable, "-u", script], check=False)
+            res = subprocess.run([sys.executable, "-u", script], env=env, check=False)
             dt = time.time() - t0
             
             status = "✅ PASS" if res.returncode == 0 else "❌ FAIL"

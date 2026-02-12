@@ -109,7 +109,7 @@ impl ContextGuard {
 
         // NOTE: Whitelist includes Numpy scalar types (float64, int64...) for framework robustness.
         // These are immutable and should not be wrapped by ContextGuard.
-        if ["int", "float", "str", "bool", "NoneType", "float64", "float32", "int64", "int32", "int16", "int8", "uint64", "uint32", "uint16", "uint16", "uint8", "bool_"].contains(&type_name.as_str()) {
+        if ["int", "float", "str", "bool", "NoneType", "float64", "float32", "int64", "int32", "int16", "int8", "uint64", "uint32", "uint16", "uint16", "uint8", "bool_", "Transaction"].contains(&type_name.as_str()) {
              return Ok(val);
         }
 

@@ -1,0 +1,33 @@
+=== Shadow Copy Risk Verification v2 (Post-Fix) ===
+
+[RISK-1] GC Pressure từ deepcopy object lớn
+  Dict: 10K keys × 100 items
+  Memory delta: 8.97 MB
+  Access time: 190.04 ms
+  ✅ CONFIRMED: Deepcopy vẫn tốn memory (9.0 MB)
+
+[RISK-2] deep_merge_cow proxy leak vào state
+  state['items'] type = list
+  state['nested'] type = dict
+  state['new_ref'] type = dict
+  ✅ SUCCESS: Không có proxy trong state
+
+[RISK-3] Cache ID reuse sau GC
+  ID collisions (reuse) ngoài transaction: 9997/10000
+  ✅ SUCCESS: Cache ổn định qua GC stress
+
+[RISK-4] Deepcopy fallback (Post-Fix Expectations: RAISE Error)
+  ✅ SUCCESS: RuntimeError raised correctly: Transaction isolation failure: cannot deepcopy object of type 'dict' at path Some("domain"). Store non-copyable objects in Heavy Zone instead. Original error: RuntimeError: Poison deepcopy failed!
+
+[RISK-5] O(N) delta logging (Skipped - Confirmed by Code Review)
+
+[BONUS] Deepcopy vs Heavy Zone performance (Clean Run)
+  Data: 50K keys × 3 items
+  Data Zone (deepcopy): 81.74 ms
+  Heavy Zone Total: 84.79 ms
+    - Proxy Init: 0.05 ms
+    - Access (get_shadow): 84.74 ms
+  Speedup: 1.0x
+  ⚠️ WARNING: Access time slow (84.74ms).
+
+=== DONE ===

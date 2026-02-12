@@ -180,7 +180,7 @@ async def main():
         choice = charmap.get(choice_idx, "4. Exit")
     else:
         # Interactive Selection
-        choice = questionary.select(
+        choice = await questionary.select(
             "Which demo would you like to run?",
             choices=[
                 "1. E-Commerce (Standard POP)",
@@ -188,7 +188,7 @@ async def main():
                 "3. Parallel Processing (Shared Memory)",
                 "4. Exit",
             ],
-        ).ask()
+        ).ask_async()
 
     if choice.startswith("1"):
         await run_ecommerce(engine)

@@ -5,6 +5,7 @@ from theus import process
 
 # CPU-bound task
 def cpu_heavy(n=20000000):
+    print(f"   [CPU] Heavy loop starting (n={n})...")
     start = time.time()
     count = 0
     while n > 0:
@@ -24,3 +25,21 @@ def task_parallel(ctx):
     # This runs in sub-interpreter
     dur = cpu_heavy()
     return {"dur": dur, "pid": os.getpid(), "tid": threading.get_ident()}
+
+# 3. Heavy Zone Task (Zero-Copy)
+@process(inputs=["heavy.large_data"], outputs=[], parallel=True)
+def analyze_large_data(ctx):
+    import os
+    import time
+    
+    start = time.time()
+    
+    # Access Heavy Data (Zero-Copy View)
+    arr = ctx.heavy["large_data"]
+    
+    return {
+        "pid": os.getpid(),
+        "shape": arr.shape,
+        "mean": float(arr.mean()),
+        "access_time": time.time() - start
+    }

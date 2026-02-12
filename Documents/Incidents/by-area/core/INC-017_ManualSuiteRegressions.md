@@ -1,6 +1,6 @@
 # INC-017: Manual Suite Regressions (Strict Mode & DX)
 
-**Status:** Open
+**Status:** Resolved
 **Severity:** High (Safety Feature Failure)
 **Area:** Core / Python Wrapper
 **Date:** 2026-02-06

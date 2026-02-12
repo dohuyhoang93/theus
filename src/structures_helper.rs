@@ -79,16 +79,16 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
                 if is_last {
                     if let Ok(dict) = current_bound.downcast::<PyDict>() {
                         // [v3.3] Unwrap Proxy if it's a leaf
-                        let final_val = if let Ok(target) = value.bind(py).getattr("_target") {
+                        let final_val = if let Ok(target) = value.bind(py).getattr("supervisor_target") {
                             target.unbind()
                         } else {
                             value.clone_ref(py)
                         };
                         dict.set_item(key, final_val)?;
-                    } else if let Ok(target) = current_bound.getattr("_target") {
+                    } else if let Ok(target) = current_bound.getattr("supervisor_target") {
                          // Set on Proxy's target
                          if let Ok(target_dict) = target.downcast::<PyDict>() {
-                             let final_val = if let Ok(v_target) = value.bind(py).getattr("_target") {
+                             let final_val = if let Ok(v_target) = value.bind(py).getattr("supervisor_target") {
                                  v_target.unbind()
                              } else {
                                  value.clone_ref(py)
@@ -203,6 +203,14 @@ pub fn deep_merge_cow(py: Python, target: PyObject, updates: &Bound<'_, PyDict>)
         let new_dict = target_dict.copy()?;
         
         for (k, v) in updates {
+            // [v3.3 Fix] Force Unwrap Proxies (if any)
+            let v_unwrapped = if let Ok(target) = v.getattr("supervisor_target") {
+                target
+            } else {
+                v.clone()
+            };
+            let v = &v_unwrapped;
+
             // Check if value is a dict (nested update)
             if let Ok(nested_update) = v.downcast::<PyDict>() {
                 // Check if target has this key AND it is a dict
@@ -239,6 +247,14 @@ pub fn deep_merge_cow(py: Python, target: PyObject, updates: &Bound<'_, PyDict>)
 /// - [v3.1.2] Supports Dot-Notation expansion for keys (e.g. "domain.nested")
 pub fn deep_update_inplace(py: Python, target: &Bound<'_, PyDict>, updates: &Bound<'_, PyDict>) -> PyResult<()> {
     for (k, v) in updates {
+        // [v3.3 Fix] Force Unwrap Proxies (if any)
+        let v_unwrapped = if let Ok(target) = v.getattr("supervisor_target") {
+            target
+        } else {
+            v.clone()
+        };
+        let v = &v_unwrapped;
+        
         // Check for Dot-Notation (Path Expansion)
         let mut handled_as_path = false;
         if let Ok(k_str) = k.extract::<String>() {
@@ -264,7 +280,7 @@ pub fn deep_update_inplace(py: Python, target: &Bound<'_, PyDict>, updates: &Bou
             }
         } else {
             // [v3.3 FIX] Unwrap Proxy before setting
-            let final_val = if let Ok(target) = v.getattr("_target") {
+            let final_val = if let Ok(target) = v.getattr("supervisor_target") {
                 target.unbind().into_py(py)
             } else {
                 v.clone().unbind().into_py(py)
@@ -320,8 +336,8 @@ fn deep_update_at_path(py: Python, root: &Bound<'_, PyDict>, path: &str, value: 
                              current = next_obj.unbind();
                          }
                          Err(_) => {
-                             // Try _target fallback (Proxy)
-                             if let Ok(target) = current_bound.getattr("_target") {
+                             // Try supervisor_target fallback (Proxy)
+                             if let Ok(target) = current_bound.getattr("supervisor_target") {
                                  if let Ok(next_obj) = target.getattr(key.as_str()) {
                                       current = next_obj.unbind();
                                       continue;

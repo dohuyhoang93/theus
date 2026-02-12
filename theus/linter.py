@@ -445,7 +445,7 @@ def run_lint(target_dir: Path, output_format: str = "table") -> bool:
             continue
 
         try:
-            with open(py_file, "r", encoding="utf-8") as f:
+            with open(py_file, "r", encoding="utf-8-sig") as f:
                 tree = ast.parse(f.read())
 
             linter = POPLinter(str(py_file))

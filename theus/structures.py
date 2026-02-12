@@ -73,6 +73,12 @@ class FunctionResult:
     key: Optional[str] = None
 
 
+import numpy as np
+class ShmArray(np.ndarray):
+    """NumPy array backed by SharedMemory."""
+    pass
+
+
 class ManagedAllocator:
     """
     Python-side Managed Memory Allocator for Zero-Copy Parallelism.
@@ -129,14 +135,9 @@ class ManagedAllocator:
         if self._registry:
             self._registry.log_allocation(shm_name, size)
 
-        # Return NumPy view as ShmArray (subclass to hold shm ref)
-        class ShmArray(np.ndarray):
-            """NumPy array backed by SharedMemory."""
-
-            pass
-
+        # Return NumPy view as ShmArray
         arr = ShmArray(shape, dtype=dtype, buffer=shm.buf)
-        arr._shm_ref = shm  # Store as class attribute
+        arr._shm_ref = shm  # Store as attribute for lifecycle tracking
         return arr
 
     def get(self, name: str, shape: tuple = None, dtype=None) -> Any:

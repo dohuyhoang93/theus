@@ -4,8 +4,8 @@ title: Global State Mutation Backdoor via List Interop
 area: core
 severity: critical
 introduced_in: v3.0.0
-fixed_in: open
-status: open
+fixed_in: v3.0.22
+status: resolved
 ---
 
 # INC-018: Global State Mutation Backdoor via List Interop

@@ -22,8 +22,8 @@ use crate::zones::{CAP_APPEND, CAP_UPDATE, CAP_DELETE};
 #[pyclass(module = "theus_core", subclass)]
 pub struct SupervisorProxy {
     /// The wrapped Python object
-    #[pyo3(get, name = "_target")]
-    pub target: Py<PyAny>,
+    // [INC-019] Renamed to 'inner' to ensure NO binding to '_target'
+    pub(crate) inner: Py<PyAny>,
     /// Path for logging/permission: "domain.counter"
     path: String,
     /// If true, block all writes (for PURE processes)
@@ -50,7 +50,7 @@ impl SupervisorProxy {
         capabilities: u8,
     ) -> Self {
         SupervisorProxy {
-            target,
+            inner: target,
             path,
             read_only,
             transaction,
@@ -58,6 +58,8 @@ impl SupervisorProxy {
             capabilities,
         }
     }
+
+
 
     /// Get attribute - Returns original object (or nested Proxy)
     /// v3.1: Supports Dict dot-access (d.key) fallback
@@ -70,13 +72,13 @@ impl SupervisorProxy {
         }
 
         // 1. Try generic getattr (methods, object fields)
-        let val_result = self.target.getattr(py, name.as_str());
+        let val_result = self.inner.getattr(py, name.as_str());
         
         let val = match val_result {
             Ok(v) => v,
             Err(_e) => {
-                if self.target.bind(py).is_instance_of::<PyDict>() {
-                    match self.target.call_method1(py, "__getitem__", (name.clone(),)) {
+                if self.inner.bind(py).is_instance_of::<PyDict>() {
+                    match self.inner.call_method1(py, "__getitem__", (name.clone(),)) {
                         Ok(v) => v,
                         Err(_) => {
                             // If key missing, return original error but enriched
@@ -93,7 +95,7 @@ impl SupervisorProxy {
                      return Err(pyo3::exceptions::PyAttributeError::new_err(
                         format!(
                             "'SupervisorProxy[{}]' object has no attribute '{}'. (Path: '{}')", 
-                            self.target.bind(py).get_type().name()?, name, self.path
+                            self.inner.bind(py).get_type().name()?, name, self.path
                         )
                     ));
                 }
@@ -177,7 +179,7 @@ impl SupervisorProxy {
             ));
         }
 
-        let is_dict = self.target.bind(py).is_instance_of::<PyDict>();
+        let is_dict = self.inner.bind(py).is_instance_of::<PyDict>();
 
         // Log mutation if transaction exists
         if let Some(ref tx) = self.transaction {
@@ -189,14 +191,24 @@ impl SupervisorProxy {
             
             // Get old value for delta logging (handling Dict vs Object)
             let old_val = if is_dict {
-                 self.target.call_method1(py, "get", (name.as_str(),)).ok()
+                 self.inner.call_method1(py, "get", (name.as_str(),)).ok()
             } else {
-                 self.target.getattr(py, name.as_str()).ok()
+                 self.inner.getattr(py, name.as_str()).ok()
             };
             
             // Call transaction.log_delta(path, old, new)
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                let _ = tx_bound.call1((full_path, old_val, value.clone_ref(py)));
+            // Call transaction.log_delta(path, old, new)
+            match tx.bind(py).getattr("log_delta") {
+                Ok(tx_bound) => {
+                     if let Err(e) = tx_bound.call1((full_path, old_val, value.clone_ref(py))) {
+                         eprintln!("ERROR: log_delta failed!");
+                         e.print(py);
+                     }
+                },
+                Err(e) => {
+                    eprintln!("ERROR: Transaction object missing log_delta!");
+                    e.print(py);
+                }
             }
         }
 
@@ -205,9 +217,9 @@ impl SupervisorProxy {
         // Every state change in Theus MUST be tied to a transaction for audit and rollback.
         if self.transaction.is_some() {
             if is_dict {
-                 self.target.call_method1(py, "__setitem__", (name, value))?;
+                 self.inner.call_method1(py, "__setitem__", (name, value))?;
             } else {
-                 self.target.setattr(py, name.as_str(), value)?;
+                 self.inner.setattr(py, name.as_str(), value)?;
             }
             Ok(())
         } else {
@@ -219,40 +231,48 @@ impl SupervisorProxy {
 
     /// Get item - For dict-like access ctx.domain["key"]
     fn __getitem__(&self, py: Python, key: PyObject) -> PyResult<PyObject> {
-        let val = self.target.call_method1(py, "__getitem__", (key.clone_ref(py),))?;
+        let val = self.inner.call_method1(py, "__getitem__", (key.clone_ref(py),))?;
         
-        // Build nested path
+        // Construct path for child proxy
         let key_str = key.bind(py).str()?.to_string();
+        
         let nested_path = if self.path.is_empty() {
-            key_str
+            key_str.clone()
         } else {
             format!("{}[{}]", self.path, key_str)
         };
 
-        // Wrap if needed
-        if val.bind(py).is_instance_of::<PyDict>() || val.bind(py).hasattr("__dict__")? {
+        // Check if value is a container (Dict/List/Object)
+
+        // NOTE: Lists MUST be wrapped to prevent in-place mutations (append, pop, etc.)
+        let is_dict = val.bind(py).is_instance_of::<PyDict>();
+        let is_list = val.bind(py).is_instance_of::<PyList>();
+        let has_dict = val.bind(py).hasattr("__dict__")?;
+
+        if is_dict || is_list || has_dict {
             let tx_clone = self.transaction.as_ref().map(|t| t.clone_ref(py));
             
-            // [INC-013] Double Shadowing Logic
             let mut is_child_shadow = self.is_shadow;
 
-            // v3.1 CoW: Get Shadow (No Stitching)
             let val_shadow = if let Some(ref tx) = self.transaction {
                 let tx_bound = tx.bind(py);
                 
                 if self.is_shadow {
+                    // [FIX] Parent is Shadow -> Child is mutable part of Shadow Tree. 
+                    // Use it directly to ensure mutations propagate to parent.
                     val.clone_ref(py)
                 } else {
+                    // [v3.1.2] Differential Shadow Optimization
                     match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
                         Ok(s) => {
                             is_child_shadow = true;
                             s.unbind()
                         },
-                        Err(_) => val
+                        Err(e) => return Err(e)
                     }
                 }
             } else {
-                val
+                val.clone_ref(py)
             };
 
             // Recalculate capabilities for nested path
@@ -264,14 +284,15 @@ impl SupervisorProxy {
                 self.capabilities & zone_physics
             };
 
-            Ok(SupervisorProxy::new(
+            let proxy = SupervisorProxy::new(
                 val_shadow,
                 nested_path,
                 self.read_only,
                 tx_clone,
                 is_child_shadow,
                 child_caps,
-            ).into_py(py))
+            );
+            Ok(Py::new(py, proxy)?.into_any())
         } else {
             Ok(val)
         }
@@ -309,19 +330,19 @@ impl SupervisorProxy {
             format!("{}[{}]", self.path, key.bind(py).str()?)
         };
         
-        let old_val = self.target.call_method1(py, "get", (key.clone_ref(py),)).ok();
+        let old_val = self.inner.call_method1(py, "get", (key.clone_ref(py),)).ok();
         
         if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
             let _ = tx_bound.call1((full_path, old_val, value.clone_ref(py)));
         }
 
-        self.target.call_method1(py, "__setitem__", (key, value))?;
+        self.inner.call_method1(py, "__setitem__", (key, value))?;
         Ok(())
     }
 
     /// String representation - More descriptive for debugging
     fn __repr__(&self, py: Python) -> PyResult<String> {
-        let type_name = self.target.bind(py).get_type().name()?.to_string();
+        let type_name = self.inner.bind(py).get_type().name()?.to_string();
         // Don't print full target repr if it's huge, just type and path
         Ok(format!("<SupervisorProxy[{}] at path='{}' cap={:04b}>", type_name, self.path, self.capabilities))
     }
@@ -338,24 +359,29 @@ impl SupervisorProxy {
 
     /// Check if key exists (for 'in' operator)
     fn __contains__(&self, py: Python, key: PyObject) -> PyResult<bool> {
-        self.target.call_method1(py, "__contains__", (key,))?.extract(py)
+        self.inner.call_method1(py, "__contains__", (key,))?.extract(py)
     }
 
     /// Iterator support
     fn __iter__(&self, py: Python) -> PyResult<PyObject> {
-        self.target.call_method0(py, "__iter__")
+        self.inner.call_method0(py, "__iter__")
     }
 
     /// Conversion to dict (Delegates to target or returns None)
     fn to_dict(&self, py: Python) -> PyResult<PyObject> {
-        if self.target.bind(py).hasattr("to_dict")? {
-            self.target.call_method0(py, "to_dict")
-        } else if self.target.bind(py).is_instance_of::<PyDict>() {
+        let inner = self.inner.bind(py);
+        if inner.hasattr("model_dump")? {
+            inner.call_method0("model_dump").map(|x| x.unbind())
+        } else if inner.hasattr("dict")? {
+            inner.call_method0("dict").map(|x| x.unbind())
+        } else if inner.hasattr("to_dict")? {
+            inner.call_method0("to_dict").map(|x| x.unbind())
+        } else if inner.is_instance_of::<PyDict>() {
             // It is already a dict, but target is PyAny. Return clone as dict.
             // Actually, usually we want a copy.
-            self.target.call_method0(py, "copy")
+            inner.call_method0("copy").map(|x| x.unbind())
         } else {
-             Err(pyo3::exceptions::PyAttributeError::new_err("Wrapped object has no to_dict"))
+             Err(pyo3::exceptions::PyAttributeError::new_err("Wrapped object has no to_dict/model_dump"))
         }
     }
 
@@ -365,12 +391,12 @@ impl SupervisorProxy {
         if self.capabilities & CAP_APPEND == 0 {
             return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: APPEND capability required for .append() at '{}'", self.path)));
         }
-        self.target.call_method1(py, "append", (item,))?;
+        self.inner.call_method1(py, "append", (item,))?;
         
         // Log Delta (Explicit SET for engine compatibility)
         if let Some(ref tx) = self.transaction {
             if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
         Ok(())
@@ -380,12 +406,12 @@ impl SupervisorProxy {
         if self.capabilities & CAP_APPEND == 0 {
             return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: APPEND capability required for .extend() at '{}'", self.path)));
         }
-        self.target.call_method1(py, "extend", (iterable,))?;
+        self.inner.call_method1(py, "extend", (iterable,))?;
         
         // Log Delta
         if let Some(ref tx) = self.transaction {
             if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
         Ok(())
@@ -395,12 +421,12 @@ impl SupervisorProxy {
         if self.capabilities & CAP_APPEND == 0 {
             return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: APPEND capability required for .insert() at '{}'", self.path)));
         }
-        self.target.call_method1(py, "insert", (index, item))?;
+        self.inner.call_method1(py, "insert", (index, item))?;
         
         // Log Delta
         if let Some(ref tx) = self.transaction {
             if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
         Ok(())
@@ -410,12 +436,12 @@ impl SupervisorProxy {
         if self.capabilities & CAP_DELETE == 0 {
             return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: DELETE capability required for .remove() at '{}'", self.path)));
         }
-        self.target.call_method1(py, "remove", (value,))?;
+        self.inner.call_method1(py, "remove", (value,))?;
         
         // Log Delta
         if let Some(ref tx) = self.transaction {
             if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
         Ok(())
@@ -425,12 +451,12 @@ impl SupervisorProxy {
         if self.capabilities & CAP_UPDATE == 0 {
             return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: UPDATE capability required for .sort() at '{}'", self.path)));
         }
-        self.target.call_method(py, "sort", (), kwargs)?;
+        self.inner.call_method(py, "sort", (), kwargs)?;
         
         // Log Delta
         if let Some(ref tx) = self.transaction {
             if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
         Ok(())
@@ -440,12 +466,12 @@ impl SupervisorProxy {
         if self.capabilities & CAP_UPDATE == 0 {
             return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: UPDATE capability required for .reverse() at '{}'", self.path)));
         }
-        self.target.call_method0(py, "reverse")?;
+        self.inner.call_method0(py, "reverse")?;
         
         // Log Delta
         if let Some(ref tx) = self.transaction {
             if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
         Ok(())
@@ -462,21 +488,21 @@ impl SupervisorProxy {
             return Err(pyo3::exceptions::PyPermissionError::new_err(format!("Permission Denied: DELETE capability required for .clear() at '{}'", self.path)));
         }
 
-        let is_list = self.target.bind(py).is_instance_of::<PyList>();
+        let is_list = self.inner.bind(py).is_instance_of::<PyList>();
         
         // Execute clear
-        self.target.call_method0(py, "clear")?;
+        self.inner.call_method0(py, "clear")?;
 
         // Log Delta
         if let Some(ref tx) = self.transaction {
             if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
                 if is_list {
                     // For lists, log whole empty list
-                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
                 } else {
                     // For dicts, we could log all keys being removed, or just use the Shadow Inference in commit.
                     // But to be safe and explicit:
-                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
                 }
             }
         }
@@ -494,17 +520,17 @@ impl SupervisorProxy {
     // === Mapping Protocol Implementation ===
 
     fn __len__(&self, py: Python) -> PyResult<usize> {
-        self.target.call_method0(py, "__len__")?.extract(py)
+        self.inner.call_method0(py, "__len__")?.extract(py)
     }
 
     fn __richcmp__(&self, py: Python, other: PyObject, op: pyo3::basic::CompareOp) -> PyResult<PyObject> {
         match op {
             pyo3::basic::CompareOp::Eq => {
                 // If other is dict, compare target with dict
-                self.target.call_method1(py, "__eq__", (other,))
+                self.inner.call_method1(py, "__eq__", (other,))
             },
             pyo3::basic::CompareOp::Ne => {
-                self.target.call_method1(py, "__ne__", (other,))
+                self.inner.call_method1(py, "__ne__", (other,))
             },
             _ => Ok(py.NotImplemented()),
         }
@@ -512,7 +538,7 @@ impl SupervisorProxy {
 
     fn get(&self, py: Python, key: PyObject, default: Option<PyObject>) -> PyResult<PyObject> {
         // Safe get that wraps result
-        let val_res = self.target.call_method1(py, "get", (key.clone_ref(py), default));
+        let val_res = self.inner.call_method1(py, "get", (key.clone_ref(py), default));
         match val_res {
             Ok(val) => self._wrap_result(py, key.bind(py).str()?.to_string(), val),
             Err(e) => Err(e),
@@ -520,11 +546,11 @@ impl SupervisorProxy {
     }
 
     fn keys(&self, py: Python) -> PyResult<PyObject> {
-        self.target.call_method0(py, "keys")
+        self.inner.call_method0(py, "keys")
     }
 
     fn values(&self, py: Python) -> PyResult<PyObject> {
-        let values_view = self.target.call_method0(py, "values")?;
+        let values_view = self.inner.call_method0(py, "values")?;
         // Robustness: Convert view to list via builtins to handle any iterable safely
         let builtins = py.import_bound("builtins")?;
         let values_list = builtins.call_method1("list", (values_view,))?;
@@ -539,7 +565,7 @@ impl SupervisorProxy {
     }
 
     fn items(&self, py: Python) -> PyResult<PyObject> {
-        let items_view = self.target.call_method0(py, "items")?;
+        let items_view = self.inner.call_method0(py, "items")?;
         // Robustness: Convert view to list via builtins
         let builtins = py.import_bound("builtins")?;
         let items_list = builtins.call_method1("list", (items_view,))?;
@@ -611,7 +637,7 @@ impl SupervisorProxy {
 
                  // Get old value
                  // Get old value
-                 let old_val = self.target.call_method1(py, "get", (k.to_object(py),)).ok(); // Raw get is fine for log
+                 let old_val = self.inner.call_method1(py, "get", (k.to_object(py),)).ok(); // Raw get is fine for log
                  
                  // Log delta
                  if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
@@ -621,7 +647,7 @@ impl SupervisorProxy {
         }
         
         // 3. Apply updates to target
-        self.target.call_method(py, "update", (updates,), None)?;
+        self.inner.call_method(py, "update", (updates,), None)?;
         Ok(())
     }
 
@@ -639,14 +665,14 @@ impl SupervisorProxy {
             ));
         }
 
-        let is_list = self.target.bind(py).is_instance_of::<PyList>();
+        let is_list = self.inner.bind(py).is_instance_of::<PyList>();
 
         // Log mutation
         if let Some(ref tx) = self.transaction {
             if is_list {
                 // For lists, log the whole list path since indices shift
                 if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.target.clone_ref(py)));
+                    let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
                 }
             } else if let Some(ref koi) = key_or_index {
                 // For dicts, log specific key
@@ -657,8 +683,8 @@ impl SupervisorProxy {
                     format!("{}.{}", self.path, key_str)
                 };
                 
-                if self.target.call_method1(py, "__contains__", (koi.clone_ref(py),))?.extract(py)? {
-                     let old_val = self.target.call_method1(py, "get", (koi.clone_ref(py),)).ok();
+                if self.inner.call_method1(py, "__contains__", (koi.clone_ref(py),))?.extract(py)? {
+                     let old_val = self.inner.call_method1(py, "get", (koi.clone_ref(py),)).ok();
                      if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
                         let _ = tx_bound.call1((full_path, old_val, py.None()));
                      }
@@ -670,10 +696,10 @@ impl SupervisorProxy {
         if is_list {
              // List.pop takes index, not (key, default)
              let koi = key_or_index.unwrap_or_else(|| (-1i32).to_object(py));
-             self.target.call_method1(py, "pop", (koi,))
+             self.inner.call_method1(py, "pop", (koi,))
         } else {
              let koi = key_or_index.ok_or_else(|| pyo3::exceptions::PyTypeError::new_err("pop() expected at least 1 argument, got 0"))?;
-             self.target.call_method1(py, "pop", (koi, default))
+             self.inner.call_method1(py, "pop", (koi, default))
         }
     }
 
@@ -694,7 +720,7 @@ impl SupervisorProxy {
         // Strategy: Peek or Pop then Log?
         // Pop then Log is safer for consistency.
         
-        let res = self.target.call_method0(py, "popitem")?;
+        let res = self.inner.call_method0(py, "popitem")?;
         
         // It returns (key, value)
         if let Some(ref tx) = self.transaction {
@@ -736,7 +762,7 @@ impl SupervisorProxy {
         }
         
         // Logic: if key exists, return it (wrapped). If not, set it (log) and return it (wrapped).
-        let contains = self.target.call_method1(py, "__contains__", (key.clone_ref(py),))?.extract::<bool>(py)?;
+        let contains = self.inner.call_method1(py, "__contains__", (key.clone_ref(py),))?.extract::<bool>(py)?;
         
         if !contains {
             // Will set. Log it.
@@ -756,7 +782,7 @@ impl SupervisorProxy {
              }
         }
 
-        let res = self.target.call_method1(py, "setdefault", (key.clone_ref(py), default))?;
+        let res = self.inner.call_method1(py, "setdefault", (key.clone_ref(py), default))?;
         
         // Wrap result
         let key_str = key.bind(py).str()?.to_string();
@@ -838,7 +864,7 @@ impl SupervisorProxy {
     /// Get the underlying target (for internal use)
     #[getter]
     fn supervisor_target(&self, py: Python) -> PyObject {
-        self.target.clone_ref(py)
+        self.inner.clone_ref(py)
     }
 
     // === Pickle Support (v3.2) ===
@@ -851,7 +877,7 @@ impl SupervisorProxy {
         // Or if we need to write back, we need to re-attach context manually.
         // For now: Safe default is pickle as Read-Only data container.
         let tuple = PyTuple::new_bound(py, vec![
-            self.target.clone_ref(py),
+            self.inner.clone_ref(py),
             self.path.clone().into_py(py),
             self.read_only.into_py(py),
             self.is_shadow.into_py(py),
@@ -862,7 +888,7 @@ impl SupervisorProxy {
 
     fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
         let tuple = state.downcast_bound::<PyTuple>(py)?;
-        self.target = tuple.get_item(0)?.unbind();
+        self.inner = tuple.get_item(0)?.unbind();
         self.path = tuple.get_item(1)?.extract()?;
         self.read_only = tuple.get_item(2)?.extract()?;
         // Handle backwards compat for old pickles (len=3)

@@ -33,8 +33,15 @@ class TestZeroCopyProof(unittest.TestCase):
             print(f"Speedup Ratio: {data_time / (heavy_time if heavy_time > 0 else 0.001):.1f}x")
             
             # Verification
-            self.assertLess(heavy_time, 2.0, "Heavy zone MUST be O(1) [near-instant].")
-            self.assertLess(heavy_time, data_time / 10, "Heavy zone MUST be significantly faster for large data.")
+            # Verification for CI/CD Stability
+            # 1. Absolute Threshold: 20ms is generous for O(1) but filters out O(N) which is >500ms
+            self.assertLess(heavy_time, 20.0, "Heavy zone should remain near-instant even on slow CI.")
+            
+            # 2. Relative Speedup: The real proof of O(1) vs O(N)
+            # Heavy Zone (Zero-Copy) should be at least 50x faster than Data Zone (DeepCopy)
+            # Local benchmark: ~224x speedup.
+            speedup = data_time / (heavy_time if heavy_time > 0 else 0.001)
+            self.assertGreater(speedup, 50.0, f"Zero-Copy must be significantly faster. Speedup was only {speedup:.1f}x")
 
         print("\n--- [PROOF 2] MEMORY: RAW DATA POINTERS ---")
         original_ptr = self.large_data.__array_interface__['data'][0]

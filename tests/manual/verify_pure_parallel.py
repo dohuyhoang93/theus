@@ -6,13 +6,14 @@ sys.path.insert(0, os.getcwd())
 
 try:
     from theus.parallel import InterpreterPool
-    from standalone_task import standalone_add
+    from tests.manual.test_standalone_task import standalone_add
 
     print(">> Initializing Pool...")
     pool = InterpreterPool(size=1)
 
     print(">> Submitting Standalone Pure Task...")
-    future = pool.submit(standalone_add, 10, 20)
+    # InterpreterPool doesn't inject ctx, so we pass None or dummy if signature changed
+    future = pool.submit(standalone_add, None, 10, 20)
 
     print(">> Waiting for result...")
     result = future.result()

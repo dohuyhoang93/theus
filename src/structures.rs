@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::signals::SignalHub;
 use crate::engine::Transaction;
-use crate::zones::CAP_READ;
+use crate::zones::{CAP_READ, CAP_UPDATE, CAP_APPEND, CAP_DELETE};
 
 create_exception!(theus.structures, ContextError, pyo3::exceptions::PyException);
 
@@ -297,6 +297,13 @@ impl State {
         if let Some(d) = data {
             let d_dict = d.downcast_bound::<PyDict>(py)?;
             for (k, v) in d_dict {
+                // [v3.3 Fix] Force Unwrap Proxies (if any)
+                let v_unwrapped = if let Ok(target) = v.getattr("supervisor_target") {
+                    target
+                } else {
+                    v.clone()
+                };
+                let v = &v_unwrapped;
                 let zone_key = k.extract::<String>()?;
                 
                 // v3.1: Track NESTED field paths for Field-Level CAS
@@ -330,6 +337,13 @@ impl State {
         if let Some(h) = heavy {
             let h_dict = h.downcast_bound::<PyDict>(py)?;
             for (k, v) in h_dict {
+                // [v3.3 Fix] Force Unwrap Proxies (if any)
+                let v_unwrapped = if let Ok(target) = v.getattr("supervisor_target") {
+                    target
+                } else {
+                    v.clone()
+                };
+                let v = &v_unwrapped;
                 let zone_key = k.extract::<String>()?;
                 
                 // v3.1: Track NESTED field paths for Field-Level CAS
@@ -597,22 +611,70 @@ impl ProcessContext {
         self.tx.as_ref().map(|t| t.clone_ref(py).into_py(py))
     }
 
-    // v3.2 Safe Alias: global_ctx -> state.getattr("global")
-    // Use this because 'global' is a reserved keyword in Python!
+    // v3.2 Safe Alias: global_ctx -> global
     #[getter]
     fn global_ctx(&self, py: Python) -> PyResult<PyObject> {
-        let state_bound = self.state.bind(py);
-        state_bound.getattr("global")?.extract()
+        self.global(py)
     }
 
-    // v3.2 Safe Alias: domain_ctx -> state.getattr("domain")
+    // v3.2 Safe Alias: domain_ctx -> domain
     #[getter]
     fn domain_ctx(&self, py: Python) -> PyResult<PyObject> {
+        self.domain(py)
+    }
+
+    /// [FIX v3.3] Explicit Domain Getter with Transaction Binding
+    /// Ensure ctx.domain returns a MUTABLE proxy if a transaction is active.
+    #[getter]
+    fn domain(&self, py: Python) -> PyResult<PyObject> {
         let state_bound = self.state.bind(py);
-        state_bound.getattr("domain")?.extract()
+        let state_ref = state_bound.borrow();
+        match state_ref.data.get("domain") {
+            Some(arc_val) => {
+                 let tx_opt = self.tx.as_ref().map(|t| t.clone_ref(py).into_py(py));
+                 let read_only = tx_opt.is_none();
+                 
+                 let proxy = SupervisorProxy::new(
+                     arc_val.clone_ref(py).into_py(py),
+                     "domain".to_string(),
+                     read_only, 
+                     tx_opt,
+                     false, // is_shadow
+                     CAP_READ | CAP_UPDATE | CAP_APPEND | CAP_DELETE, // Full capability for Process
+                 );
+                 Ok(Py::new(py, proxy)?.into_py(py))
+            },
+            None => Ok(py.None())
+        }
+    }
+
+    /// [FIX v3.3] Explicit Global Getter with Transaction Binding
+    #[getter]
+    fn global(&self, py: Python) -> PyResult<PyObject> {
+        let state_bound = self.state.bind(py);
+        let state_ref = state_bound.borrow();
+        match state_ref.data.get("global") {
+            Some(arc_val) => {
+                 // Global is usually Read-Only unless elevated?
+                 // For now, consistent with Domain: Mutable if TX exists.
+                 let tx_opt = self.tx.as_ref().map(|t| t.clone_ref(py).into_py(py));
+                 let read_only = tx_opt.is_none();
+                 
+                 let proxy = SupervisorProxy::new(
+                     arc_val.clone_ref(py).into_py(py),
+                     "global".to_string(),
+                     read_only, 
+                     tx_opt,
+                     false, 
+                     CAP_READ | CAP_UPDATE | CAP_APPEND | CAP_DELETE,
+                 );
+                 Ok(Py::new(py, proxy)?.into_py(py))
+            },
+            None => Ok(py.None())
+        }
     }
     
-    // Forward getter access to state (except local)
+    // Forward getter access to state (except local) - Fallback
     fn __getattr__(&self, py: Python, name: String) -> PyResult<PyObject> {
         // First check state
         match self.state.bind(py).getattr(name.as_str()) {

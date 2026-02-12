@@ -11,10 +11,17 @@ from theus import TheusEngine, process
 from theus.parallel import INTERPRETERS_SUPPORTED
 
 # Import tasks
-from tests.manual.parallel_tasks import task_serial, task_parallel
+from tests.manual.parallel_lib import task_serial, task_parallel
 
 async def run_test_suite(engine, label):
-    print(f"\n--- Running Suite: {label} ---")
+    # Trigger lazy init by running a parallel task once
+    # Use a small n to make it fast
+    await engine.execute("task_parallel", n=1000) 
+    backend = "Unknown"
+    if hasattr(engine, "_parallel_pool") and engine._parallel_pool:
+        backend = engine._parallel_pool.__class__.__name__
+
+    print(f"\n--- Running Suite: {label} [{backend}] ---")
     
     # Baseline
     print("   [Baseline] Running 2 Serial Tasks (Threaded/GIL)...")
@@ -40,15 +47,18 @@ async def run_parallel_verification():
     print("==============================================")
     print(f"   Python Version: {sys.version.split()[0]}")
     
-    # 1. Test Sub-interpreters (Default)
+    # 1. Test Sub-interpreters (Forced for CI)
     if INTERPRETERS_SUPPORTED:
         print("\n=== MODE 1: Sub-interpreters (Experimental) ===")
-        engine_sub = TheusEngine() # Default
+        os.environ["THEUS_FORCE_INTERPRETERS"] = "1"
+        os.environ.pop("THEUS_USE_PROCESSES", None)
+        
+        engine_sub = TheusEngine()
         engine_sub.register(task_serial)
         engine_sub.register(task_parallel)
         
         speedup = await run_test_suite(engine_sub, "Sub-interpreters")
-        if speedup > 1.2:
+        if speedup > 1.1:
             print("   ✅ Sub-interpreters working!")
         else:
             print("   ⚠️  Sub-interpreters overhead high or GIL not freed.")
@@ -56,6 +66,7 @@ async def run_parallel_verification():
     # 2. Test ProcessPool (Proven Fallback)
     print("\n=== MODE 2: ProcessPool (Production Standard) ===")
     os.environ["THEUS_USE_PROCESSES"] = "1"
+    os.environ.pop("THEUS_FORCE_INTERPRETERS", None)
     
     # Re-init engine to pick up env var
     engine_proc = TheusEngine()

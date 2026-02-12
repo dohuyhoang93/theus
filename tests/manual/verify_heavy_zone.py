@@ -12,33 +12,7 @@ from theus import TheusEngine, process
 # 3. Verify Memory Usage & Speed.
 
 # --- Sub-Interpreter / Process Task ---
-# Note: Workers cannot allocate, only Main can.
-@process(inputs=["heavy.large_data"], outputs=[], parallel=True)
-def analyze_large_data(ctx):
-    import os
-    import time
-    
-    start = time.time()
-    
-    # 1. Access Heavy Data (Zero-Copy View)
-    # Theus automatically converts the SharedMemory handle to a Numpy Array
-    arr = ctx.heavy["large_data"]
-    
-    # 2. Verify Attributes
-    pid = os.getpid()
-    shape = arr.shape
-    mean_val = float(arr.mean()) # Calculation on shared memory
-    
-    # 3. Check if it's actually shared (Address check hard across processes, but timing is key)
-    # If it was pickled/copied, this start-up would take 100ms+ for 100MB.
-    # Zero-copy should be instant (<1ms).
-    
-    return {
-        "pid": pid,
-        "shape": shape,
-        "mean": mean_val,
-        "access_time": time.time() - start
-    }
+from tests.manual.parallel_lib import analyze_large_data
 
 async def run_heavy_verification():
     print("==============================================")

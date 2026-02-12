@@ -2,6 +2,11 @@ import sys
 import os
 import pytest
 from theus import TheusEngine as Theus
+try:
+    from theus.engine import SupervisorProxy
+except ImportError:
+    from theus_core import SupervisorProxy
+
 from pydantic import BaseModel, Field
 from typing import List, Set, Dict
 
@@ -18,7 +23,7 @@ class StateModel(BaseModel):
 
 
 def test_silent_loss_fix():
-    print("\n[Test] Verifying Silent Loss Fix (Differential Shadow Merging)...")
+    print("\n[Test] Verifying Silent Loss Fix (Address Verification Mode)...")
 
     # 1. Setup Engine
     t = Theus()
@@ -28,34 +33,46 @@ def test_silent_loss_fix():
     initial_data = {
         "domain": {"items": ["initial"], "tags": {"alpha"}, "meta": {"key": "val"}}
     }
-    # Use CAS to update engine state (State is immutable)
     t.compare_and_swap(0, data=initial_data)
 
     # 3. Transaction with In-Place Mutations
     print("[Action] Performing in-place mutations (append, add)...")
-    from theus_core import SupervisorProxy
 
     with t.transaction() as tx:
-        # Create Proxy manually (simulating what ContextGuard does)
-        # Wrap the root state data
+        # Create Proxy manually
         root = SupervisorProxy(t.state.data, path="", read_only=False, transaction=tx)
-
-        # Access domain. Items should be lists/sets.
-        # Note: t.state.data is likely a FrozenDict/Dict.
-        # We access via keys.
+        
+        # Access domain.
         domain = root["domain"]
+        print(f"[DEBUG] Domain Proxy ID: {id(domain)}")
 
-        # List Mutation (The "Silent Loss" culprit)
-        # domain['items'] returns a Proxy wrapping the list
-        domain["items"].append("new_item")
+        # [VERIFICATION] Trace Object Identity
+        items_proxy = domain["items"]
+        print(f"[DEBUG] Items Proxy: {items_proxy} (Type: {type(items_proxy)})")
+        print(f"[DEBUG] Items Proxy ID: {id(items_proxy)}")
+
+        # List Mutation
+        print(f"[DEBUG] Pre-Append: {items_proxy}")
+        items_proxy.append("new_item")
+        print(f"[DEBUG] Post-Append: {items_proxy}")
+        
+        # Verify immediately via fresh access
+        items_check = domain["items"]
+        print(f"[DEBUG] Check Access ID: {id(items_check)} Content: {items_check}")
+        
+        if id(items_proxy) != id(items_check):
+             print(f"[WARN] Items Proxy ID unstable! {id(items_proxy)} -> {id(items_check)}")
+        
+        if "new_item" not in items_check:
+             print(f"[FATAL] Immediate Check Failed! Appended item lost.")
+             print(f"[FATAL] Original ID: {id(items_proxy)} vs Fresh ID: {id(items_check)}")
 
         # Set Mutation
         domain["tags"].add("beta")
-
         # Dict Mutation
         domain["meta"]["new_key"] = "new_val"
 
-        print(f"  > Inside TX: items={domain['items']}, tags={domain['tags']}")
+        print(f"  > Inside TX: items={items_proxy}, tags={domain['tags']}")
 
     # 4. Verify Persistence
     final_state = t.state.data
@@ -75,11 +92,4 @@ def test_silent_loss_fix():
 
 
 if __name__ == "__main__":
-    try:
-        test_silent_loss_fix()
-    except AssertionError as e:
-        print(f"\n[FAIL] {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n[ERROR] {e}")
-        sys.exit(1)
+    test_silent_loss_fix()

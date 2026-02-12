@@ -7,6 +7,14 @@ from typing import Any, Dict, List, Optional, Union, Callable
 # Load Core Rust Module
 try:
     import theus_core
+    # [Fix] Handle namespace package structure (theus_core.theus_core) being installed by maturin
+    if not hasattr(theus_core, "TheusEngine"):
+        try:
+            from theus_core import theus_core as _core_impl
+            theus_core = _core_impl
+        except ImportError:
+            pass
+            
     from theus.structures import StateUpdate, FunctionResult
 
     _HAS_RUST_CORE = True
@@ -379,7 +387,6 @@ class TheusEngine:
                     if hasattr(self._core, "flush_outbox"):
                         self._core.flush_outbox()
 
-                    print(f"[PY-DEBUG] execute returning result={result!r}", flush=True)
                     return result
 
                 except Exception as e:
@@ -497,8 +504,6 @@ class TheusEngine:
                         # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
                         # Allows full access but enables SupervisorProxy for nested dicts
                         # INJECT TRANSACTION:
-                        print(f"[PY-DEBUG] arg_binder called for {func.__name__}, ctx type: {type(ctx)}", flush=True)
-                        
                         # [v3.3 FIX] Extract outbox BEFORE creating ContextGuard
                         # ProcessContext.outbox is a #[pyo3(get)] read-only attribute
                         raw_outbox = ctx.outbox
@@ -516,7 +521,6 @@ class TheusEngine:
                         # Assign to ContextGuard's __dict__ (enabled by #[pyclass(dict)])
                         # [v3.3] Now that Rust getter is fixed, we don't need this manual assignment?
                         # object.__setattr__(native_guard, 'outbox', raw_outbox)
-                        print(f"[PY-DEBUG] ContextGuard created with outbox={type(native_guard.outbox)}", flush=True)
                         return await func(native_guard, *args, **kwargs)
 
                     arg_binder.__name__ = func.__name__
@@ -720,17 +724,6 @@ class TheusEngine:
 
                     if root in ["heavy"]:
                         if len(rest) > 0:
-                            print(f"[DEBUG-ENGINE] Checking pending_heavy. Current: {type(tx.pending_heavy)}", flush=True)
-                            if tx.pending_heavy is None:
-                                tx.pending_heavy = {}
-                                print(f"[DEBUG-ENGINE] Init pending_heavy to dict: {id(tx.pending_heavy)}", flush=True)
-                            
-                            # Check if it is frozen
-                            if isinstance(tx.pending_heavy, (dict,)):
-                                 pass
-                            else:
-                                 print(f"[DEBUG-ENGINE] WARNING: pending_heavy is {type(tx.pending_heavy)}", flush=True)
-
                             tx.pending_heavy[rest[0]] = val
                     elif root in ["domain", "global", "global_"]:
                         key = "global" if root == "global_" else root
@@ -814,6 +807,7 @@ class TheusEngine:
         """
         if not self._schema:
             return
+        
 
         # [v3.1.5] Strict Validation: Force re-validation of instances
         # Pydantic (v1/v2) often trusts existing model instances.
@@ -1005,8 +999,11 @@ class TheusEngine:
     def execute_parallel(self, process_name, **kwargs):
         """
         Execute a process in parallel pool (Sub-Interpreter or Process).
-        Uses `THEUS_USE_PROCESSES=1` env var to force ProcessPool (for NumPy compatibility).
-        Uses `THEUS_POOL_SIZE=N` env var to set pool size (default: 4).
+        Logic:
+        1. THEUS_FORCE_INTERPRETERS=1: Force Sub-interpreters if supported.
+        2. THEUS_USE_PROCESSES=1: Force ProcessPool.
+        3. Windows Default: ProcessPool (for stability).
+        4. Others Default: Sub-interpreters if supported.
 
         Args:
             process_name: Name of process to run.
@@ -1016,22 +1013,39 @@ class TheusEngine:
             Result from the process execution.
         """
         import os
-        # Create ParallelContext with domain kwargs
-        # v3.2 FIXED: Use centralized factory for safe hydration (INC-014)
-        from theus.parallel import ParallelContext, ProcessPool
+        from theus.parallel import ParallelContext, INTERPRETERS_SUPPORTED
         
         # Lazy Initialization
         if self._parallel_pool is None:
             pool_size = int(os.environ.get("THEUS_POOL_SIZE", 4))
-            self._parallel_pool = ProcessPool(size=pool_size)
+            
+            # Selection Flags
+            use_processes = os.environ.get("THEUS_USE_PROCESSES") == "1"
+            force_interpreters = os.environ.get("THEUS_FORCE_INTERPRETERS") == "1"
+            
+            # Decision Tree
+            if use_processes:
+                from theus.parallel import ProcessPool
+                self._parallel_pool = ProcessPool(size=pool_size)
+            elif force_interpreters and INTERPRETERS_SUPPORTED:
+                from theus.parallel import InterpreterPool
+                self._parallel_pool = InterpreterPool(size=pool_size)
+            elif sys.platform == "win32":
+                # Windows is safer with Processes by default
+                from theus.parallel import ProcessPool
+                self._parallel_pool = ProcessPool(size=pool_size)
+            elif INTERPRETERS_SUPPORTED:
+                from theus.parallel import InterpreterPool
+                self._parallel_pool = InterpreterPool(size=pool_size)
+            else:
+                # Fallback to Processes
+                from theus.parallel import ProcessPool
+                self._parallel_pool = ProcessPool(size=pool_size)
 
         func = self._registry.get(process_name)
         if not func:
              raise ValueError(f"Process '{process_name}' not found")
 
-        # Ensure imports are clean (ProcessPool might already be imported if lazy init ran)
-        # But ParallelContext is needed here.
-        
         ctx = ParallelContext.from_state(self.state, **kwargs)
 
         # Submit and wait for result

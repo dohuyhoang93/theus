@@ -390,3 +390,11 @@ class HeavyZoneAllocator:
 
     def __del__(self):
         self.cleanup()
+
+
+class Mutable:
+    """
+    Semantic marker for the POP Linter. 
+    Indicates that a field is intended to be mutable despite its prefix.
+    """
+    pass

@@ -26,7 +26,7 @@ def create_order(ctx: DemoSystemContext):
 
     new_order = {"id": req.get("id"), "items": req.get("items", []), "total": total}
 
-    updated = current_orders + [new_order]
+    updated = list(current_orders) + [new_order]
 
     print(f"   [Ecommerce] Order created: {new_order['id']}")
     return updated

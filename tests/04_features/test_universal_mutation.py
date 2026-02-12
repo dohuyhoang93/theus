@@ -47,7 +47,7 @@ def idiomatic_audit_violation(ctx):
 # ==========================================
 # 3. Explicit API (Transaction)
 # ==========================================
-@process(inputs=["domain.data", "transaction"], outputs=["transaction"])
+@process(inputs=["domain.data", "transaction"])
 def explicit_process(ctx):
     # Explicit Transaction API
     # Note: Deep merge behavior applies
@@ -55,7 +55,7 @@ def explicit_process(ctx):
     return None
 
 
-@process(inputs=["domain.data", "transaction"], outputs=["transaction"])
+@process(inputs=["domain.data", "transaction"])
 def explicit_failure_rollback(ctx):
     ctx.transaction.update(
         data={"domain": {"data": {"rollback_target": "FailedState"}}}
