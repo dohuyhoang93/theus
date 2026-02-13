@@ -216,7 +216,7 @@ def _probe_dependencies():
         import theus_core
         import numpy
         return True
-    except ImportError:
+    except Exception:
         return False
 
 

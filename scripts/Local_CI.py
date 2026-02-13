@@ -77,6 +77,14 @@ def step_test_manual(env):
     env["PYTHONPATH"] = get_project_root()
     run_step([sys.executable, "tests/manual/run_suite.py"], env, "Running Manual Integration Suite")
 
+def step_clippy(env):
+    """Run Cargo Clippy."""
+    run_step(["cargo", "clippy", "--", "-D", "warnings"], env, "Running Cargo Clippy")
+
+def step_rust_test(env):
+    """Run Rust unit tests."""
+    run_step(["cargo", "test"], env, "Running Rust Tests")
+
 def step_verify_parity(env):
     """Run API Parity Verification."""
     env["PYTHONPATH"] = get_project_root()
@@ -93,9 +101,9 @@ def main():
     if not args or args[0] in ["--help", "-h", "help"]:
         print("\nUsage: python scripts/Local_CI.py <command>")
         print("Commands:")
-        print("  full   : Build -> Stubs -> Install -> Pytest -> Manual Test")
+        print("  full   : Build -> Stubs -> Clippy -> Rust Test -> Pytest -> Manual Test")
         print("  build  : Build -> Install")
-        print("  verify : Build -> Install -> Verify API Parity")
+        print("  verify : Build -> Clippy -> Rust Test -> Verify API Parity")
         print("  help   : Show this help message")
         sys.exit(0)
         
@@ -105,12 +113,16 @@ def main():
     if command == "full":
         step_build_install(env)
         step_gen_stubs(env)
+        step_clippy(env)
+        step_rust_test(env)
         step_test_automated(env)
         step_test_manual(env)
     elif command == "build":
         step_build_install(env)
     elif command == "verify":
-        step_build_install(env) # Verify logic usually needs the latest binary
+        step_build_install(env)
+        step_clippy(env)
+        step_rust_test(env)
         step_verify_parity(env)
     else:
         print(f"❌ Unknown command: {command}")
