@@ -10,11 +10,7 @@
 
 ## 🧭 **Where do I start?**
 
-Theus is vast. Use our **[Interactive Documentation Map](https://github.com/dohuyhoang93/theus/blob/main/Documents/00_Start_Here_Map.md)** to find your path:
-*   🚀 **I want to build an Agent now:** [Go to Tutorials](https://github.com/dohuyhoang93/theus/blob/main/Documents/tutorials/en/Chapter_01.md)
-*   🤖 **I am an AI Assistant:** [Go to AI Tutorials](https://github.com/dohuyhoang93/theus/blob/main/Documents/tutorials/ai/00_QUICK_REFERENCE.md)
-*   🏗️ **I want to check architecture:** [Go to Specs](https://github.com/dohuyhoang93/theus/blob/main/Documents/Architecture/01_Specs/THEUS_API_REFERENCE.md)
-*   🎓 **I want to learn from scratch:** [Go to Documentation Map](https://github.com/dohuyhoang93/theus/blob/main/Documents/00_Start_Here_Map.md)
+Theus is vast. Use our **[Interactive Documentation Map](https://github.com/dohuyhoang93/theus/blob/main/Documents/00_Start_Here_Map.md)** to find your path.
 
 ---
 
@@ -178,14 +174,6 @@ For rapid experimentation where you need to bypass architectural constraints:
 
 Effect: Disables strict architectural guards (ContextGuard), allowing access to private attributes (`_hidden`) and restricted zones.
 > Note: Transaction safety (CAS) is still enforced to ensure consistency.
-
----
-
-## 📚 Documentation & Debugging
-
-- **[DEBUGGING.md](DEBUGGING.md)**: **Read this first!** Common pitfalls, Type Checking errors, and Pickling issues.
-- **[Spec](specs/)**: Full Architecture Specification.
-- **[POP Manifesto](https://github.com/dohuyhoang93/theus/blob/main/Documents/POP_Manifesto.md):** The philosophy behind Process-Oriented Programming.
 
 ---
 

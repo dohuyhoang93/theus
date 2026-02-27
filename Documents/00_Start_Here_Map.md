@@ -24,8 +24,7 @@
 ## 🏗️ Persona 2: The System Architect
 **Goal:** "I need to understand the 'POP' philosophy and the Rust/Python hybrid safety."
 
-*   **The Blueprint:** [**POP Specification**](./POP_specification.md)
-*   **The Why:** [**The POP Manifesto**](./POP_Manifesto.md) ([Vietnamese Version](./POP_Manifesto_VN.md))
+*   **The Why:** [**The POP Manifesto**](./POP_Manifesto.md)
 *   **Theory:** [**POP Whitepaper v2.0**](./POP_Whitepaper_v2.0.md)
 *   **Reference:** [**API Reference (v3.0)**](./Architecture/01_Specs/THEUS_API_REFERENCE.md)
 
@@ -40,15 +39,15 @@
 │   ├── 02_ADR/        # Architecture Decision Records (Historical Context)
 │   ├── 03_RFC/        # Request for Comments (Current Design Proposals)
 │   └── 04_Archive/    # Legacy Designs
-├── Benchmarks/        # Performance Reports (v3.0 vs v3.1)
+├── Benchmarks/        # Performance Reports
 ├── Incidents/         # Post-mortems & Stability Tracking
 ├── tutorials/
 │   ├── ai/            # 🆕 10 Modules specialized for AI Agentic Systems
 │   └── en/            # 23 Chapters for Human Developers
-├── POP_Manifesto.md   # Philosophy (English/Vietnamese)
+├── POP_Manifesto.md   # Philosophy
 ├── POP_specification.md # The absolute source of truth
 └── POP_Whitepaper_v2.0.md
 ```
 
 ---
-*Last Updated: 2026-01-31 | Sync Status: Theus v3.0.22 Core*
+*Last Updated: 2026-02-27 | Sync Status: Theus v3.0.22 Core*
