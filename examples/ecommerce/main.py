@@ -1,5 +1,6 @@
 # === THEUS V3.0 FLUX DEMO ===
 import sys
+import asyncio
 import logging
 import os
 import time
@@ -26,7 +27,7 @@ from src.context import DemoSystemContext
 from src.processes import *
 
 
-def main():
+async def main():
     basedir = os.path.dirname(os.path.abspath(__file__))
     workflow_path = os.path.join(basedir, "workflows", "workflow.yaml")
     audit_path = os.path.join(basedir, "specs", "audit_recipe.yaml")
@@ -46,7 +47,7 @@ def main():
 
     # 3. Init Engine
     print("Initializing TheusEngine (V3)...")
-    engine = TheusEngine(sys_ctx, strict_mode=True, audit_recipe=recipe)
+    engine = TheusEngine(sys_ctx, strict_guards=True, audit_recipe=recipe)
 
     # 4. Register Processes
     processes_path = os.path.join(basedir, "src", "processes")
@@ -72,8 +73,8 @@ def main():
     # 5. Execute Workflow (Flux)
     print(f"Executing Workflow: {workflow_path}")
     try:
-        # V3: Engine runs workflow directly (Blocking)
-        engine.execute_workflow(workflow_path)
+        # V3: Engine runs workflow directly (Async)
+        await engine.execute_workflow(workflow_path)
         print(f"\n{Color.GREEN}✨ Workflow Completed Successfully!{Color.RESET}")
     except Exception as e:
         print(f"\n{Color.RED}❌ Workflow Execution Failed: {e}{Color.RESET}")
@@ -83,4 +84,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

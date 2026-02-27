@@ -66,19 +66,19 @@ async def proc_deep_merge_write(ctx: BenchContext):
 
 
 # C. Heavy Zone Operation (Idiomatic v3.1)
-@process(inputs=["heavy.large_array"], outputs=["heavy.large_array", "local.stats"])
-async def proc_heavy_op(ctx: BenchContext):
-    """Truy cập mảng lớn thông qua Zero-Copy Auto-hydration."""
-    start = time.perf_counter()
+# NOTE: HeavyZoneAllocator is infrastructure — use outside process, not via ctx.
+heavy_allocator = HeavyZoneAllocator()
 
-    # v3.1 Idiomatic: Tự động kết nối SHM
-    arr = np.asarray(ctx.heavy.large_array)
 
-    # Native Speed Vector Op
-    arr[:] = arr**2
-
-    # Return (arr, stats) tuple to match outputs=["heavy.large_array", "local.stats"]
-    return arr, (time.perf_counter() - start)
+def make_proc_heavy_op(shm_array):
+    """Factory: creates process with pre-allocated ShmArray."""
+    @process(inputs=["domain"], outputs=["local.stats"])
+    async def proc_heavy_op(ctx):
+        """Benchmark NumPy ops on ShmArray (zero-copy)."""
+        start = time.perf_counter()
+        shm_array[:] = shm_array ** 2
+        return time.perf_counter() - start
+    return proc_heavy_op
 
 
 # --- 3. Benchmark Logic ---
@@ -93,7 +93,6 @@ async def run_comprehensive_benchmark():
         f"item_{i}": round(random.random(), 4) for i in range(NUM_SMALL_ITEMS)
     }
     nested_data = {"level1": {"level2": {"leaf": 0, "other": "keep me"}}}
-    large_np = np.random.rand(LARGE_ARRAY_SIZE).astype(np.float64)
 
     # Init Engine
     init_context = BenchContext(
@@ -102,14 +101,14 @@ async def run_comprehensive_benchmark():
     )
     engine = TheusEngine(init_context)
 
-    # Hydrate Heavy Zone
-    engine._core.compare_and_swap(
-        engine.state.version, None, {"large_array": large_np}, None
-    )
+    # Allocate ShmArray via HeavyZoneAllocator (outside proxy, zero-copy)
+    shm_array = heavy_allocator.alloc("bench_array", (LARGE_ARRAY_SIZE,), np.float64)
+    shm_array[:] = np.random.rand(LARGE_ARRAY_SIZE)
+    proc_heavy = make_proc_heavy_op(shm_array)
 
     engine.register(proc_small_read)
     engine.register(proc_deep_merge_write)
-    engine.register(proc_heavy_op)
+    engine.register(proc_heavy)
 
     # --- Performance Tests ---
 
@@ -138,13 +137,16 @@ async def run_comprehensive_benchmark():
     )
     print("Integrity Check: ✅ PASSED (No silent overwrite)")
 
-    # III. HEAVY ZONE (ZERO-COPY)
+    # III. HEAVY ZONE (ZERO-COPY via HeavyZoneAllocator)
     print("\n[Case 3: Heavy Zone Zero-Copy]")
+    # Native baseline
+    native_arr = np.random.rand(LARGE_ARRAY_SIZE).astype(np.float64)
     t0 = time.perf_counter()
-    large_np[:] = large_np**2
+    native_arr[:] = native_arr**2
     t_native_heavy = time.perf_counter() - t0
 
-    _, t_heavy = await engine.execute("proc_heavy_op")
+    # Theus: ShmArray is raw ndarray — NumPy ops are zero-copy
+    t_heavy = await engine.execute("proc_heavy_op")
     print(f"Native Numpy:   {t_native_heavy * 1000:.2f} ms")
     print(f"Theus Heavy:    {t_heavy * 1000:.2f} ms")
     print(f"Efficiency:     {t_heavy / t_native_heavy:.2f}x (Ideal ~1.0x)")

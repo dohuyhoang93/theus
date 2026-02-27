@@ -59,7 +59,7 @@ async def main():
     ctx = SimpleContext(domain)
 
     # 3. Setup Engine
-    engine = TheusEngine(context=ctx, strict_mode=True)
+    engine = TheusEngine(context=ctx, strict_guards=True)
 
     # DEBUG: Attach worker EARLY
     relay_buffer = []
@@ -77,8 +77,7 @@ async def main():
         if "outbox_queue" not in domain:
             domain["outbox_queue"] = []
 
-    # 3. Create & Run Engine
-    engine = TheusEngine(context=ctx)
+    # 3. Create & Run Engine (Consolidated)
     engine.register(processes.p_spawn_background_job)
     engine.register(processes.p_do_sync_work)
     engine.register(processes.p_await_job)
@@ -95,18 +94,12 @@ async def main():
         print(f"[Test] Signal Injection Failed: {e}")
 
     # --- Execute Workflow ---
-    print("\n--- Start Workflow (Threaded) ---")
-    loop = asyncio.get_running_loop()
-
+    print("\n--- Start Workflow ---")
     basedir = os.path.dirname(os.path.abspath(__file__))
     workflow_path = os.path.join(basedir, "workflow.yaml")
 
-    # Run in thread pool to avoid blocking main loop
-    # engine.execute_workflow is blocking rust call (internally manages tasks)
-    future = loop.run_in_executor(None, engine.execute_workflow, workflow_path)
-
     # Wait for completion (Non-blocking await)
-    await future
+    await engine.execute_workflow(workflow_path)
     print("--- End Workflow ---")
 
     # --- System Outbox Relay (State-Based) ---

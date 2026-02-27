@@ -41,8 +41,8 @@ class TestSignalHubConcurrent:
                     try:
                         msg = rx.recv()
                         received.append(msg)
-                    except RuntimeError:
-                        # Lagged
+                    except (RuntimeError, StopAsyncIteration):
+                        # Lagged or channel closed
                         break
             finally:
                 receiver_done.set()
@@ -90,7 +90,7 @@ class TestSignalHubConcurrent:
                     msg = rx.recv()
                     with locks[rx_id]:
                         received_counts[rx_id] += 1
-            except RuntimeError:
+            except (RuntimeError, StopAsyncIteration):
                 # Lagged - acceptable
                 pass
         

@@ -10,7 +10,7 @@ class MockTheusEngine:
     Replicates Flux Workflow execution.
     """
 
-    def __init__(self, context, strict_mode=False):
+    def __init__(self, context, strict_guards=False):
         self.context = context
         self.registry = {}
 

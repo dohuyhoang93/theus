@@ -8,9 +8,11 @@ from src.context import DemoSystemContext
 # --- ASYNC JOB LOGIC ---
 async def heavy_async_job(duration: float):
     """Simulates I/O wait (e.g., API call)."""
-    print(f"    [Background] Job sleeping for {duration}s...")
+    import logging
+    log = logging.getLogger("theus.process")
+    log.info(f"[Background] Job sleeping for {duration}s...")
     await asyncio.sleep(duration)
-    print("    [Background] Job woke up!")
+    log.info("[Background] Job woke up!")
     return f"Job Done at {time.time()}"
 
 
@@ -22,8 +24,8 @@ _TASK_REGISTRY = {}
 
 
 @process(
-    inputs=["domain.active_tasks"],
-    outputs=["domain.active_tasks"],
+    inputs=["tasks.active_tasks"],
+    outputs=["tasks.active_tasks"],
     side_effects=["spawns_async_task"],
 )
 async def p_spawn_background_job(ctx: DemoSystemContext):
@@ -31,9 +33,9 @@ async def p_spawn_background_job(ctx: DemoSystemContext):
     Spawns background task.
     Returns StateUpdate to 'active_tasks'.
     """
-    print("[Process] Spawning background job...")
+    ctx.log.info("[Process] Spawning background job...")
 
-    active_tasks = ctx.domain.active_tasks
+    active_tasks = ctx.tasks.active_tasks
 
     # Logic
     task = asyncio.create_task(heavy_async_job(2.0))
@@ -46,13 +48,13 @@ async def p_spawn_background_job(ctx: DemoSystemContext):
     new_tasks = active_tasks.copy()
     new_tasks[job_id] = "RUNNING"
 
-    print("[Process] Job spawned. Returning StateUpdate.")
+    ctx.log.info("[Process] Job spawned. Returning StateUpdate.")
     return new_tasks
 
 
 @process(
-    inputs=["domain.sync_ops_count"],
-    outputs=["domain.sync_ops_count"],
+    inputs=["tasks.sync_ops_count"],
+    outputs=["tasks.sync_ops_count"],
     side_effects=["cpu_work"],
 )
 def p_do_sync_work(ctx: DemoSystemContext):
@@ -60,19 +62,19 @@ def p_do_sync_work(ctx: DemoSystemContext):
     Simulates CPU work.
     Returns incremented counter.
     """
-    print("[Process] Doing Synchronous Work (Blocking)...")
+    ctx.log.info("[Process] Doing Synchronous Work (Blocking)...")
     time.sleep(0.5)
 
-    val = ctx.domain.sync_ops_count
+    val = ctx.tasks.sync_ops_count
     new_val = val + 1
 
-    print("[Process] Sync Work Done. Returning New Value.")
+    ctx.log.info("[Process] Sync Work Done. Returning New Value.")
     return new_val
 
 
 @process(
-    inputs=["domain.active_tasks"],
-    outputs=["domain.async_job_result", "domain.active_tasks"],
+    inputs=["tasks.active_tasks"],
+    outputs=["tasks.async_job_result", "tasks.active_tasks"],
     side_effects=["awaits_task"],
 )
 async def p_await_job(ctx: DemoSystemContext):
@@ -80,15 +82,15 @@ async def p_await_job(ctx: DemoSystemContext):
     Await task.
     Returns (result, updated_tasks_map).
     """
-    active_tasks = ctx.domain.active_tasks
+    active_tasks = ctx.tasks.active_tasks
     job_status = active_tasks.get("job_1")
 
     if job_status == "RUNNING":
         task = _TASK_REGISTRY.get("job_1")
         if task:
-            print("[Process] Joining background job...")
+            ctx.log.info("[Process] Joining background job...")
             result = await task
-            print(f"[Process] Joined. Result: {result}")
+            ctx.log.info(f"[Process] Joined. Result: {result}")
 
             # Cleanup
             if "job_1" in _TASK_REGISTRY:
@@ -100,10 +102,10 @@ async def p_await_job(ctx: DemoSystemContext):
 
             return result, new_tasks
         else:
-            print("[Process] Task object missing in registry!")
+            ctx.log.warning("[Process] Task object missing in registry!")
             return None, active_tasks
     else:
-        print("[Process] No job to join!")
+        ctx.log.info("[Process] No job to join!")
         return None, active_tasks
 
 
@@ -111,8 +113,8 @@ async def p_await_job(ctx: DemoSystemContext):
 
 
 @process(
-    inputs=["domain.async_job_result", "domain.outbox_queue"],
-    outputs=["domain.async_job_result", "domain.outbox_queue"],
+    inputs=["tasks.async_job_result", "tasks.log_outbox"],
+    outputs=["tasks.async_job_result", "tasks.log_outbox"],
     side_effects=["pure_state_update"],
 )
 def p_prepare_outbox_event(ctx: DemoSystemContext):
@@ -121,17 +123,18 @@ def p_prepare_outbox_event(ctx: DemoSystemContext):
     except ImportError:
         from theus.contracts import OutboxMsg
 
-    res = ctx.domain.async_job_result
-    current_queue = ctx.domain.outbox_queue
+    res = ctx.tasks.async_job_result
+    current_queue = ctx.tasks.log_outbox
 
     payload = {"result": res, "timestamp": time.time()}
     json_payload = json.dumps(payload)
     msg = OutboxMsg(topic="JOB_COMPLETED", payload=json_payload)
 
+    # RFC-001: Append-only pattern
     new_queue = list(current_queue)
     new_queue.append(msg)
 
-    print(f"[Process] Event '{msg.topic}' added to State Queue.")
+    ctx.log.info(f"[Process] Event '{msg.topic}' added to State Queue.")
     new_status = f"{res} (Outbox Queued)"
 
     return new_status, new_queue
@@ -139,11 +142,11 @@ def p_prepare_outbox_event(ctx: DemoSystemContext):
 
 @process(inputs=[], outputs=[], side_effects=["logging"])
 def p_log_blindness(ctx: DemoSystemContext):
-    print("\n[!!!] SIGNAL BLINDNESS DETECTED: cmd_start_outbox was ignored by Flux!")
+    ctx.log.warning("SIGNAL BLINDNESS DETECTED: cmd_start_outbox was ignored by Flux!")
     return None
 
 
 @process(inputs=[], outputs=[], side_effects=["logging"])
 def p_log_success(ctx: DemoSystemContext):
-    print("\n[OK] SIGNAL RECEIVED BY FLUX: cmd_start_outbox detected!")
+    ctx.log.info("SIGNAL RECEIVED BY FLUX: cmd_start_outbox detected!")
     return None

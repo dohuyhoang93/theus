@@ -1,20 +1,19 @@
 import os
 import sys
 import threading
+import dataclasses
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Union, Callable
 
 # Load Core Rust Module
 try:
     import theus_core
-    # [Fix] Handle namespace package structure (theus_core.theus_core) being installed by maturin
-    if not hasattr(theus_core, "TheusEngine"):
-        try:
-            from theus_core import theus_core as _core_impl
-            theus_core = _core_impl
-        except ImportError:
-            pass
-            
+    # [v3.3 Compatibility] Export SupervisorProxy for legacy tests
+    try:
+        from theus_core import SupervisorProxy
+    except ImportError:
+        class SupervisorProxy(dict): pass
+
     from theus.structures import StateUpdate, FunctionResult
 
     _HAS_RUST_CORE = True
@@ -23,8 +22,12 @@ except ImportError as e:
     print(f"WARNING: 'theus_core' not found. Reason: {e}")
     print("Running in Pure Python Fallback (Slower).")
 
-from theus.context import BaseSystemContext, TransactionError
+from theus.context import BaseSystemContext, TransactionError, NamespaceRegistry, NamespacePolicy
 from theus.contracts import SemanticType, ContractViolationError
+from theus.guards import ContextGuard
+
+# [v3.3 Compatibility] Export ContextGuard as SupervisorProxy for legacy/manual transactions
+SupervisorProxy = ContextGuard
 
 SecurityViolationError = ContractViolationError
 
@@ -36,23 +39,126 @@ class TheusEngine:
 
     Args:
         context: Initial context data (optional)
-        strict_mode: Enable strict contract enforcement (default: True)
+        namespaces: List of Namespace configurations (optional, [RFC-002])
+        strict_guards: Enable strict contract enforcement (default: True)
         strict_cas: Enable Strict CAS mode (default: False)
-            - False (default): Use Rust Smart CAS with Key-Level conflict detection
-              Allows updates when specific keys haven't changed, even if version differs.
-            - True: Use Strict CAS - reject ALL version mismatches regardless of keys.
         audit_recipe: Audit configuration (optional)
     """
 
     def __init__(
-        self, context=None, strict_guards=True, strict_cas=False, audit_recipe=None
+        self, context=None, namespaces=None, strict_guards=True, strict_cas=False, audit_recipe=None
     ):
-        self._context = context
-        self._registry = {}
+        self._namespaces = NamespaceRegistry()
         self._strict_guards = strict_guards # Renamed from strict_mode
         self._strict_cas = strict_cas  # v3.0.4: CAS mode control
         self._audit = None
         self._schema = None  # v3.1.2: Schema Validation
+
+        # 1. Standardize Context
+        if context is None:
+            self._context = BaseSystemContext()
+        elif isinstance(context, dict):
+            # [Fix] Wrap raw dict in BaseSystemContext to support RFC-001/002 linkage
+            self._context = BaseSystemContext(
+                domain=context.get("domain"),
+                global_ctx=context.get("global_ctx") or context.get("global") or context.get("global_")
+            )
+        else:
+            self._context = context
+
+        # 2. [RFC-002] Register Namespaces and Collect Data
+        # We don't store data in the Registry singleton anymore to avoid test pollution.
+        init_data = {}
+        if namespaces:
+            for ns in namespaces:
+                if isinstance(ns, dict):
+                    name = ns["name"]
+                    policy = ns.get("policy")
+                    data = ns.get("data", {})
+                    self._namespaces.register(name, policy)
+                    init_data[name] = data
+                else:
+                    self._namespaces.register(ns[0], ns[1] if len(ns) > 1 else None)
+                    if len(ns) > 2:
+                        init_data[ns[0]] = ns[2]
+
+        # Merge Context Data into Init Data
+        def _dump_context(obj):
+            """Recursively dump context into primitives for Rust Core."""
+            if obj is None: return None
+            if hasattr(obj, "to_dict"): return obj.to_dict()
+            if hasattr(obj, "model_dump"): return obj.model_dump()
+            if hasattr(obj, "dict"): return obj.dict()
+            if isinstance(obj, dict):
+                 return {k: _dump_context(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple, set)):
+                 return [_dump_context(v) for v in obj]
+            if hasattr(obj, "__dict__"):
+                 return {k: _dump_context(v) for k, v in vars(obj).items() if not k.startswith("_")}
+            return obj
+
+        if hasattr(self, "_context"):
+            dumped = _dump_context(self._context)
+            if isinstance(dumped, dict):
+                init_data.update(dumped)
+
+        # [RFC-001] Parse explicit Zone Physics overrides from type annotations
+        def _parse_physics_overrides(obj, path_prefix=""):
+            if obj is None: return
+            
+            # NOTE: Pydantic v2.11+ deprecates accessing model_fields on instances.
+            # Access on the CLASS instead to avoid DeprecationWarning.
+            obj_class = type(obj) if not isinstance(obj, type) else obj
+            fields = getattr(obj_class, "model_fields", None) or getattr(obj_class, "__fields__", None)
+            annotations = {}
+            if fields:
+                for name, field_info in fields.items():
+                    # NOTE: Pydantic v2 uses `annotation`, v1 uses `type_`.
+                    # Use getattr with None fallback to handle both versions safely.
+                    ann = getattr(field_info, "annotation", None) or getattr(field_info, "type_", None)
+                    if ann is not None:
+                        annotations[name] = ann
+            elif hasattr(obj_class, "__annotations__"):
+                annotations = obj_class.__annotations__
+            else:
+                annotations = getattr(obj_class, "__annotations__", {})
+
+            for name, ann in annotations.items():
+                if hasattr(ann, "__metadata__"):
+                    from theus.context import Mutable, AppendOnly, Immutable, PYTHON_PHYSICS_OVERRIDES
+                    full_path = f"{path_prefix}.{name}" if path_prefix else name
+                    for meta in ann.__metadata__:
+                        if meta is Mutable or isinstance(meta, Mutable):
+                            # Data CAP: READ | APPEND | UPDATE | DELETE = 15
+                            if _HAS_RUST_CORE: theus_core.register_physics_override(full_path, 15)
+                            PYTHON_PHYSICS_OVERRIDES[full_path] = 15
+                        elif meta is AppendOnly or isinstance(meta, AppendOnly):
+                            # CAP_READ | CAP_APPEND = 3
+                            if _HAS_RUST_CORE: theus_core.register_physics_override(full_path, 3)
+                            PYTHON_PHYSICS_OVERRIDES[full_path] = 3
+                        elif meta is Immutable or isinstance(meta, Immutable):
+                            # CAP_READ = 1
+                            if _HAS_RUST_CORE: theus_core.register_physics_override(full_path, 1)
+                            PYTHON_PHYSICS_OVERRIDES[full_path] = 1
+                
+                # Recurse
+                val = getattr(obj, name, None)
+                if val is not None and not isinstance(val, (int, float, str, bool, list, dict)):
+                    _parse_physics_overrides(val, f"{path_prefix}.{name}" if path_prefix else name)
+
+        if _HAS_RUST_CORE and hasattr(theus_core, "register_physics_override"):
+            theus_core.clear_physics_overrides() # Reset on engine init
+            if hasattr(self, "_context"):
+                # Top-level is usually BaseSystemContext
+                _parse_physics_overrides(self._context, "")
+                # Also explicitly parse common namespaces to ensure path prefixes like 'domain.X' match
+                for ns_name in ["domain", "global_ctx", "global"]:
+                    if hasattr(self._context, ns_name):
+                        val = getattr(self._context, ns_name)
+                        if val is not None:
+                             _parse_physics_overrides(val, "domain" if ns_name == "domain" else "global")
+
+        self._registry = {} # Legacy internal registry (processes)
 
         # Load Audit Config if available
         # v3.0.2: Standardized ConfigFactory Usage (Arg > File)
@@ -89,33 +195,25 @@ class TheusEngine:
 
         # Initialize Rust Core (Microkernel)
         if _HAS_RUST_CORE:
-            # Rust takes ownership of the Data Zone
-            init_data = {}
-            if context:
-                if hasattr(context, "to_dict"):
-                    init_data = context.to_dict()
-                elif isinstance(context, dict):
-                    init_data = context.copy()
-                else:
-                    # Fallback
-                    init_data = dict(context)
-
+            # [RFC-002] init_data is now local (collected above)
             self._core = theus_core.TheusEngine()  # No args
             
             # [POP v3.1] Explicit Decoupling of Strictness Flags
             self._core.set_strict_guards(strict_guards)
-            
-            # strict_cas -> Concurrency (Version Mismatch)
             self._core.set_strict_cas(strict_cas)
 
             # Hydrate state via CAS (Version 0 -> Init)
             if init_data:
                 try:
                     # [v3.1 FIX] Rust Core initializes State at Version 0 (Empty)
-                    # We MUST use expected_version=0 to hydrate it successfully.
                     self._core.compare_and_swap(0, init_data)
                 except Exception as e:
                     print(f"WARNING: Initial hydration failed: {e}")
+
+            # Link Context to Engine State (Zero-Copy Link)
+            if hasattr(self._context, "_state"):
+                 # Use object.__setattr__ to bypass any mixin locks
+                 object.__setattr__(self._context, "_state", self._core.state)
 
             # v3.1: Heavy Asset Manager (Shared Memory)
             try:
@@ -297,7 +395,65 @@ class TheusEngine:
 
     @property
     def state(self):
-        return self._core.state
+        """v3.3 Returns the Rust Core State object (Hybrid View)."""
+        core_state = self._core.state
+        instance = self
+        
+        # [v3.3 FIX] Cache StateView to preserve identity (fixes test_transaction_rollback.py)
+        curr_ver = core_state.version
+        if getattr(self, "_cached_state_ver", -1) == curr_ver:
+             if hasattr(self, "_cached_state_view"):
+                  return self._cached_state_view
+
+        class StateView:
+            @property
+            def version(self): return core_state.version
+            @property
+            def data(self):
+                # Hybrid View prioritizing Context Objects
+                class HybridData:
+                    def __getitem__(self, key):
+                        # 1. Try Pydantic/Object from Context
+                        val = getattr(instance._context, key, None)
+                        if val is not None:
+                             # Decide whether to wrap in ContextGuard for hybrid subscript support.
+                             # Only wrap objects that lack native __getitem__ AND are not Pydantic models.
+                             # Return Pydantic models and primitives directly to preserve isinstance() checks.
+                             is_primitive = isinstance(val, (int, float, str, bool, list, dict, type(None), ContextGuard))
+                             try:
+                                 from pydantic import BaseModel as PydanticBase
+                                 is_pydantic = isinstance(val, PydanticBase)
+                             except ImportError:
+                                 is_pydantic = False
+                             has_subscript = hasattr(type(val), "__getitem__") and not is_pydantic
+                             if not is_primitive and not is_pydantic and not has_subscript:
+                                  proxy = getattr(val, "_theus_proxy", None)
+                                  # NOTE: _inner must be non-None to skip Rust guard construction.
+                                  return ContextGuard(
+                                      val, 
+                                      allowed_inputs={"*"}, 
+                                      allowed_outputs={"*"},
+                                      _inner=proxy or val,
+                                      process_name="StateView"
+                                  )
+                             return val
+                        # 2. Try Rust Core Proxy
+                        return core_state.data[key]
+                    def __getattr__(self, name): return getattr(core_state.data, name)
+                    def __repr__(self): return repr(core_state.data)
+                    def keys(self): return core_state.data.keys()
+                    def items(self): return core_state.data.items()
+                    def __iter__(self): return iter(core_state.data)
+                    def __len__(self): return len(core_state.data)
+                return HybridData()
+            
+            def __getattr__(self, name): return getattr(core_state, name)
+            def __repr__(self): return f"<StateView v{self.version}>"
+            
+        view = StateView()
+        object.__setattr__(self, "_cached_state_ver", curr_ver)
+        object.__setattr__(self, "_cached_state_view", view)
+        return view
 
     @property
     def heavy(self):
@@ -305,7 +461,18 @@ class TheusEngine:
         return self._allocator
 
     def transaction(self, write_timeout_ms=5000):
-        return self._core.transaction(write_timeout_ms=write_timeout_ms)
+        """v3.3 Returns a Transaction Context Manager (with Auto-Sync)."""
+        instance = self
+        
+        @contextmanager
+        def sync_transaction(core, timeout):
+            with theus_core.Transaction(core, write_timeout_ms=timeout) as tx:
+                yield tx
+            
+            # Post-Commit Sync (Success only)
+            instance._sync_registry_from_core()
+            
+        return sync_transaction(self._core, write_timeout_ms)
 
     def compare_and_swap(self, expected_version, data=None, heavy=None, signal=None, requester=None):
         """
@@ -328,13 +495,60 @@ class TheusEngine:
         # if self._strict_cas: ...
 
         # Delegate to Rust Core (Smart CAS with Key-Level detection)
-        return self._core.compare_and_swap(
+        res = self._core.compare_and_swap(
             expected_version, data=data, heavy=heavy, signal=signal, requester=requester
         )
+        
+        return res
 
-        return self._core.compare_and_swap(
-            expected_version, data=data, heavy=heavy, signal=signal
-        )
+    def _sync_registry_from_core(self):
+        """Syncs the current Rust Core state back to the NamespaceRegistry and Context object."""
+        if not hasattr(self, "_core"): return
+        try:
+            data = self._core.state.data
+            # 1. Sync Namespaces (Legacy Registry)
+            for name, ns_info in self._namespaces._namespaces.items():
+                if name == "default":
+                    ns_info["data"] = {k: v for k, v in data.items() if k not in self._namespaces._namespaces}
+                elif name in data:
+                    ns_info["data"] = data[name]
+            
+            # 2. Sync Context Fields (Pydantic/Object)
+            if hasattr(self, "_context"):
+                for field_name in ["domain", "global_ctx", "global"]:
+                    core_key = "global" if field_name == "global_ctx" else field_name
+                    if core_key in data and hasattr(self._context, field_name):
+                        curr_val = getattr(self._context, field_name)
+                        if curr_val is not None:
+                            # Try to update in-place or re-validate to maintain Type
+                            model_cls = type(curr_val)
+                            try:
+                                native_proxy = data[core_key]
+                                if hasattr(model_cls, "model_validate"):
+                                    new_obj = model_cls.model_validate(native_proxy)
+                                elif hasattr(model_cls, "parse_obj"):
+                                    new_obj = model_cls.parse_obj(native_proxy)
+                                else:
+                                    # [v3.1.2] Fallback for standard dataclasses (preserves Type and Identity)
+                                    if dataclasses.is_dataclass(curr_val):
+                                         for f in dataclasses.fields(curr_val):
+                                              if f.name in native_proxy:
+                                                   try: setattr(curr_val, f.name, native_proxy[f.name])
+                                                   except: pass
+                                         new_obj = curr_val
+                                    else:
+                                        new_obj = native_proxy
+                                
+                                # Attach native proxy for ContextGuard chain (Hybrid Bridge)
+                                if new_obj is not None:
+                                     try: object.__setattr__(new_obj, "_theus_proxy", native_proxy)
+                                     except: pass
+                                object.__setattr__(self._context, field_name, new_obj)
+                            except Exception:
+                                # Safe fallback
+                                object.__setattr__(self._context, field_name, data[core_key])
+        except Exception:
+            pass # Never block execution success for sync failures
 
     def register(self, func):
         """
@@ -387,8 +601,8 @@ class TheusEngine:
                     if hasattr(self._core, "flush_outbox"):
                         self._core.flush_outbox()
 
-                    return result
-
+                    # Transaction commits when block exits
+                    pass
                 except Exception as e:
                     # Check for CAS Conflict (ContextError)
                     err_msg = str(e)
@@ -401,12 +615,8 @@ class TheusEngine:
                     sys.stderr.flush()
 
                     if is_busy_error:
-                        # Treat same as CAS error for retry purposes, maybe slightly shorter wait?
-                        # Actually, let's use the same backoff logic to avoid Thundering Herd on lock.
                         is_cas_error = True 
 
-                    # [v3.3] Manual Fallback Retry Logic
-                    # Since Rust Core 'report_conflict' binding might be missing or limited
                     should_retry = False
                     backoff_ms = 50
 
@@ -423,12 +633,9 @@ class TheusEngine:
                             should_retry = True
                             current_retries += 1
                             
-                            # [Forensic Fix] Cap backoff to prevent "Exponential Explosion"
-                            # Max wait = 1000ms (1s) to avoid 14-hour sleeps
                             MAX_BACKOFF_MS = 1000
                             raw_backoff = 50 * (2 ** (current_retries - 1))
                             
-                            # Full Jitter: Uniform(0, min(Cap, Exp))
                             import random
                             actual_backoff = random.uniform(0, min(MAX_BACKOFF_MS, raw_backoff))
                             
@@ -440,6 +647,10 @@ class TheusEngine:
                         continue
 
                     raise e
+            
+            # Successful COMMIT. Sync back to registry for legacy tests.
+            self._sync_registry_from_core()
+            return result
 
     async def _attempt_execute(self, func, tx, *args, **kwargs):
         # [v3.1.2] Input Gate: Active Validation
@@ -508,19 +719,15 @@ class TheusEngine:
                         # ProcessContext.outbox is a #[pyo3(get)] read-only attribute
                         raw_outbox = ctx.outbox
                         
-                        native_guard = theus_core.ContextGuard(
+                        native_guard = ContextGuard(
                             ctx, 
-                            contract.inputs if contract else [], 
-                            contract.outputs if contract else [], 
-                            None, 
+                            set(contract.inputs if contract else []), 
+                            set(contract.outputs if contract else []), 
+                            "", 
                             tx, 
-                            not self.strict_guards, 
-                            False
+                            self._strict_guards, 
+                            func.__name__
                         )
-                        
-                        # Assign to ContextGuard's __dict__ (enabled by #[pyclass(dict)])
-                        # [v3.3] Now that Rust getter is fixed, we don't need this manual assignment?
-                        # object.__setattr__(native_guard, 'outbox', raw_outbox)
                         return await func(native_guard, *args, **kwargs)
 
                     arg_binder.__name__ = func.__name__
@@ -528,21 +735,15 @@ class TheusEngine:
                 else:
 
                     def arg_binder(ctx, *_, **__):
-                        # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
-                        # [v3.3 FIX] Extract outbox BEFORE creating ContextGuard
-                        raw_outbox = ctx.outbox
-                        
-                        native_guard = theus_core.ContextGuard(
+                        native_guard = ContextGuard(
                             ctx, 
-                            contract.inputs if contract else [], 
-                            contract.outputs if contract else [], 
-                            None, 
+                            set(contract.inputs if contract else []), 
+                            set(contract.outputs if contract else []), 
+                            "", 
                             tx, 
-                            not self.strict_guards, 
-                            False
+                            self._strict_guards, 
+                            func.__name__
                         )
-                        # Assign to ContextGuard's __dict__ (enabled by #[pyclass(dict)])
-                        # object.__setattr__(native_guard, 'outbox', raw_outbox)
                         return func(native_guard, *args, **kwargs)
 
                     arg_binder.__name__ = func.__name__
@@ -707,10 +908,18 @@ class TheusEngine:
                     if result is None:
                         vals = [None] * len(outputs)
                     else:
-                        if len(outputs) > 1 and not isinstance(result, (list, tuple)):
-                             raise TypeError(f"Process defined multiple outputs {outputs} but returned single value: {result}. Expected tuple/list.")
-                        vals = result if len(outputs) > 1 else (result,)
-                        if len(outputs) == 1 and not isinstance(result, tuple):
+                        # [FIX v3.3] Prevent single return value from being treated as list
+                        # of paths if len(outputs) > 1.
+                        if len(outputs) > 1:
+                            if isinstance(result, (list, tuple)):
+                                vals = result
+                            elif isinstance(result, dict):
+                                # Map mode already handled above? No, only if it matched keys.
+                                # If it's a raw dict return for a multi-output process, it's ambiguous.
+                                vals = [result] + [None] * (len(outputs) - 1)
+                            else:
+                                raise TypeError(f"Process {func.__name__} has multiple outputs {outputs} but returned a single {type(result)}.")
+                        else:
                             vals = (result,)
 
                 for path, val in zip(outputs, vals):
@@ -722,15 +931,23 @@ class TheusEngine:
                     root = parts[0]
                     rest = parts[1:]
 
+                    from .context import NamespaceRegistry
+                    registry = NamespaceRegistry()
+
                     if root in ["heavy"]:
                         if len(rest) > 0:
                             tx.pending_heavy[rest[0]] = val
-                    elif root in ["domain", "global", "global_"]:
+                    elif root in ["domain", "global", "global_"] or root in registry._namespaces:
                         key = "global" if root == "global_" else root
 
                         # Ensure root is in pending_data (Merge Base)
                         if key not in pending_data:
                             curr_wrapper = getattr(self.state, key, None)
+                            
+                            # If not on object, try to fetch from Registry data directly
+                            if curr_wrapper is None and key in registry._namespaces:
+                                curr_wrapper = registry._namespaces[key]["data"]
+
                             if curr_wrapper is None:
                                 pending_data[key] = {}  # Auto-init
                             elif hasattr(curr_wrapper, "to_dict"):

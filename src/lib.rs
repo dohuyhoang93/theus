@@ -59,6 +59,10 @@ fn theus_core(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Guards
     m.add_class::<guards::ContextGuard>()?;
     
+    // Zones
+    m.add_function(wrap_pyfunction!(zones::register_physics_override, m)?)?;
+    m.add_function(wrap_pyfunction!(zones::clear_physics_overrides, m)?)?;
+
     // Config
     m.add_class::<config::ConfigLoader>()?;
     m.add("SchemaViolationError", py.get_type_bound::<config::SchemaViolationError>())?;

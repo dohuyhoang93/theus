@@ -52,6 +52,7 @@ class AdminTransaction:
         self.ctx = ctx
 
     def __enter__(self):
+        # print(f"DEBUG: AdminTransaction.__enter__ called for {type(self.ctx)}")
         if hasattr(self.ctx, "_elevate"):
              self.ctx._elevate(True)
         return self.ctx

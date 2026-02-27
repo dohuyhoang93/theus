@@ -62,3 +62,39 @@ def bad_func(ctx):
         assert "POP-E02" in codes  # open
         assert "POP-E03" in codes  # requests
         assert "POP-E04" in codes  # global
+
+    def test_linter_paradox_and_mutation(self, clean_dir):
+        """Verify linter catches POP-E05, POP-E06, POP-E07."""
+        bad_code = """
+from theus import process
+from typing import Annotated
+from theus.context import Mutable, BaseDomainContext
+
+class BadContext(BaseDomainContext):
+    log_events: Annotated[list, Mutable] # POP-E07
+    meta_config: Annotated[dict, Mutable] # POP-E07
+
+@process
+def mutate_func(ctx):
+    # Aliasing a log zone to a regular variable -> POP-E08 Refactor Risk
+    my_data_events = ctx.domain.log_events # POP-E08
+    
+    ctx.domain.meta_config.update({"a": 1}) # POP-E07
+    ctx.domain.data_user.append(1) # POP-E05
+    # Missing explicit return -> POP-E06
+"""
+        p = clean_dir / "bad_advanced.py"
+        p.write_text(bad_code, encoding="utf-8")
+
+        import ast
+        from theus.linter import POPLinter
+
+        tree = ast.parse(bad_code)
+        linter = POPLinter(str(p))
+        linter.visit(tree)
+
+        codes = [v.check_id for v in linter.violations]
+        assert "POP-E05" in codes  # list mutation on data
+        assert "POP-E06" in codes  # missing return
+        assert "POP-E07" in codes  # Paradox on log_events, meta_config, and update() on meta_config
+        assert "POP-E08" in codes  # Aliasing log_events to my_data_events

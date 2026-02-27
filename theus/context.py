@@ -4,6 +4,115 @@ from .locks import LockManager
 from .zones import ContextZone, resolve_zone
 
 
+@dataclass(frozen=True)
+class NamespacePolicy:
+    """[RFC-002] Security policy for a specific Namespace."""
+    allow_read: bool = True
+    allow_update: bool = True
+    allow_delete: bool = False
+    allow_append: bool = True
+    
+    def to_caps(self) -> int:
+        """Convert policy to Rust-compatible bitmask."""
+        caps = 0
+        if self.allow_read: caps |= 1    # CAP_READ
+        if self.allow_update: caps |= 2  # CAP_UPDATE
+        if self.allow_append: caps |= 4  # CAP_APPEND
+        if self.allow_delete: caps |= 8  # CAP_DELETE
+        return caps
+
+
+class NamespaceRegistry:
+    """[RFC-002] Central Registry for Theus Namespaces."""
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(NamespaceRegistry, cls).__new__(cls)
+            cls._instance._namespaces = {}
+        return cls._instance
+
+    def register(self, name: str, policy: NamespacePolicy = None, default_data: Any = None):
+        """Register a new isolation namespace."""
+        if policy is None:
+            policy = NamespacePolicy()
+        self._namespaces[name] = {
+            "policy": policy,
+            "data": default_data if default_data is not None else {}
+        }
+
+    def get_policy(self, name: str) -> NamespacePolicy:
+        """Retrieve policy for a namespace, fallback to default."""
+        if name in self._namespaces:
+             return self._namespaces[name]["policy"]
+        return NamespacePolicy()
+
+    def resolve_path(self, path: str) -> tuple[str, str]:
+        """Split 'namespace.key' into ('namespace', 'key')."""
+        parts = path.split(".", 1)
+        if len(parts) == 2 and parts[0] in self._namespaces:
+            return parts[0], parts[1]
+        return "default", path
+
+    def get_all_data(self) -> dict:
+        """Collect and merge data from all namespaces for core hydration."""
+        compiled = {}
+        for name, ns in self._namespaces.items():
+            data = ns.get("data", {})
+            
+            # Unpack default namespace into root
+            if name == "default":
+                if isinstance(data, dict):
+                    compiled.update(data)
+                elif hasattr(data, "to_dict"):
+                    compiled.update(data.to_dict())
+                elif hasattr(data, "model_dump"):
+                    compiled.update(data.model_dump())
+                elif hasattr(data, "dict"): # Pydantic v1
+                    compiled.update(data.dict())
+                elif hasattr(data, "__dict__"):
+                    compiled.update(vars(data))
+            else:
+                if hasattr(data, "to_dict"):
+                    data = data.to_dict()
+                elif hasattr(data, "model_dump"):
+                    data = data.model_dump()
+                elif hasattr(data, "dict"):
+                    data = data.dict()
+                compiled[name] = data
+        return compiled
+
+    def clear(self):
+        """Reset registry (mainly for testing)."""
+        self._namespaces.clear()
+
+
+class Namespace:
+    """
+    [RFC-001/002] Declarative Namespace helper.
+    Functions as a Descriptor to provide dynamic context instances.
+    """
+    def __init__(self, context_cls: type, policy: NamespacePolicy = None):
+        self.context_cls = context_cls
+        self.policy = policy
+        self._name = None
+        
+    def __set_name__(self, owner, name):
+        self._name = name
+        registry = NamespaceRegistry()
+        registry.register(name, policy=self.policy)
+        
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+            
+        # Lazy initialization of the namespace context instance
+        attr_name = f"_ns_inst_{self._name}"
+        if not hasattr(instance, attr_name):
+            setattr(instance, attr_name, self.context_cls())
+        return getattr(instance, attr_name)
+
+
 @dataclass
 class TransactionError(Exception):
     pass
@@ -258,10 +367,60 @@ class BaseDomainContext(LockedContextMixin):
 class BaseSystemContext(LockedContextMixin):
     """
     Base Class cho System Context (Wrapper).
+    Supports Dynamic Namespace Resolution [RFC-002].
     """
 
-    global_ctx: BaseGlobalContext
-    domain: BaseDomainContext
+    global_ctx: Optional[BaseGlobalContext] = field(default=None)
+    domain: Optional[BaseDomainContext] = field(default=None)
+
+    def to_dict(self, exclude_zones: List[ContextZone] = None) -> Dict[str, Any]:
+        """
+        [RFC-002] Overridden to include both fields and Namespaces.
+        """
+        data = {}
+        
+        # 1. Manual Unpacking of known fields (since Mixin lacks to_dict)
+        if hasattr(self, "domain") and self.domain is not None:
+            data["domain"] = self.domain.to_dict(exclude_zones) if hasattr(self.domain, "to_dict") else self.domain
+        if hasattr(self, "global_ctx") and self.global_ctx is not None:
+             g = self.global_ctx
+             data["global"] = g.to_dict(exclude_zones) if hasattr(g, "to_dict") else g
+
+        # 2. Add all registered Namespaces
+        registry = NamespaceRegistry()
+        for ns_name in registry._namespaces:
+            if ns_name == "default": continue
+                
+            if ns_name not in data:
+                # Access via attribute to trigger descriptor/lazy-init
+                ns_inst = getattr(self, ns_name, None)
+                if ns_inst is not None:
+                     if hasattr(ns_inst, "to_dict"):
+                        data[ns_name] = ns_inst.to_dict(exclude_zones)
+                     elif hasattr(ns_inst, "model_dump"):
+                        data[ns_name] = ns_inst.model_dump()
+                     else:
+                        data[ns_name] = ns_inst
+                    
+        return data
+
+    def __getattr__(self, name: str) -> Any:
+        # 1. Bypass internal fields
+        if name.startswith("_"):
+            return object.__getattribute__(self, name)
+
+        # 2. [RFC-002] Dynamic Namespace Fallback
+        # If accessing an attribute that doesn't exist on SystemContext, 
+        # check if it's a registered Namespace.
+        registry = NamespaceRegistry()
+        if name in registry._namespaces:
+            # We assume the engine has hydrated this into the state.
+            # In production, this call usually happens through ContextGuard,
+            # but providing a fallback here helps with local testing/REPL.
+            if hasattr(self, "_state"):
+                return self._state.data.get(name)
+            
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
 
 import uuid
@@ -394,7 +553,26 @@ class HeavyZoneAllocator:
 
 class Mutable:
     """
-    Semantic marker for the POP Linter. 
+    Semantic marker for the POP Linter and Zone Physics. 
     Indicates that a field is intended to be mutable despite its prefix.
     """
     pass
+
+class AppendOnly:
+    """
+    Semantic marker for the POP Linter and Zone Physics.
+    Restricts a field to Append-Only operations (CAP_READ | CAP_APPEND).
+    """
+    pass
+
+class Immutable:
+    """
+    Semantic marker for the POP Linter and Zone Physics.
+    Restricts a field to Read-Only operations (CAP_READ).
+    """
+    pass
+
+# [RFC-001 §7] Python-side mirror of Rust PHYSICS_OVERRIDES.
+# Populated by engine.py during _parse_physics_overrides().
+# Queried by guards.py _check_zone_physics() to respect Annotated overrides.
+PYTHON_PHYSICS_OVERRIDES: dict[str, int] = {}

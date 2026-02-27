@@ -12,14 +12,14 @@ class MockLockManager(LockManager):
 
 
 @dataclass
-class TestContext(LockedContextMixin):
+class SampleContext(LockedContextMixin):
     allowed: int = 0
     forbidden: int = 0
 
 
 class TestAPIConsistency(unittest.TestCase):
     def test_direct_assignment(self):
-        ctx = TestContext()
+        ctx = SampleContext()
         lock_mgr = MockLockManager()
         ctx.set_lock_manager(lock_mgr)
 

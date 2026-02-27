@@ -1,3 +1,8 @@
+import os
+import sys
+# Add current directory to path to resolve 'src'
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Annotated

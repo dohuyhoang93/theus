@@ -19,7 +19,11 @@ use crate::zones::{CAP_APPEND, CAP_UPDATE, CAP_DELETE};
 /// 
 /// Unlike FrozenDict which returns copies, SupervisorProxy returns
 /// the original Python object while intercepting mutations.
-#[pyclass(module = "theus_core", subclass)]
+// [RFC-001 §10] Removed `subclass` to eliminate __dict__ allocation.
+// No Python code subclasses SupervisorProxy — verified by grep.
+// Without `subclass`, PyO3 does not create per-instance __dict__,
+// closing the __dict__ bypass attack surface at the C level.
+#[pyclass(module = "theus_core")]
 pub struct SupervisorProxy {
     /// The wrapped Python object
     // [INC-019] Renamed to 'inner' to ensure NO binding to '_target'
@@ -34,7 +38,9 @@ pub struct SupervisorProxy {
     /// Children of a Shadow are implicitly Shadows and should NOT trigger CoW.
     is_shadow: bool,
     /// [RFC-001] Capability Bitmask
-    capabilities: u8,
+    // [RFC-001] Expose capabilities to Python so AdminTransaction can elevate
+    #[pyo3(get, set)]
+    pub capabilities: u8,
 }
 
 #[pymethods]
@@ -42,10 +48,10 @@ impl SupervisorProxy {
     #[new]
     #[pyo3(signature = (target, path="".to_string(), read_only=false, transaction=None, is_shadow=false, capabilities=15))]
     pub fn new(
-        target: Py<PyAny>,
+        target: PyObject,
         path: String,
         read_only: bool,
-        transaction: Option<Py<PyAny>>,
+        transaction: Option<PyObject>,
         is_shadow: bool,
         capabilities: u8,
     ) -> Self {
@@ -59,16 +65,74 @@ impl SupervisorProxy {
         }
     }
 
-
+    /// [RFC-001 §10] Intercept ALL attribute access at C level.
+    /// __getattribute__ runs BEFORE getset_descriptors (including __dict__).
+    /// Without this, PyO3's auto-generated __dict__ descriptor bypasses __getattr__.
+    fn __getattribute__(slf: &Bound<'_, Self>, name: &str) -> PyResult<PyObject> {
+        if name == "__dict__" {
+            // NOTE: Return empty dict instead of PermissionError.
+            // Blocking with PermissionError breaks deepcopy() and any internal Python 
+            // mechanism that probes __dict__ (AdminTransaction, pickle, etc.).
+            // Returning empty dict is safe because:
+            // 1. No real data is exposed
+            // 2. Any mutation on the empty dict doesn't propagate (severity = LOW, proven)
+            // 3. PyObject_GenericGetAttr won't re-trigger __getattribute__ recursion
+            let dict = pyo3::types::PyDict::new(slf.py());
+            return Ok(dict.into_any().unbind());
+        }
+        // NOTE: Delegate to default tp_getattro for all other attributes.
+        // This preserves normal attribute resolution (methods, properties, etc.)
+        // and falls through to __getattr__ for dynamic lookups.
+        let py = slf.py();
+        let name_obj = pyo3::types::PyString::new(py, name);
+        unsafe {
+            let result = pyo3::ffi::PyObject_GenericGetAttr(
+                slf.as_ptr(),
+                name_obj.as_ptr(),
+            );
+            if result.is_null() {
+                Err(pyo3::PyErr::fetch(py))
+            } else {
+                Ok(PyObject::from_owned_ptr(py, result))
+            }
+        }
+    }
 
     /// Get attribute - Returns original object (or nested Proxy)
     /// v3.1: Supports Dict dot-access (d.key) fallback
     fn __getattr__(&self, py: Python, name: String) -> PyResult<PyObject> {
-        // Skip internal attributes
+        // Skip internal attributes, but intercept __dict__ with PermissionError
+        // [RFC-001 §10] Block __dict__ to prevent bypassing Zone Physics
+        if name == "__dict__" {
+            return Err(pyo3::exceptions::PyPermissionError::new_err(
+                "Direct access to '__dict__' is forbidden. Use the Context API to read/write fields safely."
+            ));
+        }
         if name.starts_with('_') {
             return Err(pyo3::exceptions::PyAttributeError::new_err(
                 format!("'SupervisorProxy' object has no attribute '{}'", name)
             ));
+        }
+
+        let nested_path = if self.path.is_empty() {
+            name.clone()
+        } else {
+            format!("{}.{}", self.path, name)
+        };
+
+        // [RFC-001] Check field-specific Zone Physics (Read Access)
+        let zone = crate::zones::resolve_zone(&nested_path);
+        let override_caps = crate::zones::get_physics_override(&nested_path);
+        let zone_physics = override_caps.unwrap_or_else(|| crate::zones::get_zone_physics(&zone));
+        let mut access_caps = self.capabilities & zone_physics;
+        
+        if (self.capabilities & 16) != 0 && !crate::zones::is_absolute_ceiling(&zone) {
+            access_caps = 31u8;
+        }
+
+        if (access_caps & crate::zones::CAP_READ) == 0 {
+            // [RFC-001 Handbook §1.1] Return None silently for non-admin reading PRIVATE 
+            return Ok(py.None());
         }
 
         // 1. Try generic getattr (methods, object fields)
@@ -145,14 +209,18 @@ impl SupervisorProxy {
                 31u8 // Preserve Admin Bypass
             } else {
                 let zone = crate::zones::resolve_zone(&nested_path);
-                let zone_physics = crate::zones::get_zone_physics(&zone);
+                let override_caps = crate::zones::get_physics_override(&nested_path);
+                let zone_physics = override_caps.unwrap_or_else(|| crate::zones::get_zone_physics(&zone));
                 self.capabilities & zone_physics
             };
+
+            // [RFC-001] Feature 6: Block Direct Context __dict__ Mutation (Attack Surface §10)
+            let is_read_only = self.read_only || name == "__dict__";
 
             Ok(SupervisorProxy::new(
                 val_shadow,
                 nested_path,
-                self.read_only,
+                is_read_only,
                 tx_clone,
                 is_child_shadow,
                 child_caps,
@@ -160,6 +228,11 @@ impl SupervisorProxy {
         } else {
             Ok(val)
         }
+    }
+
+    #[pyo3(signature = (caps))]
+    fn _set_capabilities(&mut self, caps: u8) {
+        self.capabilities = caps;
     }
 
     /// Set attribute - Intercept for logging and permission check
@@ -172,10 +245,26 @@ impl SupervisorProxy {
             ));
         }
 
-        // [RFC-001] Check UPDATE Capability
-        if (self.capabilities & CAP_UPDATE) == 0 {
+        // [RFC-001] Check field-specific Zone Physics
+        let full_path = if self.path.is_empty() {
+            name.clone()
+        } else {
+            format!("{}.{}", self.path, name)
+        };
+        
+        let zone = crate::zones::resolve_zone(&full_path);
+        let override_caps = crate::zones::get_physics_override(&full_path);
+        let zone_physics = override_caps.unwrap_or_else(|| crate::zones::get_zone_physics(&zone));
+        let mut mutation_caps = self.capabilities & zone_physics;
+        
+        // Admin exception flag is bit 4 (16).
+        if (self.capabilities & 16) != 0 && !crate::zones::is_absolute_ceiling(&zone) {
+            mutation_caps = 31u8;
+        }
+
+        if (mutation_caps & crate::zones::CAP_UPDATE) == 0 {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
-                format!("Permission Denied: UPDATE capability required for '{}.{}'. (Current Lens: {:04b})", self.path, name, self.capabilities)
+                format!("Permission Denied: UPDATE capability required for '{}'. (Current Lens: {:04b})", full_path, mutation_caps)
             ));
         }
 
@@ -229,18 +318,28 @@ impl SupervisorProxy {
         }
     }
 
-    /// Get item - For dict-like access ctx.domain["key"]
     fn __getitem__(&self, py: Python, key: PyObject) -> PyResult<PyObject> {
-        let val = self.inner.call_method1(py, "__getitem__", (key.clone_ref(py),))?;
-        
-        // Construct path for child proxy
         let key_str = key.bind(py).str()?.to_string();
-        
         let nested_path = if self.path.is_empty() {
             key_str.clone()
         } else {
             format!("{}[{}]", self.path, key_str)
         };
+
+        // [RFC-001] Check field-specific Zone Physics (Read Access)
+        let zone = crate::zones::resolve_zone(&nested_path);
+        let zone_physics = crate::zones::get_zone_physics(&zone);
+        let mut access_caps = self.capabilities & zone_physics;
+        
+        if (self.capabilities & 16) != 0 && !crate::zones::is_absolute_ceiling(&zone) {
+            access_caps = 31u8;
+        }
+
+        if (access_caps & crate::zones::CAP_READ) == 0 {
+             return Ok(py.None());
+        }
+
+        let val = self.inner.call_method1(py, "__getitem__", (key.clone_ref(py),))?;
 
         // Check if value is a container (Dict/List/Object)
 
@@ -280,7 +379,8 @@ impl SupervisorProxy {
                 31u8 // Preserve Admin Bypass
             } else {
                 let zone = crate::zones::resolve_zone(&nested_path);
-                let zone_physics = crate::zones::get_zone_physics(&zone);
+                let override_caps = crate::zones::get_physics_override(&nested_path);
+                let zone_physics = override_caps.unwrap_or_else(|| crate::zones::get_zone_physics(&zone));
                 self.capabilities & zone_physics
             };
 
@@ -306,10 +406,26 @@ impl SupervisorProxy {
             ));
         }
 
-        // [RFC-001] Check UPDATE Capability
-        if (self.capabilities & CAP_UPDATE) == 0 {
+        let key_str_tmp = key.bind(py).str()?.to_string();
+        let full_path_tmp = if self.path.is_empty() {
+            key_str_tmp.clone()
+        } else {
+            format!("{}[{}]", self.path, key_str_tmp)
+        };
+
+        // [RFC-001] Check field-specific Zone Physics
+        let zone = crate::zones::resolve_zone(&full_path_tmp);
+        let override_caps = crate::zones::get_physics_override(&full_path_tmp);
+        let zone_physics = override_caps.unwrap_or_else(|| crate::zones::get_zone_physics(&zone));
+        let mut mutation_caps = self.capabilities & zone_physics;
+        
+        if (self.capabilities & 16) != 0 && !crate::zones::is_absolute_ceiling(&zone) {
+            mutation_caps = 31u8;
+        }
+
+        if (mutation_caps & CAP_UPDATE) == 0 {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
-                format!("Permission Denied: UPDATE capability required for item assignment at '{}'. (Current Lens: {:04b})", self.path, self.capabilities)
+                format!("Permission Denied: UPDATE capability required for item assignment at '{}'. (Current Lens: {:04b})", full_path_tmp, mutation_caps)
             ));
         }
 

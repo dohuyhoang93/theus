@@ -9,18 +9,28 @@
 
 import os
 import sys
+import logging
+
+# Configure basic logging for console visibility
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+# 1. Detect environment
+# We need the parent of the parent of 'scaffold' to find 'theus' package
+basedir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(basedir))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+if basedir not in sys.path:
+    sys.path.insert(0, basedir)
+
 import questionary
 from theus import TheusEngine
 from theus.config import ConfigFactory
 from src.context import DemoSystemContext
-
-# Force ProcessPool to avoid NumPy/Subinterpreter crash in Py3.14
-os.environ["THEUS_USE_PROCESSES"] = "1"
-
-# 1. Detect environment
-basedir = os.path.dirname(os.path.abspath(__file__))
-if basedir not in sys.path:
-    sys.path.insert(0, basedir)
 
 
 async def run_ecommerce(engine: TheusEngine):
@@ -35,24 +45,31 @@ async def run_ecommerce(engine: TheusEngine):
             # and use standard V3 Transaction API
             tx.update(
                 data={
+                    "global_ctx": {
+                         "meta_app_name": "Theus Universal Demo",
+                         "meta_version": "3.0.2",
+                         "max_retries": 3,
+                    },
                     "domain": {
-                        # E-Commerce
+                        "status": "IDLE",
+                        "processed_count": 0,
+                        "parallel_consensus": 0.0,
+                    },
+                    "ecommerce": {
                         "order_request": {
                             "id": "ORD-001",
                             "items": ["Laptop", "Mouse"],
                             "total": 1500.0,
                         },
-                        "orders": [],
+                        "log_orders": [],
                         "balance": 0.0,
-                        "processed_orders": [],
-                        # Async Outbox
+                        "log_processed": [],
+                    },
+                    "tasks": {
                         "active_tasks": {},
                         "sync_ops_count": 0,
                         "async_job_result": None,
-                        "outbox_queue": [],
-                        "status": "IDLE",
-                        # Parallel
-                        "parallel_consensus": 0.0,
+                        "log_outbox": [],
                     }
                 }
             )
