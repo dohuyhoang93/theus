@@ -32,7 +32,7 @@ class EffectViolation:
 
 class POPLinter(ast.NodeVisitor):
     """
-    Process-Oriented Programming Linter (v3.1).
+    Process-Oriented Programming Linter.
     Enforces rules:
     - POP-E01: No print() statements (Use logging).
     - POP-E02: No open() calls (Use Context/Outbox).
@@ -463,7 +463,7 @@ def run_lint(target_dir: Path, output_format: str = "table") -> bool:
 
     if output_format == "table":
         console.print(
-            f"[cyan]🔍 Running POP Linter Check (v3.1) on {target_dir}...[/cyan]"
+            f"[cyan]🔍 Running POP Linter Check on {target_dir}...[/cyan]"
         )
 
     files_to_scan = [target_dir] if target_dir.is_file() else list(target_dir.rglob("*.py"))

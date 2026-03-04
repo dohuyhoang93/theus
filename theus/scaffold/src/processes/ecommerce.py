@@ -26,7 +26,7 @@ def create_order(ctx: DemoSystemContext):
     # RFC-001: Append-Only logic (return full list for the Delta)
     updated = list(current_orders) + [new_order]
 
-    ctx.log.info(f"[Ecommerce] Order created: {new_order['id']}")
+    ctx.log(f"[Ecommerce] Order created: {new_order['id']}")
     return updated
 
 
@@ -51,8 +51,8 @@ def process_payment(ctx: DemoSystemContext):
         balance += amount  # Revenue
         processed.append(order["id"])
 
-    ctx.log.info(f"[Ecommerce] Payment processed. New Balance: {balance}")
-    ctx.log.info("[Ecommerce] Invoice image stored in HEAVY zone")
+    ctx.log(f"[Ecommerce] Payment processed. New Balance: {balance}")
+    ctx.log("[Ecommerce] Invoice image stored in HEAVY zone")
     return balance, processed
 
 
@@ -71,5 +71,5 @@ def store_invoice_image(ctx: DemoSystemContext):
     # Simulate generating a large image (byte array)
     large_data = bytearray(random.getrandbits(8) for _ in range(1024 * 1024))
 
-    ctx.log.info("[Ecommerce] Invoice image stored in HEAVY zone")
+    ctx.log("[Ecommerce] Invoice image stored in HEAVY zone")
     return large_data

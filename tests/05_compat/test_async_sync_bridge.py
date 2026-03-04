@@ -1,5 +1,5 @@
 """
-Verification Test for Async/Sync Bridge (v3.0.22).
+Verification Test for Async/Sync Bridge (v3.0.23).
 Verifies that engine.execute (async) and engine.execute_workflow (sync bridge) 
 work correctly together, especially when calling async processes from sync workflows.
 """

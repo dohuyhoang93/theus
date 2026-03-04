@@ -1,4 +1,4 @@
-# 📉 Technical Debt Report (v3.0.22)
+# 📉 Technical Debt Report (v3.0.23)
 
 **Report Date:** 11/02/2026  
 **Status:** Post-Optimization & Stabilization Phase.
@@ -25,7 +25,7 @@ Những vấn đề này ĐÃ được xác định, Audit kỹ lưỡng, và qu
 
 ## 2. Pre-existing Failures (Cần Fix Sớm)
 
-Những test cases đang fail trong regression suite nhưng không chặn release v3.0.22 (Non-blocking).
+Những test cases đang fail trong regression suite nhưng không chặn release v3.0.23 (Non-blocking).
 
 ### 2.1. `test_schema_gatekeeper`
 *   **Lỗi:** `AttributeError: Wrapped object has no to_dict`.
@@ -62,4 +62,4 @@ Cần refactor để clean code và tránh lỗi tiềm ẩn.
 *   **Nợ:** Cần thêm logging chuẩn (với feature flag `log` crate hoặc `tracing` crate) để debug production mà không ảnh hưởng performance mặc định. Hiện tại debug bằng cách insert code thủ công.
 
 ---
-**Tác giả:** Antigravity AI @ 3.0.22 Release Candidate.
+**Tác giả:** Antigravity AI @ 3.0.23 Release Candidate.

@@ -58,7 +58,7 @@ with engine.transaction() as tx:
     })
 # On exit: Theus sends the batch to Rust.
 ```
-*   **Benefit:** In v3.0.22, this performing a **Recursive Deep Merge**. If you provide a partial dictionary, Theus merges it into the existing state, preserving sibling fields.
+*   **Benefit:** In v3.0.23, this performing a **Recursive Deep Merge**. If you provide a partial dictionary, Theus merges it into the existing state, preserving sibling fields.
 
 
 ## 3. Safe Edit (`engine.edit()`)

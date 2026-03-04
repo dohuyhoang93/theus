@@ -84,6 +84,11 @@ fn parse_single_step(item: &Value) -> Result<FluxStep, String> {
                     
                     let do_steps = parse_steps(do_block)?;
                     
+                    // NOTE: Phương án B — Cảnh báo sớm khi gặp vòng lặp rỗng
+                    if do_steps.is_empty() {
+                        eprintln!("[FLUX-WARN] 'flux: while' has empty 'do' block. This may cause unexpected behavior.");
+                    }
+                    
                     return Ok(FluxStep::While { condition, do_steps });
                 }
                 
@@ -107,6 +112,11 @@ fn parse_single_step(item: &Value) -> Result<FluxStep, String> {
                     let then_steps = parse_steps(then_block)?;
                     let else_steps = parse_steps(else_block)?;
                     
+                    // NOTE: Phương án B — Cảnh báo khi cả then lẫn else đều rỗng
+                    if then_steps.is_empty() && else_steps.is_empty() {
+                        eprintln!("[FLUX-WARN] 'flux: if' has empty 'then' and 'else' blocks.");
+                    }
+                    
                     return Ok(FluxStep::If { condition, then_steps, else_steps });
                 }
                 
@@ -116,6 +126,11 @@ fn parse_single_step(item: &Value) -> Result<FluxStep, String> {
                         .ok_or("'flux: run' requires 'steps' block")?;
                     
                     let steps = parse_steps(steps_block)?;
+                    
+                    // NOTE: Phương án B — Cảnh báo khi khối run rỗng
+                    if steps.is_empty() {
+                        eprintln!("[FLUX-WARN] 'flux: run' has empty 'steps' block.");
+                    }
                     
                     return Ok(FluxStep::Run { steps });
                 }
@@ -445,6 +460,14 @@ impl WorkflowEngine {
                 FluxStep::While { condition, do_steps } => {
                     // Loop while condition is true
                     while self.eval_condition(py, condition, ctx)? {
+                        // NOTE: Phương án A — Tăng bộ đếm mỗi vòng lặp,
+                        // bất kể danh sách bước bên trong có rỗng hay không.
+                        *ops_counter += 1;
+                        if *ops_counter > self.max_ops {
+                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                format!("Flux Safety Trip: Exceeded {} operations. Check for infinite loops.", self.max_ops)
+                            ));
+                        }
                         self.execute_steps(py, do_steps, ctx, executor, ops_counter, executed_names)?;
                     }
                 }

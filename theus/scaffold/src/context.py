@@ -1,6 +1,7 @@
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext, Namespace
 from dataclasses import dataclass, field
 from typing import List, Optional, Any, Dict
+import logging
 
 
 # --- 1. Global (Configuration) ---
@@ -50,3 +51,10 @@ class DemoSystemContext(BaseSystemContext):
     # RFC-002 Namespaces
     ecommerce = Namespace(EcommerceContext)
     tasks = Namespace(TaskContext)
+
+    # NOTE: Theus linter requires ctx.log instead of print().
+    # BaseSystemContext doesn't provide a logger, so we add one here.
+    @property
+    def log(self):
+        return logging.getLogger("theus.process")
+

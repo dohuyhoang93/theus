@@ -33,7 +33,7 @@ async def p_spawn_background_job(ctx: DemoSystemContext):
     Spawns background task.
     Returns StateUpdate to 'active_tasks'.
     """
-    ctx.log.info("[Process] Spawning background job...")
+    ctx.log("[Process] Spawning background job...")
 
     active_tasks = ctx.tasks.active_tasks
 
@@ -48,7 +48,7 @@ async def p_spawn_background_job(ctx: DemoSystemContext):
     new_tasks = active_tasks.copy()
     new_tasks[job_id] = "RUNNING"
 
-    ctx.log.info("[Process] Job spawned. Returning StateUpdate.")
+    ctx.log("[Process] Job spawned. Returning StateUpdate.")
     return new_tasks
 
 
@@ -62,13 +62,13 @@ def p_do_sync_work(ctx: DemoSystemContext):
     Simulates CPU work.
     Returns incremented counter.
     """
-    ctx.log.info("[Process] Doing Synchronous Work (Blocking)...")
+    ctx.log("[Process] Doing Synchronous Work (Blocking)...")
     time.sleep(0.5)
 
     val = ctx.tasks.sync_ops_count
     new_val = val + 1
 
-    ctx.log.info("[Process] Sync Work Done. Returning New Value.")
+    ctx.log("[Process] Sync Work Done. Returning New Value.")
     return new_val
 
 
@@ -88,9 +88,9 @@ async def p_await_job(ctx: DemoSystemContext):
     if job_status == "RUNNING":
         task = _TASK_REGISTRY.get("job_1")
         if task:
-            ctx.log.info("[Process] Joining background job...")
+            ctx.log("[Process] Joining background job...")
             result = await task
-            ctx.log.info(f"[Process] Joined. Result: {result}")
+            ctx.log(f"[Process] Joined. Result: {result}")
 
             # Cleanup
             if "job_1" in _TASK_REGISTRY:
@@ -102,10 +102,10 @@ async def p_await_job(ctx: DemoSystemContext):
 
             return result, new_tasks
         else:
-            ctx.log.warning("[Process] Task object missing in registry!")
+            ctx.log("[Process] Task object missing in registry!")
             return None, active_tasks
     else:
-        ctx.log.info("[Process] No job to join!")
+        ctx.log("[Process] No job to join!")
         return None, active_tasks
 
 
@@ -134,7 +134,7 @@ def p_prepare_outbox_event(ctx: DemoSystemContext):
     new_queue = list(current_queue)
     new_queue.append(msg)
 
-    ctx.log.info(f"[Process] Event '{msg.topic}' added to State Queue.")
+    ctx.log(f"[Process] Event '{msg.topic}' added to State Queue.")
     new_status = f"{res} (Outbox Queued)"
 
     return new_status, new_queue
@@ -142,11 +142,11 @@ def p_prepare_outbox_event(ctx: DemoSystemContext):
 
 @process(inputs=[], outputs=[], side_effects=["logging"])
 def p_log_blindness(ctx: DemoSystemContext):
-    ctx.log.warning("SIGNAL BLINDNESS DETECTED: cmd_start_outbox was ignored by Flux!")
+    ctx.log("SIGNAL BLINDNESS DETECTED: cmd_start_outbox was ignored by Flux!")
     return None
 
 
 @process(inputs=[], outputs=[], side_effects=["logging"])
 def p_log_success(ctx: DemoSystemContext):
-    ctx.log.info("SIGNAL RECEIVED BY FLUX: cmd_start_outbox detected!")
+    ctx.log("SIGNAL RECEIVED BY FLUX: cmd_start_outbox detected!")
     return None

@@ -1,6 +1,12 @@
 import logging
+import contextvars
 from typing import Any, Dict, List, Optional, Set, Union
 import functools
+
+# NOTE: Transaction is stored here instead of in ContextGuard instances to prevent
+# Transaction refs from leaking into the serializable object graph. This breaks
+# the Reinforcing Loop R1 (contamination cycle) identified in Systems Thinking Analysis.
+_current_tx = contextvars.ContextVar('_current_tx', default=None)
 
 try:
     import theus_core
@@ -48,8 +54,8 @@ class ContextGuard:
         name: Any = None,
         **kwargs
     ):
-        self.log = logging.getLogger("theus.guards")
-        self.log.extra = {"process_name": process_name}
+        object.__setattr__(self, "_log", logging.getLogger("theus.guards"))
+        self._log.extra = {"process_name": process_name}
         
         # [v3.3 Compatibility] Allow 'path' as alias for 'path_prefix'
         if not path_prefix and "path" in kwargs:
@@ -79,15 +85,22 @@ class ContextGuard:
         
         # We track admin status LOCALLY to avoid Illegal Read recursion in Rust
         object.__setattr__(self, "_local_is_admin", False)
-        object.__setattr__(self, "path_prefix", path_prefix)
-        object.__setattr__(self, "allowed_inputs", allowed_inputs)
-        object.__setattr__(self, "allowed_outputs", allowed_outputs)
-        object.__setattr__(self, "transaction", transaction)
-        object.__setattr__(self, "strict_guards", strict_guards)
-        object.__setattr__(self, "parent", parent)
-        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "_path_prefix", path_prefix)
+        object.__setattr__(self, "_allowed_inputs", allowed_inputs)
+        object.__setattr__(self, "_allowed_outputs", allowed_outputs)
+        # NOTE: If transaction is explicitly passed, also set it in ContextVar
+        # so child guards and other code can access it.
+        # If None, try to recover from ContextVar (child guard creation path).
+        effective_tx = transaction if transaction is not None else _current_tx.get()
+        object.__setattr__(self, "_transaction", effective_tx)
+        if transaction is not None:
+            _current_tx.set(transaction)
+        object.__setattr__(self, "_strict_guards", strict_guards)
+        object.__setattr__(self, "_parent", parent)
+        object.__setattr__(self, "_name", name)
+        object.__setattr__(self, "_target", target_obj)
 
-        if _inner:
+        if _inner is not None:
             self._inner = _inner
         else:
             # [RFC-002] Namespace Policy Pre-filtering
@@ -102,7 +115,7 @@ class ContextGuard:
                 if policy.allow_read:
                     final_inputs.append(path)
                 else:
-                    self.log.warning(f"Process '{process_name}' requested READ to Namespace '{ns_name}' but it is restricted by policy.")
+                    self._log.warning(f"Process '{process_name}' requested READ to Namespace '{ns_name}' but it is restricted by policy.")
 
             final_outputs = []
             for path in allowed_outputs:
@@ -111,12 +124,12 @@ class ContextGuard:
                 if policy.allow_update or policy.allow_append or policy.allow_delete:
                     final_outputs.append(path)
                 else:
-                    self.log.warning(f"Process '{process_name}' requested WRITE to Namespace '{ns_name}' but it is restricted by policy.")
+                    self._log.warning(f"Process '{process_name}' requested WRITE to Namespace '{ns_name}' but it is restricted by policy.")
             
             # [Fix v3.1.2] Update instance whitelists to the filtered versions
             # This ensures nested guards (which inherit these) correctly respect policies.
-            object.__setattr__(self, "allowed_inputs", set(final_inputs))
-            object.__setattr__(self, "allowed_outputs", set(final_outputs))
+            object.__setattr__(self, "_allowed_inputs", set(final_inputs))
+            object.__setattr__(self, "_allowed_outputs", set(final_outputs))
 
             # Create the Rust heart of the guard
             self._inner = _RustContextGuard(
@@ -173,8 +186,8 @@ class ContextGuard:
         if self._local_is_admin: return True
         
         # Use getattr to avoid recursion in __getattr__
-        inputs = getattr(self, "allowed_inputs", None)
-        outputs = getattr(self, "allowed_outputs", None)
+        inputs = getattr(self, "_allowed_inputs", None)
+        outputs = getattr(self, "_allowed_outputs", None)
         
         # [v3.1.1 Legacy] If no whitelists provided (None), we are in permissive mode.
         if inputs is None and mode == "read": return True
@@ -254,10 +267,10 @@ class ContextGuard:
                 "Use the Context API to read/write fields safely."
             )
         # 1. Immediate bypass for whitelisted Python-side attributes
-        if name in ("_inner", "_local_is_admin", "log", "_elevate", "is_admin", "is_proxy", "_outbox", "path_prefix", "allowed_inputs", "allowed_outputs", "transaction", "strict_guards"):
+        if name in ("_inner", "_local_is_admin", "_log", "_elevate", "is_admin", "is_proxy", "_outbox", "_path_prefix", "_allowed_inputs", "_allowed_outputs", "_transaction", "_strict_guards", "_parent", "_name", "_target"):
             return object.__getattribute__(self, name)
 
-        full_path = name if self.path_prefix == "" else f"{self.path_prefix}.{name}"
+        full_path = name if self._path_prefix == "" else f"{self._path_prefix}.{name}"
         # [RFC-001 §5] Zone physics check first (const_/internal_)
         try:
             self._check_zone_physics(full_path, "read")
@@ -275,6 +288,15 @@ class ContextGuard:
             if val is None and self._target:
                  # Try target (Hybrid Bridge)
                  val = getattr(self._target, name, None)
+        except RuntimeError as rt_err:
+            # [v3.4] Transaction no longer leaks into data graph.
+            # If RuntimeError occurs here, it is a genuine error — log and re-raise.
+            import warnings
+            warnings.warn(
+                f"ContextGuard.__getattr__('{name}'): RuntimeError from Rust proxy — {rt_err}",
+                RuntimeWarning, stacklevel=2
+            )
+            raise
         except AttributeError:
              # [RFC-002] Support attribute-style access for DICT proxies or items (e.g. state.domain.balance)
             if hasattr(self._inner, "__getitem__") and not name.startswith("_"):
@@ -293,17 +315,17 @@ class ContextGuard:
                     state_data = pc.state.data
                     val = state_data[name]
                     
-                    full_path = name if self.path_prefix == "" else f"{self.path_prefix}.{name}"
+                    full_path = name if self._path_prefix == "" else f"{self._path_prefix}.{name}"
                     
                     if isinstance(val, (dict, list)):
                         return ContextGuard(
                             target_obj=None,
-                            allowed_inputs=self.allowed_inputs,
-                            allowed_outputs=self.allowed_outputs,
+                            allowed_inputs=self._allowed_inputs,
+                            allowed_outputs=self._allowed_outputs,
                             path_prefix=full_path,
-                            transaction=self.transaction,
-                            strict_guards=self.strict_guards,
-                            process_name=self.log.extra.get("process_name", "Unknown"),
+                            transaction=_current_tx.get(),
+                            strict_guards=self._strict_guards,
+                            process_name=self._log.extra.get("process_name", "Unknown"),
                             _inner=val,
                             parent=self,
                             name=name,
@@ -334,11 +356,11 @@ class ContextGuard:
                  sub_inner = getattr(val, "_theus_proxy", None)
                  new_guard = ContextGuard(
                     target_obj=val,
-                    allowed_inputs=self.allowed_inputs,
-                    allowed_outputs=self.allowed_outputs,
+                    allowed_inputs=self._allowed_inputs,
+                    allowed_outputs=self._allowed_outputs,
                     _inner=sub_inner or val, # Use proxy if available, else native
-                    process_name=self.log.extra.get("process_name", "Unknown"),
-                    transaction=self.transaction,
+                    process_name=self._log.extra.get("process_name", "Unknown"),
+                    transaction=_current_tx.get(),
                     parent=self,
                     name=name,
                 )
@@ -346,28 +368,43 @@ class ContextGuard:
                  return new_guard
         
         # 4. Nested Guard wrapping (Normal flow)
-        if isinstance(val, _RustContextGuard):
+        if isinstance(val, _RustContextGuard) or (hasattr(val, "is_proxy") and getattr(val, "is_proxy")()):
+            sub_target = None
+            if self._target is not None:
+                sub_target = getattr(self._target, name, None)
+                if sub_target is None and hasattr(self._target, "get"):
+                    sub_target = self._target.get(name)
+
             return ContextGuard(
-                target_obj=None,
-                allowed_inputs=self.allowed_inputs,
-                allowed_outputs=self.allowed_outputs,
+                target_obj=sub_target,
+                allowed_inputs=self._allowed_inputs,
+                allowed_outputs=self._allowed_outputs,
                 path_prefix=full_path,
                 _inner=val,
-                process_name=self.log.extra.get("process_name", "Unknown"),
-                transaction=self.transaction,
+                process_name=self._log.extra.get("process_name", "Unknown"),
+                transaction=_current_tx.get(),
                 parent=self,
                 name=name,
             )
         return val
 
     def __getitem__(self, key: Any) -> Any:
-        full_path = str(key) if self.path_prefix == "" else f"{self.path_prefix}[{key}]"
+        full_path = str(key) if self._path_prefix == "" else f"{self._path_prefix}[{key}]"
         if isinstance(key, str) and not self._is_allowed(full_path, "read"):
              raise PermissionError(f"Illegal Read: Path '{full_path}' is restricted by Process Contract.")
 
         val = None
         try:
             val = self._inner[key]
+        except RuntimeError as rt_err:
+            # [v3.4] Transaction no longer leaks into data graph.
+            # If RuntimeError occurs here, it is a genuine error — log and re-raise.
+            import warnings
+            warnings.warn(
+                f"ContextGuard.__getitem__('{key}'): RuntimeError from Rust proxy — {rt_err}",
+                RuntimeWarning, stacklevel=2
+            )
+            raise
         except (PermissionError, AttributeError, KeyError, IndexError, TypeError) as e:
             # [RFC-002] Dynamic Namespace Fallback for Item Access
             if isinstance(key, str):
@@ -380,17 +417,17 @@ class ContextGuard:
                             state_data = pc.state.data
                             val = state_data[key]
                             
-                            full_path = key if self.path_prefix == "" else f"{self.path_prefix}.{key}"
+                            full_path = key if self._path_prefix == "" else f"{self._path_prefix}.{key}"
                             
                             if isinstance(val, (dict, list)):
                                 return ContextGuard(
                                     target_obj=None,
-                                    allowed_inputs=self.allowed_inputs,
-                                    allowed_outputs=self.allowed_outputs,
+                                    allowed_inputs=self._allowed_inputs,
+                                    allowed_outputs=self._allowed_outputs,
                                     path_prefix=full_path,
-                                    transaction=self.transaction,
-                                    strict_guards=self.strict_guards,
-                                    process_name=self.log.extra.get("process_name", "Unknown"),
+                                    transaction=_current_tx.get(),
+                                    strict_guards=self._strict_guards,
+                                    process_name=self._log.extra.get("process_name", "Unknown"),
                                     _inner=val,
                                     parent=self,
                                     name=key,
@@ -405,17 +442,43 @@ class ContextGuard:
                  sub_inner = getattr(val, "_theus_proxy", None)
                  new_guard = ContextGuard(
                     target_obj=val,
-                    allowed_inputs=self.allowed_inputs,
-                    allowed_outputs=self.allowed_outputs,
+                    allowed_inputs=self._allowed_inputs,
+                    allowed_outputs=self._allowed_outputs,
                     _inner=sub_inner or val,
-                    process_name=self.log.extra.get("process_name", "Unknown"),
-                    transaction=self.transaction,
+                    process_name=self._log.extra.get("process_name", "Unknown"),
+                    transaction=_current_tx.get(),
                     parent=self,
                     name=key,
                 )
                  new_guard._elevate(True)
                  return new_guard
 
+        # 4. Nested Guard wrapping (Normal flow)
+        if isinstance(val, _RustContextGuard) or (hasattr(val, "is_proxy") and getattr(val, "is_proxy")()):
+            sub_target = None
+            if self._target is not None:
+                if hasattr(self._target, "__getitem__"):
+                    try:
+                        sub_target = self._target[key]
+                    except (KeyError, TypeError):
+                        pass
+                if sub_target is None and isinstance(key, str):
+                    if hasattr(self._target, "get"):
+                        sub_target = self._target.get(key)
+                    if sub_target is None:
+                        sub_target = getattr(self._target, key, None)
+
+            return ContextGuard(
+                target_obj=sub_target,
+                allowed_inputs=self._allowed_inputs,
+                allowed_outputs=self._allowed_outputs,
+                path_prefix=full_path,
+                _inner=val,
+                process_name=self._log.extra.get("process_name", "Unknown"),
+                transaction=_current_tx.get(),
+                parent=self,
+                name=key,
+            )
         return val
 
     # [RFC-001] SHADOW METHODS FOR ADMIN BYPASS + ZONE PHYSICS ENFORCEMENT
@@ -427,25 +490,25 @@ class ContextGuard:
 
     def append(self, *args, **kwargs):
         """[RFC-001 §5] Check CONSTANT zone before append."""
-        self._check_zone_physics(self.path_prefix or "?", "append")
+        self._check_zone_physics(self._path_prefix or "?", "append")
         if hasattr(self._inner, "append"):
             return self._inner.append(*args, **kwargs)
 
     def extend(self, *args, **kwargs):
         """[RFC-001 §5] Check CONSTANT zone before extend."""
-        self._check_zone_physics(self.path_prefix or "?", "append")
+        self._check_zone_physics(self._path_prefix or "?", "append")
         if hasattr(self._inner, "extend"):
             return self._inner.extend(*args, **kwargs)
 
     def insert(self, *args, **kwargs):
         """[RFC-001 §5] Check CONSTANT zone before insert."""
-        self._check_zone_physics(self.path_prefix or "?", "append")
+        self._check_zone_physics(self._path_prefix or "?", "append")
         if hasattr(self._inner, "insert"):
             return self._inner.insert(*args, **kwargs)
 
     def clear(self):
         """[RFC-001 §5] Check CONSTANT zone before clear (delete)."""
-        self._check_zone_physics(self.path_prefix or "?", "delete")
+        self._check_zone_physics(self._path_prefix or "?", "delete")
         if hasattr(self._inner, "clear"):
             try:
                 return self._inner.clear()
@@ -453,12 +516,12 @@ class ContextGuard:
                 if self._local_is_admin:
                      # FORCE CLEAR via parent-level assignment
                      try:
-                         if self.parent:
+                         if self._parent:
                              # Overwrite on parent (bypass native child clear)
-                             if hasattr(self.parent, "__setitem__"):
-                                 self.parent[self.name] = []
+                             if hasattr(self._parent, "__setitem__"):
+                                 self._parent[self._name] = []
                              else:
-                                 setattr(self.parent, self.name, [])
+                                 setattr(self._parent, self._name, [])
                              return None
                      except: pass
                 raise e
@@ -466,7 +529,7 @@ class ContextGuard:
 
     def pop(self, *args, **kwargs):
         """[RFC-001 §5] Check CONSTANT zone before pop (delete)."""
-        self._check_zone_physics(self.path_prefix or "?", "delete")
+        self._check_zone_physics(self._path_prefix or "?", "delete")
         if hasattr(self._inner, "pop"):
             try:
                 return self._inner.pop(*args, **kwargs)
@@ -487,7 +550,7 @@ class ContextGuard:
 
     def remove(self, *args, **kwargs):
         """[RFC-001 §5] Check CONSTANT zone before remove (delete)."""
-        self._check_zone_physics(self.path_prefix or "?", "delete")
+        self._check_zone_physics(self._path_prefix or "?", "delete")
         if hasattr(self._inner, "remove"):
             try:
                 return self._inner.remove(*args, **kwargs)
@@ -503,19 +566,29 @@ class ContextGuard:
         return None
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in ("_inner", "_local_is_admin", "log", "_outbox", "path_prefix", "allowed_inputs", "allowed_outputs", "transaction", "strict_guards", "parent", "name"):
+        if name in ("_inner", "_local_is_admin", "_log", "_outbox", "_path_prefix", "_allowed_inputs", "_allowed_outputs", "_transaction", "_strict_guards", "_parent", "_name", "_target"):
             object.__setattr__(self, name, value)
             return
 
-        full_path = name if self.path_prefix == "" else f"{self.path_prefix}.{name}"
+        full_path = name if self._path_prefix == "" else f"{self._path_prefix}.{name}"
         # [RFC-001 §5] Zone physics check (const_ blocked even for admin)
         self._check_zone_physics(full_path, "write")
         if not self._is_allowed(full_path, "write"):
              raise PermissionError(f"Illegal Write: Path '{full_path}' is restricted by Process Contract.")
 
-        # Unwrap Python ContextGuard before passing to Rust
-        if isinstance(value, ContextGuard):
-            value = value._inner
+        # Unwrap Python ContextGuard before passing to Rust (Deep Unwrap)
+        def _deep_unwrap(v):
+            if isinstance(v, ContextGuard):
+                return _deep_unwrap(v._inner)
+            if isinstance(v, dict):
+                return {k: _deep_unwrap(sub_v) for k, sub_v in v.items()}
+            if isinstance(v, list):
+                 return [_deep_unwrap(sub_v) for sub_v in v]
+            if isinstance(v, tuple):
+                 return tuple(_deep_unwrap(sub_v) for sub_v in v)
+            return v
+            
+        value = _deep_unwrap(value)
             
         # Support attribute-style access for dict keys
         if isinstance(self._inner, dict):
@@ -524,15 +597,24 @@ class ContextGuard:
             setattr(self._inner, name, value)
 
     def __setitem__(self, key: Any, value: Any) -> None:
-        full_path = str(key) if self.path_prefix == "" else f"{self.path_prefix}[{key}]"
+        full_path = str(key) if self._path_prefix == "" else f"{self._path_prefix}[{key}]"
         # [RFC-001 §5] Zone physics check (const_ blocked even for admin)
         if isinstance(key, str):
             self._check_zone_physics(full_path, "write")
         if isinstance(key, str) and not self._is_allowed(full_path, "write"):
              raise PermissionError(f"Illegal Write: Path '{full_path}' is restricted by Process Contract.")
 
-        if isinstance(value, ContextGuard):
-            value = value._inner
+        def _deep_unwrap(v):
+            if isinstance(v, ContextGuard):
+                return _deep_unwrap(v._inner)
+            if isinstance(v, dict):
+                return {k: _deep_unwrap(sub_v) for k, sub_v in v.items()}
+            if isinstance(v, list):
+                 return [_deep_unwrap(sub_v) for sub_v in v]
+            if isinstance(v, tuple):
+                 return tuple(_deep_unwrap(sub_v) for sub_v in v)
+            return v
+        value = _deep_unwrap(value)
         
         try:
             self._inner[key] = value

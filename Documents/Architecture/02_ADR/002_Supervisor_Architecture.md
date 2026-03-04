@@ -4,7 +4,7 @@
 
 ---
 
-# ADR: Supervisor Architecture v3.0.22
+# ADR: Supervisor Architecture v3.0.23
 
 **Date**: 2026-01-23
 **Status**: Implemented (Phase 1)

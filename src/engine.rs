@@ -850,6 +850,23 @@ impl Transaction {
         Ok(())
     }
 
+    /// [v3.4] Fail-fast: Transaction cannot be pickled/deepcopied.
+    /// Prevents silent corruption if Transaction leaks into serializable paths.
+    fn __reduce__(&self) -> PyResult<()> {
+        Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "Transaction objects cannot be pickled/deepcopied. \
+             They are transient controllers with scoped lifecycle. \
+             Use contextvars to access the active transaction."
+        ))
+    }
+
+    fn __deepcopy__(&self, _memo: PyObject) -> PyResult<()> {
+        Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "Transaction objects cannot be deepcopied. \
+             They are transient controllers with scoped lifecycle."
+        ))
+    }
+
     /// [INC-013] Helper: Check if object is a tracked Shadow.
     #[pyo3(name = "is_known_shadow")]
     pub fn is_known_shadow(&self, py: Python, obj: PyObject) -> bool {

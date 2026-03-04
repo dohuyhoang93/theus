@@ -380,12 +380,24 @@ class BaseSystemContext(LockedContextMixin):
         data = {}
         
         # 1. Manual Unpacking of known fields (since Mixin lacks to_dict)
-        if hasattr(self, "domain") and self.domain is not None:
-            data["domain"] = self.domain.to_dict(exclude_zones) if hasattr(self.domain, "to_dict") else self.domain
-        if hasattr(self, "global_ctx") and self.global_ctx is not None:
-             g = self.global_ctx
-             data["global"] = g.to_dict(exclude_zones) if hasattr(g, "to_dict") else g
-
+        # Supports aliases domain_ctx and global_ctx for backward/project compatibility
+        domain_obj = getattr(self, "domain", None)
+        if domain_obj is None:
+            domain_obj = getattr(self, "domain_ctx", None)
+            
+        if domain_obj is not None:
+            d = domain_obj.to_dict(exclude_zones) if hasattr(domain_obj, "to_dict") else domain_obj
+            data["domain"] = d
+            data["domain_ctx"] = d
+            
+        global_obj = getattr(self, "global_ctx", None)
+        if global_obj is None:
+             global_obj = getattr(self, "global", None)
+             
+        if global_obj is not None:
+             g = global_obj.to_dict(exclude_zones) if hasattr(global_obj, "to_dict") else global_obj
+             data["global"] = g
+             data["global_ctx"] = g
         # 2. Add all registered Namespaces
         registry = NamespaceRegistry()
         for ns_name in registry._namespaces:

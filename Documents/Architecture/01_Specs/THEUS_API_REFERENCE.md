@@ -1,6 +1,6 @@
-# Theus Framework v3.0.22 - API Reference
+# Theus Framework v3.0.23 - API Reference
 
-This document provides a comprehensive reference for the public APIs of the Theus Framework v3.0.22.
+This document provides a comprehensive reference for the public APIs of the Theus Framework v3.0.23.
 
 ---
 

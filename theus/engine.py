@@ -32,6 +32,10 @@ SupervisorProxy = ContextGuard
 SecurityViolationError = ContractViolationError
 
 
+# NOTE: [v3.4] _strip_transaction_refs removed — Transaction no longer leaks
+# into data graph. SupervisorProxy stores is_mutable:bool, not Transaction ref.
+
+
 class TheusEngine:
     """
     Theus v3.0 Main Engine.
@@ -205,7 +209,6 @@ class TheusEngine:
             # Hydrate state via CAS (Version 0 -> Init)
             if init_data:
                 try:
-                    # [v3.1 FIX] Rust Core initializes State at Version 0 (Empty)
                     self._core.compare_and_swap(0, init_data)
                 except Exception as e:
                     print(f"WARNING: Initial hydration failed: {e}")
@@ -339,24 +342,50 @@ class TheusEngine:
         wf_engine = WorkflowEngine(yaml_content, max_ops, debug)
 
         # Build context dict for condition evaluation
-        data = self.state.data
+        ctx = {}
 
-        # v3.3: Inject Signal Snapshot
-        signals = {}
-        if hasattr(self.state, "signals"):
-            signals = self.state.signals
+        def _update_ctx():
+            # Use raw Rust state data so that the Rust evaluator can natively parse strings
+            # and traverse without needing Python Dataclass magic methods.
+            raw_data = self._core.state.data
+            signals = getattr(self.state, "signals", {})
+            
+            try:
+                domain = raw_data["domain"]
+            except KeyError:
+                domain = {}
+                
+            try:
+                glob = raw_data["global"]
+            except KeyError:
+                glob = {}
 
-        ctx = {
-            "domain": data.get("domain", None),
-            "global": data.get("global", None),
-            "signal": signals,
-            "cmd": signals,
-        }
+            # Map flat keys to dictionaries before evaluation
+            if isinstance(domain, dict):
+                domain_copy = dict(domain)
+            else:
+                domain_copy = {}
+                
+            for k, v in raw_data.items():
+                if k.startswith("domain."):
+                    domain_copy[k[7:]] = v
+                    
+            ctx["domain"] = domain_copy
+            ctx["global"] = glob
+            ctx["signal"] = signals
+            ctx["cmd"] = signals
+
+        _update_ctx()
+
+        def _sync_wrapper(name: str, **kwargs):
+            res = self._run_process_sync(name, **kwargs)
+            _update_ctx()
+            return res
 
         # Offload the blocking Rust execution to a thread
-        # The callback _run_process_sync will be called from that thread.
+        # The callback _sync_wrapper will be called from that thread.
         executed = await asyncio.to_thread(
-            wf_engine.execute, ctx, self._run_process_sync
+            wf_engine.execute, ctx, _sync_wrapper
         )
 
         return executed
@@ -391,7 +420,7 @@ class TheusEngine:
             )
             return future.result()
         else:
-            loop.run_until_complete(self.execute(name, **kwargs))
+            return loop.run_until_complete(self.execute(name, **kwargs))
 
     @property
     def state(self):
@@ -515,8 +544,9 @@ class TheusEngine:
             
             # 2. Sync Context Fields (Pydantic/Object)
             if hasattr(self, "_context"):
-                for field_name in ["domain", "global_ctx", "global"]:
-                    core_key = "global" if field_name == "global_ctx" else field_name
+                # Supports aliases domain_ctx and global_ctx for backward/project compatibility
+                for field_name in ["domain", "domain_ctx", "global_ctx", "global"]:
+                    core_key = "global" if field_name in ("global_ctx", "global") else "domain"
                     if core_key in data and hasattr(self._context, field_name):
                         curr_val = getattr(self._context, field_name)
                         if curr_val is not None:
@@ -524,16 +554,28 @@ class TheusEngine:
                             model_cls = type(curr_val)
                             try:
                                 native_proxy = data[core_key]
+                                # Filter out any internal ContextGuard meta-fields 
+                                # to prevent them from leaking into the Pydantic instance 
+                                # and causing Pickling/Serialization failures.
+                                raw_proxy = {k: v for k, v in native_proxy.items() if not k.startswith("_") and k not in ("transaction", "inner", "target")}
+                                clean_proxy = raw_proxy
+                                
                                 if hasattr(model_cls, "model_validate"):
-                                    new_obj = model_cls.model_validate(native_proxy)
+                                    new_obj = model_cls.model_validate(clean_proxy)
                                 elif hasattr(model_cls, "parse_obj"):
-                                    new_obj = model_cls.parse_obj(native_proxy)
+                                    new_obj = model_cls.parse_obj(clean_proxy)
                                 else:
                                     # [v3.1.2] Fallback for standard dataclasses (preserves Type and Identity)
                                     if dataclasses.is_dataclass(curr_val):
                                          for f in dataclasses.fields(curr_val):
-                                              if f.name in native_proxy:
-                                                   try: setattr(curr_val, f.name, native_proxy[f.name])
+                                              if f.name in clean_proxy:
+                                                   # [Fix v3.3.1] Skip Overwriting Heavy/Complex Python Objects with Rust None Stubs
+                                                   incoming_val = clean_proxy[f.name]
+                                                   if incoming_val is None:
+                                                       existing_val = getattr(curr_val, f.name, None)
+                                                       if existing_val is not None and not isinstance(existing_val, (int, float, str, list, dict, bool)):
+                                                           continue # Preserve live Python object
+                                                   try: setattr(curr_val, f.name, incoming_val)
                                                    except: pass
                                          new_obj = curr_val
                                     else:
@@ -545,8 +587,12 @@ class TheusEngine:
                                      except: pass
                                 object.__setattr__(self._context, field_name, new_obj)
                             except Exception:
-                                # Safe fallback
-                                object.__setattr__(self._context, field_name, data[core_key])
+                                # Safe fallback — still clean Transaction refs
+                                try:
+                                    clean_fallback = dict(data[core_key]) if hasattr(data[core_key], 'items') else data[core_key]
+                                    object.__setattr__(self._context, field_name, clean_fallback)
+                                except Exception:
+                                    pass
         except Exception:
             pass # Never block execution success for sync failures
 
@@ -587,9 +633,32 @@ class TheusEngine:
         current_retries = 0
 
         # [v3.3 FIX] Hoist Transaction to preserve Outbox across CAS retries
-        # Previously tx was created inside _attempt_execute, causing message loss on retry.
+        # Long-running simulation processes often exceed 5s, bumping to 30s.
         while True:
-            with theus_core.Transaction(self._core) as tx:
+            # NOTE: Transaction.__init__ calls deepcopy on state.data for snapshot isolation.
+            # If state contains leaked Transaction refs (not picklable), deepcopy fails.
+            # We catch this and clean state before retrying.
+            try:
+                _tx_ctx = theus_core.Transaction(self._core, write_timeout_ms=30000)
+            except RuntimeError as tx_err:
+                if "cannot deepcopy" in str(tx_err) or "cannot pickle" in str(tx_err):
+                    # Safety net: clean state and retry if Transaction refs still leak
+                    try:
+                        raw = dict(self._core.state.data)
+                        cleaned = raw
+                        if hasattr(self._core, 'force_set_data'):
+                            self._core.force_set_data(cleaned)
+                        else:
+                            self._core.compare_and_swap(
+                                self._core.state.version, data=cleaned
+                            )
+                        _tx_ctx = theus_core.Transaction(self._core, write_timeout_ms=30000)
+                    except Exception:
+                        raise tx_err
+                else:
+                    raise
+            
+            with _tx_ctx as tx:
                 try:
                     result = await self._attempt_execute(func, tx, *args, **kwargs)
 
@@ -650,6 +719,7 @@ class TheusEngine:
             
             # Successful COMMIT. Sync back to registry for legacy tests.
             self._sync_registry_from_core()
+            
             return result
 
     async def _attempt_execute(self, func, tx, *args, **kwargs):
@@ -710,46 +780,82 @@ class TheusEngine:
                 import inspect
 
                 if inspect.iscoroutinefunction(func):
+                
+                    # Helper to unwrap ContextGuard before crossing Rust FFI boundary
+                    def _deep_unwrap_res(v):
+                        from .guards import ContextGuard
+                        if isinstance(v, ContextGuard):
+                            return _deep_unwrap_res(v._inner)
+                        if isinstance(v, dict):
+                            return {k: _deep_unwrap_res(sub_v) for k, sub_v in v.items()}
+                        if isinstance(v, list):
+                            return [_deep_unwrap_res(sub_v) for sub_v in v]
+                        if isinstance(v, tuple):
+                            return tuple(_deep_unwrap_res(sub_v) for sub_v in v)
+                        return v
 
                     async def arg_binder(ctx, *_, **__):
                         # v3.1 Guard Wrapping (Admin Mode for Non-Pure)
-                        # Allows full access but enables SupervisorProxy for nested dicts
-                        # INJECT TRANSACTION:
+                        # INJECT TRANSACTION into ContextVar (not into object graph)
+                        from theus.guards import _current_tx
+                        _current_tx.set(tx)
+                        
                         # [v3.3 FIX] Extract outbox BEFORE creating ContextGuard
-                        # ProcessContext.outbox is a #[pyo3(get)] read-only attribute
                         raw_outbox = ctx.outbox
                         
                         native_guard = ContextGuard(
-                            ctx, 
-                            set(contract.inputs if contract else []), 
-                            set(contract.outputs if contract else []), 
-                            "", 
-                            tx, 
-                            self._strict_guards, 
-                            func.__name__
+                            target_obj=ctx,
+                            allowed_inputs=set(contract.inputs if contract else []),
+                            allowed_outputs=set(contract.outputs if contract else []),
+                            path_prefix="",
+                            transaction=tx,
+                            strict_guards=self._strict_guards,
+                            process_name=func.__name__
                         )
-                        return await func(native_guard, *args, **kwargs)
+                        res = await func(native_guard, *args, **kwargs)
+                        return _deep_unwrap_res(res)
 
                     arg_binder.__name__ = func.__name__
                     target_func = arg_binder
                 else:
 
+                    # Helper to unwrap ContextGuard before crossing Rust FFI boundary
+                    def _deep_unwrap_res(v):
+                        from .guards import ContextGuard
+                        if isinstance(v, ContextGuard):
+                            return _deep_unwrap_res(v._inner)
+                        if isinstance(v, dict):
+                            return {k: _deep_unwrap_res(sub_v) for k, sub_v in v.items()}
+                        if isinstance(v, list):
+                            return [_deep_unwrap_res(sub_v) for sub_v in v]
+                        if isinstance(v, tuple):
+                            return tuple(_deep_unwrap_res(sub_v) for sub_v in v)
+                        return v
+
                     def arg_binder(ctx, *_, **__):
+                        # INJECT TRANSACTION into ContextVar (not into object graph)
+                        from theus.guards import _current_tx
+                        _current_tx.set(tx)
+                        
                         native_guard = ContextGuard(
-                            ctx, 
-                            set(contract.inputs if contract else []), 
-                            set(contract.outputs if contract else []), 
-                            "", 
-                            tx, 
-                            self._strict_guards, 
-                            func.__name__
+                            target_obj=ctx,
+                            allowed_inputs=set(contract.inputs if contract else []),
+                            allowed_outputs=set(contract.outputs if contract else []),
+                            path_prefix="",
+                            transaction=tx,
+                            strict_guards=self._strict_guards,
+                            process_name=func.__name__
                         )
-                        return func(native_guard, *args, **kwargs)
+                        res = func(native_guard, *args, **kwargs)
+                        return _deep_unwrap_res(res)
 
                     arg_binder.__name__ = func.__name__
                     target_func = arg_binder
 
             # Run via Rust Core (Handles Audit, Timing, etc)
+            
+
+            
             try:
                 result = await self._core.execute_process_async(
                     func.__name__, target_func, tx
@@ -991,6 +1097,8 @@ class TheusEngine:
             # [v3.3 FIX] RELY ON Transaction.__exit__ for Atomic Commit
             # Do NOT call self._core.compare_and_swap here, as it causes double-bumps
             # instead, ensure all collected updates are in the Transaction object.
+            # NOTE: [v3.4] _strip_transaction_refs no longer needed —
+            # Transaction refs cannot leak into data graph.
             tx.update(data=pending_data)
 
             if self._audit:

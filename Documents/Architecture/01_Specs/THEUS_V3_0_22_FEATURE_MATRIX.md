@@ -1,7 +1,7 @@
-# Theus v3.0.22 Feature Matrix & API Reference
+# Theus v3.0.23 Feature Matrix & API Reference
 
 **Ngày lập báo cáo:** 2026-01-30
-**Phiên bản:** v3.0.22
+**Phiên bản:** v3.0.23
 **Trạng thái:** Production Ready (Verified 107/107 Tests)
 
 Tài liệu này liệt kê chi tiết toàn bộ các tính năng và API mà Theus Framework cung cấp, cùng với tình trạng triển khai thực tế trong mã nguồn.

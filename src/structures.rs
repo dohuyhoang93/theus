@@ -494,6 +494,7 @@ impl State {
                  // This allows ContextGuard to "upgrade" it to Mutable if Transaction exists
                  // while preserving legacy read-only behavior for direct access.
                  let proxy = SupervisorProxy::new(
+                     py,
                      val.clone_ref(py),
                      "domain".to_string(),
                      true, // Read-Only
@@ -513,6 +514,7 @@ impl State {
             Some(val) => {
                 let ro = read_only.unwrap_or(true);
                 let proxy = SupervisorProxy::new(
+                    py,
                     val.clone_ref(py),
                     "domain".to_string(),
                     ro,
@@ -531,6 +533,7 @@ impl State {
         match self.data.get("global") {
              Some(val) => {
                  let proxy = SupervisorProxy::new(
+                     py,
                      val.clone_ref(py),
                      "global".to_string(),
                      true, // Read-Only
@@ -623,24 +626,27 @@ impl ProcessContext {
         self.domain(py)
     }
 
-    /// [FIX v3.3] Explicit Domain Getter with Transaction Binding
-    /// Ensure ctx.domain returns a MUTABLE proxy if a transaction is active.
+    /// [FIX v3.3] Explicit Domain Getter — Transaction NOT injected into SupervisorProxy.
+    /// SupervisorProxy queries contextvars for Transaction when it needs to log or COW.
     #[getter]
     fn domain(&self, py: Python) -> PyResult<PyObject> {
         let state_bound = self.state.bind(py);
         let state_ref = state_bound.borrow();
         match state_ref.data.get("domain") {
             Some(arc_val) => {
+                 // NOTE: Pass tx to SupervisorProxy.new() so it knows is_mutable,
+                 // but SupervisorProxy internally only stores the boolean is_mutable flag
+                 // (tx object is NOT kept as a field).
                  let tx_opt = self.tx.as_ref().map(|t| t.clone_ref(py).into_py(py));
-                 let read_only = tx_opt.is_none();
                  
                  let proxy = SupervisorProxy::new(
+                     py,
                      arc_val.clone_ref(py).into_py(py),
                      "domain".to_string(),
-                     read_only, 
+                     tx_opt.is_none(), // read_only if no tx
                      tx_opt,
-                     false, // is_shadow
-                     CAP_READ | CAP_UPDATE | CAP_APPEND | CAP_DELETE, // Full capability for Process
+                     false,
+                     CAP_READ | CAP_UPDATE | CAP_APPEND | CAP_DELETE,
                  );
                  Ok(Py::new(py, proxy)?.into_py(py))
             },
@@ -648,22 +654,20 @@ impl ProcessContext {
         }
     }
 
-    /// [FIX v3.3] Explicit Global Getter with Transaction Binding
+    /// [FIX v3.3] Explicit Global Getter — same pattern as domain
     #[getter]
     fn global(&self, py: Python) -> PyResult<PyObject> {
         let state_bound = self.state.bind(py);
         let state_ref = state_bound.borrow();
         match state_ref.data.get("global") {
             Some(arc_val) => {
-                 // Global is usually Read-Only unless elevated?
-                 // For now, consistent with Domain: Mutable if TX exists.
                  let tx_opt = self.tx.as_ref().map(|t| t.clone_ref(py).into_py(py));
-                 let read_only = tx_opt.is_none();
                  
                  let proxy = SupervisorProxy::new(
+                     py,
                      arc_val.clone_ref(py).into_py(py),
                      "global".to_string(),
-                     read_only, 
+                     tx_opt.is_none(),
                      tx_opt,
                      false, 
                      CAP_READ | CAP_UPDATE | CAP_APPEND | CAP_DELETE,

@@ -13,8 +13,9 @@ def test_zombie_cleanup():
     env = os.environ.copy()
     env["PYTHONPATH"] = os.getcwd()
 
+    zombie_script = os.path.join(os.path.dirname(__file__), "repro_zombie.py")
     p = subprocess.run(
-        [sys.executable, "tests/04_features/repro_zombie.py"],
+        [sys.executable, zombie_script],
         capture_output=True,
         text=True,
         env=env,

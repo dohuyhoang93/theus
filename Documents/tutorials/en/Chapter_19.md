@@ -69,7 +69,7 @@ await engine.execute("heavy_ai_task", image_blob=...)
 print(engine.state.data["score"]) 
 ```
 
-## 4. Technical Note: The "Soft Fallback" (v3.0.22)
+## 4. Technical Note: The "Soft Fallback" (v3.0.23)
 Due to current limitations in the Python 3.14 toolchain (specifically PyO3 bindings), the **Rust Core** module itself cannot be loaded *inside* the Sub-interpreter.
 
 *   **Impact:** Workers run in "Pure Python Mode". They don't have access to the Rust Audit logger directly.

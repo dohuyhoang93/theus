@@ -1,4 +1,4 @@
-# 🧭 Theus Documentation Map (v3.0.22)
+# 🧭 Theus Documentation Map (v3.0.23)
 
 > **Welcome to Theus!** The framework has evolved significantly. This map guides you through high-level AI philosophy, Rust-powered core mechanics, and production-ready implementation patterns.
 
@@ -50,4 +50,4 @@
 ```
 
 ---
-*Last Updated: 2026-02-27 | Sync Status: Theus v3.0.22 Core*
+*Last Updated: 2026-02-27 | Sync Status: Theus v3.0.23 Core*

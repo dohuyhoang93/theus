@@ -43,7 +43,7 @@ When bugs aren't just annoying—they're costly:
 
 ## 📦 Installation
 
-Theus v3.0.22 requires **Python 3.14+** to leverage Sub-interpreter support.
+Theus v3.0.23 requires **Python 3.14+** to leverage Sub-interpreter support.
 
 ```bash
 pip install theus
@@ -160,7 +160,7 @@ Theus prioritizes **Performance** (Zero-Copy) while providing **Safety Tools**:
 > ⚠️ **Warning:** In-place mutation (e.g., `list.append`) bypasses the safety lawyer. Always use the Copy-on-Write pattern.
 
 ### The Heavy Zone & Zero-Copy Parallelism (Strategy V3)
-> **Current Status (v3.0.22):** True Parallelism is now available via `ProcessPool`.
+> **Current Status (v3.0.23):** True Parallelism is now available via `ProcessPool`.
 
 For AI workload/Tensors > 1MB, `ctx.heavy` acts as a **Shared Memory Gateway**:
 *   **Zero-Copy:** leverages shared memory to pass large datasets between processes without serialization overhead.

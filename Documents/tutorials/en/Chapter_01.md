@@ -47,7 +47,7 @@ To modify state, you must explicitly **COMMIT** a Transaction. You are not "chan
 ### The "Update" Choice
 ```python
 def process_payment(ctx):
-    # Option A: Direct Mutation (Standard in v3.0.22+)
+    # Option A: Direct Mutation (Standard in v3.0.23+)
     # Safe because ctx is a SupervisorProxy that tracks changes.
     ctx.domain.cart.total += 10
     
@@ -57,7 +57,7 @@ def process_payment(ctx):
     return cart 
 ```
 > [!TIP]
-> **v3.0.22 Recommendation:** For simple field updates, **Direct Mutation** is now preferred as it is cleaner and the Engine handles the atomicity behind the scenes.
+> **v3.0.23 Recommendation:** For simple field updates, **Direct Mutation** is now preferred as it is cleaner and the Engine handles the atomicity behind the scenes.
 *Note: We will explore simpler ways to do this later, but you must understand this fundamental friction first.*
 
 ## 4. Why Use Theus?

@@ -1,4 +1,4 @@
-# Theus Framework v3.0.22 - AI Quick Reference
+# Theus Framework v3.0.23 - AI Quick Reference
 
 > **Target:** AI Coding Assistants (Claude, GPT-4, Gemini, Copilot)  
 > **Purpose:** Copy-paste patterns for Theus-based projects
@@ -234,4 +234,4 @@ with engine.edit() as safe_ctx:
 
 ---
 
-*Generated for Theus Framework v3.0.22 - AI Developer Documentation*
+*Generated for Theus Framework v3.0.23 - AI Developer Documentation*

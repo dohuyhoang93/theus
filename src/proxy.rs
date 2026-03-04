@@ -32,8 +32,11 @@ pub struct SupervisorProxy {
     path: String,
     /// If true, block all writes (for PURE processes)
     read_only: bool,
-    /// Optional transaction for delta logging
-    transaction: Option<Py<PyAny>>,
+    /// NOTE: Transaction is NO LONGER stored here. Instead, a boolean flag
+    /// indicates whether mutations are allowed. Transaction is queried from
+    /// Python contextvars when needed (audit logging, COW shadows).
+    /// This prevents Transaction refs from leaking into the serializable object graph.
+    is_mutable: bool,
     /// [INC-013] If true, this proxy wraps a Shadow Object.
     /// Children of a Shadow are implicitly Shadows and should NOT trigger CoW.
     is_shadow: bool,
@@ -43,11 +46,59 @@ pub struct SupervisorProxy {
     pub capabilities: u8,
 }
 
+// Thread-local storage for active Transaction PyObject.
+// This avoids needing to import theus.guards during SupervisorProxy construction.
+thread_local! {
+    static THREAD_LOCAL_TX: std::cell::RefCell<Option<PyObject>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Helper: Query active Transaction.
+/// 1. Check thread-local Rust storage (set by SupervisorProxy.new or ProcessContext.domain/global)
+/// 2. Fallback to Python contextvars (_current_tx)
+fn get_current_tx(py: Python) -> Option<PyObject> {
+    // Fast path: thread-local Rust storage
+    let tl_result = THREAD_LOCAL_TX.with(|cell| {
+        cell.borrow().as_ref().map(|obj| obj.clone_ref(py))
+    });
+    if tl_result.is_some() {
+        return tl_result;
+    }
+    
+    // Slow path: Python contextvars fallback
+    let sys_modules = match py.import("sys") {
+        Ok(sys) => match sys.getattr("modules") {
+            Ok(m) => m,
+            Err(_) => return None,
+        },
+        Err(_) => return None,
+    };
+    
+    let guards_mod = match sys_modules.call_method1("get", ("theus.guards",)) {
+        Ok(m) => {
+            if m.is_none() { return None; }
+            m
+        },
+        Err(_) => return None,
+    };
+    
+    let ctx_var = match guards_mod.getattr("_current_tx") {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+    match ctx_var.call_method0("get") {
+        Ok(val) => {
+            if val.is_none() { None } else { Some(val.unbind()) }
+        },
+        Err(_) => None,
+    }
+}
+
 #[pymethods]
 impl SupervisorProxy {
     #[new]
     #[pyo3(signature = (target, path="".to_string(), read_only=false, transaction=None, is_shadow=false, capabilities=15))]
     pub fn new(
+        py: Python,
         target: PyObject,
         path: String,
         read_only: bool,
@@ -55,11 +106,19 @@ impl SupervisorProxy {
         is_shadow: bool,
         capabilities: u8,
     ) -> Self {
+        // NOTE: transaction parameter is accepted for API compatibility but NOT stored.
+        // Only the boolean is_mutable flag is kept.
+        // If tx is provided, seed thread-local storage for nested proxy lookups.
+        if let Some(ref tx) = transaction {
+            THREAD_LOCAL_TX.with(|cell| {
+                *cell.borrow_mut() = Some(tx.clone_ref(py));
+            });
+        }
         SupervisorProxy {
             inner: target,
             path,
             read_only,
-            transaction,
+            is_mutable: transaction.is_some(),
             is_shadow,
             capabilities,
         }
@@ -179,14 +238,14 @@ impl SupervisorProxy {
         let has_dict = val.bind(py).hasattr("__dict__")?;
         
         if is_dict || is_list || has_dict {
-            let tx_clone = self.transaction.as_ref().map(|t| t.clone_ref(py));
+            let tx_for_child = get_current_tx(py);
             
             // [INC-013] Double Shadowing Logic
             let mut is_child_shadow = self.is_shadow;
 
             // v3.1 CoW: Get Shadow (No Stitching)
-            let val_shadow = if let Some(ref tx) = self.transaction {
-                let tx_bound = tx.bind(py);
+            let val_shadow = if let Some(ref tx_obj) = tx_for_child {
+                let tx_bound = tx_obj.bind(py);
                 
                 if self.is_shadow {
                     // Parent is Shadow -> Child is mutable part of Shadow Tree. Skip CoW.
@@ -218,10 +277,11 @@ impl SupervisorProxy {
             let is_read_only = self.read_only || name == "__dict__";
 
             Ok(SupervisorProxy::new(
+                py,
                 val_shadow,
                 nested_path,
                 is_read_only,
-                tx_clone,
+                tx_for_child,
                 is_child_shadow,
                 child_caps,
             ).into_py(py))
@@ -270,8 +330,8 @@ impl SupervisorProxy {
 
         let is_dict = self.inner.bind(py).is_instance_of::<PyDict>();
 
-        // Log mutation if transaction exists
-        if let Some(ref tx) = self.transaction {
+        // Log mutation via contextvars Transaction (not stored in self)
+        if let Some(tx_obj) = get_current_tx(py) {
             let full_path = if self.path.is_empty() {
                 name.clone()
             } else {
@@ -286,8 +346,7 @@ impl SupervisorProxy {
             };
             
             // Call transaction.log_delta(path, old, new)
-            // Call transaction.log_delta(path, old, new)
-            match tx.bind(py).getattr("log_delta") {
+            match tx_obj.bind(py).getattr("log_delta") {
                 Ok(tx_bound) => {
                      if let Err(e) = tx_bound.call1((full_path, old_val, value.clone_ref(py))) {
                          eprintln!("ERROR: log_delta failed!");
@@ -304,7 +363,7 @@ impl SupervisorProxy {
         // Actually set the attribute/item
         // [v3.1.3 SECURITY FIX] Block mutations if no transaction is present!
         // Every state change in Theus MUST be tied to a transaction for audit and rollback.
-        if self.transaction.is_some() {
+        if self.is_mutable {
             if is_dict {
                  self.inner.call_method1(py, "__setitem__", (name, value))?;
             } else {
@@ -349,12 +408,12 @@ impl SupervisorProxy {
         let has_dict = val.bind(py).hasattr("__dict__")?;
 
         if is_dict || is_list || has_dict {
-            let tx_clone = self.transaction.as_ref().map(|t| t.clone_ref(py));
+            let tx_for_child = get_current_tx(py);
             
             let mut is_child_shadow = self.is_shadow;
 
-            let val_shadow = if let Some(ref tx) = self.transaction {
-                let tx_bound = tx.bind(py);
+            let val_shadow = if let Some(ref tx_obj) = tx_for_child {
+                let tx_bound = tx_obj.bind(py);
                 
                 if self.is_shadow {
                     // [FIX] Parent is Shadow -> Child is mutable part of Shadow Tree. 
@@ -385,10 +444,11 @@ impl SupervisorProxy {
             };
 
             let proxy = SupervisorProxy::new(
+                py,
                 val_shadow,
                 nested_path,
                 self.read_only,
-                tx_clone,
+                tx_for_child,
                 is_child_shadow,
                 child_caps,
             );
@@ -429,16 +489,14 @@ impl SupervisorProxy {
             ));
         }
 
-        // [v3.1.3 SECURITY FIX] Block mutations if no transaction is present!
-        if self.transaction.is_none() {
+        // [v3.1.3 SECURITY FIX] Block mutations if not mutable!
+        if !self.is_mutable {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
                 format!("Supervisor blocked mutation to path '{}': No active transaction found.", self.path)
             ));
         }
 
-        let tx = self.transaction.as_ref().unwrap();
-
-        // Log if transaction exists
+        // Log via contextvars Transaction
         let key_str = key.bind(py).str()?.to_string();
         let full_path = if self.path.is_empty() {
             key_str
@@ -448,8 +506,10 @@ impl SupervisorProxy {
         
         let old_val = self.inner.call_method1(py, "get", (key.clone_ref(py),)).ok();
         
-        if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
-            let _ = tx_bound.call1((full_path, old_val, value.clone_ref(py)));
+        if let Some(tx_obj) = get_current_tx(py) {
+            if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
+                let _ = tx_bound.call1((full_path, old_val, value.clone_ref(py)));
+            }
         }
 
         self.inner.call_method1(py, "__setitem__", (key, value))?;
@@ -510,8 +570,8 @@ impl SupervisorProxy {
         self.inner.call_method1(py, "append", (item,))?;
         
         // Log Delta (Explicit SET for engine compatibility)
-        if let Some(ref tx) = self.transaction {
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+        if let Some(tx_obj) = get_current_tx(py) {
+            if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                 let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
@@ -525,8 +585,8 @@ impl SupervisorProxy {
         self.inner.call_method1(py, "extend", (iterable,))?;
         
         // Log Delta
-        if let Some(ref tx) = self.transaction {
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+        if let Some(tx_obj) = get_current_tx(py) {
+            if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                 let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
@@ -540,8 +600,8 @@ impl SupervisorProxy {
         self.inner.call_method1(py, "insert", (index, item))?;
         
         // Log Delta
-        if let Some(ref tx) = self.transaction {
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+        if let Some(tx_obj) = get_current_tx(py) {
+            if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                 let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
@@ -555,8 +615,8 @@ impl SupervisorProxy {
         self.inner.call_method1(py, "remove", (value,))?;
         
         // Log Delta
-        if let Some(ref tx) = self.transaction {
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+        if let Some(tx_obj) = get_current_tx(py) {
+            if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                 let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
@@ -570,8 +630,8 @@ impl SupervisorProxy {
         self.inner.call_method(py, "sort", (), kwargs)?;
         
         // Log Delta
-        if let Some(ref tx) = self.transaction {
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+        if let Some(tx_obj) = get_current_tx(py) {
+            if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                 let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
@@ -585,8 +645,8 @@ impl SupervisorProxy {
         self.inner.call_method0(py, "reverse")?;
         
         // Log Delta
-        if let Some(ref tx) = self.transaction {
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+        if let Some(tx_obj) = get_current_tx(py) {
+            if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                 let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
             }
         }
@@ -610,8 +670,8 @@ impl SupervisorProxy {
         self.inner.call_method0(py, "clear")?;
 
         // Log Delta
-        if let Some(ref tx) = self.transaction {
-            if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+        if let Some(tx_obj) = get_current_tx(py) {
+            if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                 if is_list {
                     // For lists, log whole empty list
                     let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
@@ -742,7 +802,7 @@ impl SupervisorProxy {
         }
 
         // 2. Iterate and log each change
-        if let Some(ref tx) = self.transaction {
+        if let Some(tx_obj) = get_current_tx(py) {
              for (k, v) in updates_dict.iter() {
                  let key_str = k.str()?.to_string();
                  let full_path = if self.path.is_empty() {
@@ -756,7 +816,7 @@ impl SupervisorProxy {
                  let old_val = self.inner.call_method1(py, "get", (k.to_object(py),)).ok(); // Raw get is fine for log
                  
                  // Log delta
-                 if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                 if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                     let _ = tx_bound.call1((full_path, old_val, v));
                  }
              }
@@ -784,10 +844,10 @@ impl SupervisorProxy {
         let is_list = self.inner.bind(py).is_instance_of::<PyList>();
 
         // Log mutation
-        if let Some(ref tx) = self.transaction {
+        if let Some(tx_obj) = get_current_tx(py) {
             if is_list {
                 // For lists, log the whole list path since indices shift
-                if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                     let _ = tx_bound.call1((self.path.clone(), py.None(), self.inner.clone_ref(py)));
                 }
             } else if let Some(ref koi) = key_or_index {
@@ -801,7 +861,7 @@ impl SupervisorProxy {
                 
                 if self.inner.call_method1(py, "__contains__", (koi.clone_ref(py),))?.extract(py)? {
                      let old_val = self.inner.call_method1(py, "get", (koi.clone_ref(py),)).ok();
-                     if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                     if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                         let _ = tx_bound.call1((full_path, old_val, py.None()));
                      }
                 }
@@ -839,7 +899,7 @@ impl SupervisorProxy {
         let res = self.inner.call_method0(py, "popitem")?;
         
         // It returns (key, value)
-        if let Some(ref tx) = self.transaction {
+        if let Some(tx_obj) = get_current_tx(py) {
              if let Ok(tuple) = res.bind(py).downcast::<PyTuple>() {
                  if tuple.len() == 2 {
                     let k = tuple.get_item(0)?;
@@ -852,7 +912,7 @@ impl SupervisorProxy {
                         format!("{}.{}", self.path, key_str)
                     };
 
-                    if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                    if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                         // Log deletion: old=v, new=None
                         let _ = tx_bound.call1((full_path, v, py.None())); 
                     }
@@ -882,7 +942,7 @@ impl SupervisorProxy {
         
         if !contains {
             // Will set. Log it.
-             if let Some(ref tx) = self.transaction {
+             if let Some(tx_obj) = get_current_tx(py) {
                 let key_str = key.bind(py).str()?.to_string();
                 let full_path = if self.path.is_empty() {
                     key_str.clone()
@@ -892,7 +952,7 @@ impl SupervisorProxy {
                 
                 let default_val = default.as_ref().map(|o| o.clone_ref(py)).unwrap_or(py.None());
                 
-                if let Ok(tx_bound) = tx.bind(py).getattr("log_delta") {
+                if let Ok(tx_bound) = tx_obj.bind(py).getattr("log_delta") {
                     let _ = tx_bound.call1((full_path, py.None(), default_val));
                 }
              }
@@ -918,14 +978,14 @@ impl SupervisorProxy {
 
         // 1. Handle Dicts and Objects (Existing Logic)
         if is_dict || has_dict {
-            let tx_clone = self.transaction.as_ref().map(|t| t.clone_ref(py));
+            let tx_for_child = get_current_tx(py);
             
             // [INC-013] Double Shadowing Logic
             let mut is_child_shadow = self.is_shadow;
 
             // CoW: Get Shadow
-            let val_shadow = if let Some(ref tx) = self.transaction {
-                let tx_bound = tx.bind(py);
+            let val_shadow = if let Some(ref tx_obj) = tx_for_child {
+                let tx_bound = tx_obj.bind(py);
                 
                 if self.is_shadow {
                     val.clone_ref(py)
@@ -943,10 +1003,11 @@ impl SupervisorProxy {
             };
 
             return Ok(SupervisorProxy::new(
+                py,
                 val_shadow,
                 nested_path,
                 self.read_only,
-                tx_clone,
+                tx_for_child,
                 is_child_shadow,
                 self.capabilities, // Inherit
             ).into_py(py));
@@ -954,10 +1015,9 @@ impl SupervisorProxy {
         
         // 2. [NEW] Handle Lists (Passive Inference Registration)
         if is_list {
-             if let Some(ref tx) = self.transaction {
+             if let Some(tx_obj) = get_current_tx(py) {
                  // Get Shadow for List to ensure it is registered in full_path_map
-                 let tx_bound = tx.bind(py);
-                 let val_shadow = match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
+                 let val_shadow = match tx_obj.bind(py).call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
                      Ok(s) => s.unbind(),
                      Err(_) => val.clone_ref(py)
                  };
@@ -1018,7 +1078,7 @@ impl SupervisorProxy {
         } else {
              self.capabilities = 15; // Default ALL
         }
-        self.transaction = None; // Detached from transaction after unpickle
+        self.is_mutable = false; // Detached from transaction after unpickle
         Ok(())
     }
 

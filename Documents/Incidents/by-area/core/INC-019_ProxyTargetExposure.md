@@ -4,7 +4,7 @@ title: Critical Security Bypass via SupervisorProxy._target Exposure
 area: core
 severity: critical
 introduced_in: v3.0.0
-fixed_in: v3.0.22
+fixed_in: v3.0.23
 status: resolved
 ---
 
@@ -69,4 +69,4 @@ This macro automatically generates a public getter, compliant with Python's desc
 ## 7. Operational Status
 *   **Status:** Resolved
 *   **Owner:** Antigravity
-*   **Fixed In:** v3.0.22 (Current Dev Build)
+*   **Fixed In:** v3.0.23 (Current Dev Build)

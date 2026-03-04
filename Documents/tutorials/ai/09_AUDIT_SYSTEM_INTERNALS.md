@@ -1,6 +1,6 @@
 # 09_AUDIT_SYSTEM_INTERNALS.md
 
-**Status:** Active (3.0.22)
+**Status:** Active (3.0.23)
 **Component:** `theus_core` (Rust) + `theus.validator` (Python)
 
 ## Overview

@@ -167,6 +167,7 @@ impl ContextGuard {
              };
 
              let proxy = SupervisorProxy::new(
+                 py,
                  shadow, 
                  full_path,
                  !can_write, 
@@ -197,6 +198,7 @@ impl ContextGuard {
              // So we ALWAYS wrap List in SupervisorProxy now.
              
              let proxy = SupervisorProxy::new(
+                 py,
                  shadow,
                  full_path,
                  !can_write,
@@ -221,6 +223,7 @@ impl ContextGuard {
              let shadow = tx_bound.borrow_mut().get_shadow(py, inner, Some(full_path.clone()))?; 
              
              let proxy = SupervisorProxy::new(
+                 py,
                  shadow, 
                  full_path.clone(),
                  !can_write,

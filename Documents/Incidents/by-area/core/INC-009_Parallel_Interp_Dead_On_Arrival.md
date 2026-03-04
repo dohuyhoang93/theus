@@ -4,7 +4,7 @@ title: Parallel Interpreter "Dead On Arrival"
 area: core
 severity: critical
 introduced_in: v3.0.0
-fixed_in: v3.0.22
+fixed_in: v3.0.23
 status: resolved
 ---
 

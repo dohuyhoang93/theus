@@ -4,7 +4,7 @@ title: Audit System Drift & Granularity Mismatch
 area: core
 severity: high
 introduced_in: v3.0.0
-fixed_in: v3.0.22
+fixed_in: v3.0.23
 status: resolved
 ---
 
