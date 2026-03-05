@@ -19,7 +19,7 @@ except ImportError:
     SignalHub, SignalReceiver, SchemaViolationError = None, None, None
 
 
-__version__ = "3.0.24"
+__version__ = "3.0.25"
 
 # Register SupervisorProxy as a Mapping for Interoperability (e.g., Pydantic < v2, FastAPI)
 if CORE_AVAILABLE:
