@@ -1,1 +1,4 @@
-{"name":"theus:3142e16c:23060:matrix","pid":23060,"session":"3142e16c","size":72000000,"ts":0.0}
+{"name":"theus:668e5ff5:17116:test_lifecycle","pid":17116,"session":"668e5ff5","size":400,"ts":0.0}
+{"name":"theus:810ed772:17116:key1","pid":17116,"session":"810ed772","size":40,"ts":0.0}
+{"name":"theus:810ed772:17116:key2","pid":17116,"session":"810ed772","size":40,"ts":0.0}
+{"name":"theus:d5ec2088:17116:my_secret","pid":17116,"session":"d5ec2088","size":40,"ts":0.0}

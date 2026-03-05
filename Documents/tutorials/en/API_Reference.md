@@ -13,13 +13,18 @@ engine = TheusEngine(
     context: Optional[BaseSystemContext] = None,
     strict_guards: bool = True,
     strict_cas: bool = False,
-    audit_recipe: Optional[dict] = None
+    audit_recipe: Optional[dict] = None,
+    write_timeout_ms: Optional[int] = None
 )
 ```
 *   `context`: Initial system context.
 *   `strict_guards`: Enforces Contract I/O & Policies (Default: True).
 *   `strict_cas`: `True`=Strict Versioning (Zero Trust), `False`=Smart Conflict Resolution.
 *   `audit_recipe`: Audit configuration (dict or YAML path).
+*   `write_timeout_ms`: Internal transaction timeout in milliseconds for `execute()`. Falls back to `THEUS_WRITE_TIMEOUT_MS` env var, then **300000ms (5 min)**.
+
+**Environment Variables:**
+*   `THEUS_WRITE_TIMEOUT_MS`: Default write timeout (ms) for internal transactions. Override this for long-running processes (e.g., simulation episodes).
 
 ---
 
@@ -93,11 +98,18 @@ engine.compare_and_swap(
 ---
 
 #### `transaction(write_timeout_ms=5000)` (Context Manager)
-Manual transaction logging.
+Manual transaction for user-controlled state mutations.
+*   `write_timeout_ms`: Timeout in milliseconds (default: **5000ms**). This is separate from the engine-level timeout used by `execute()`.
+*   For long operations, pass a larger value: `engine.transaction(write_timeout_ms=60000)`.
+
 ```python
 with engine.transaction() as tx:
     tx.update(data={"domain.value": 123})
     # Commit happens automatically on context exit
+
+# With custom timeout (60 seconds)
+with engine.transaction(write_timeout_ms=60000) as tx:
+    tx.update(data={"domain.large_dataset": expensive_result})
 ```
 
 ---

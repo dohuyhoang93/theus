@@ -47,16 +47,26 @@ class TheusEngine:
         strict_guards: Enable strict contract enforcement (default: True)
         strict_cas: Enable Strict CAS mode (default: False)
         audit_recipe: Audit configuration (optional)
+        write_timeout_ms: Transaction write timeout in milliseconds.
+            Falls back to THEUS_WRITE_TIMEOUT_MS env var, then 300000ms (5 min).
     """
 
     def __init__(
-        self, context=None, namespaces=None, strict_guards=True, strict_cas=False, audit_recipe=None
+        self, context=None, namespaces=None, strict_guards=True, strict_cas=False,
+        audit_recipe=None, write_timeout_ms=None
     ):
         self._namespaces = NamespaceRegistry()
         self._strict_guards = strict_guards # Renamed from strict_mode
         self._strict_cas = strict_cas  # v3.0.4: CAS mode control
         self._audit = None
         self._schema = None  # v3.1.2: Schema Validation
+
+        # NOTE: Default 300s (5 min) to accommodate long-running simulation episodes
+        # that previously exceeded the 30s hardcoded limit (INC-WriteTimeout).
+        if write_timeout_ms is not None:
+            self._write_timeout_ms = write_timeout_ms
+        else:
+            self._write_timeout_ms = int(os.environ.get("THEUS_WRITE_TIMEOUT_MS", 300000))
 
         # 1. Standardize Context
         if context is None:
@@ -639,7 +649,7 @@ class TheusEngine:
             # If state contains leaked Transaction refs (not picklable), deepcopy fails.
             # We catch this and clean state before retrying.
             try:
-                _tx_ctx = theus_core.Transaction(self._core, write_timeout_ms=30000)
+                _tx_ctx = theus_core.Transaction(self._core, write_timeout_ms=self._write_timeout_ms)
             except RuntimeError as tx_err:
                 if "cannot deepcopy" in str(tx_err) or "cannot pickle" in str(tx_err):
                     # Safety net: clean state and retry if Transaction refs still leak
@@ -652,7 +662,7 @@ class TheusEngine:
                             self._core.compare_and_swap(
                                 self._core.state.version, data=cleaned
                             )
-                        _tx_ctx = theus_core.Transaction(self._core, write_timeout_ms=30000)
+                        _tx_ctx = theus_core.Transaction(self._core, write_timeout_ms=self._write_timeout_ms)
                     except Exception:
                         raise tx_err
                 else:
