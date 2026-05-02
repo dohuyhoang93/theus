@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from theus import TheusEngine
-from theus.contracts import process, ContractViolationError
+from theus.contracts import process
 
 # INTEGRATION TEST: Production Data Hazards
 # Covers Chapter 07 Warnings:

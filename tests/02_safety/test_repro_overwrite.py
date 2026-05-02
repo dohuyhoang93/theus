@@ -1,6 +1,5 @@
 import pytest
 from theus import TheusEngine
-from theus.contracts import process
 
 # State is likely available via engine.state, no need to import class explicitly unless for typing
 
@@ -100,7 +99,6 @@ if __name__ == "__main__":
     # verification run
     import sys
     import os
-    import importlib
 
     # Force print buffering off
     sys.stdout.reconfigure(line_buffering=True)

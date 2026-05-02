@@ -1,7 +1,6 @@
 import asyncio
 import os
 import sys
-import time
 import json
 
 # Add project root to path
@@ -10,7 +9,6 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
-from context import DemoSystemContext, DemoDomainContext
 from database import init_db, get_connection, insert_outbox_event
 import processes  # Register processes
 

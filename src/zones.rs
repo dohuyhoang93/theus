@@ -1,9 +1,8 @@
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use pyo3::prelude::*;
 
-static PHYSICS_OVERRIDES: Lazy<Mutex<HashMap<String, u8>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static PHYSICS_OVERRIDES: std::sync::LazyLock<Mutex<HashMap<String, u8>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[pyfunction]
 pub fn register_physics_override(path: String, caps: u8) {
@@ -27,7 +26,7 @@ pub fn get_physics_override(path: &str) -> Option<u8> {
         }
         
         // Structural Support: Check prefixes (e.g. domain.const_data overrides domain.const_data[key])
-        let normalized = path.replace("[", ".").replace("]", "");
+        let normalized = path.replace('[', ".").replace(']', "");
         let mut segments: Vec<&str> = normalized.split('.').collect();
         
         while !segments.is_empty() {
@@ -66,7 +65,7 @@ pub const CAP_NONE: u8   = 0;      // 0 - Completely private
 
 pub fn resolve_zone(key: &str) -> ContextZone {
     // Structural Support: Check all segments (handle both dot and bracket notation)
-    let normalized = key.replace("[", ".").replace("]", "");
+    let normalized = key.replace('[', ".").replace(']', "");
     let segments: Vec<&str> = normalized.split('.').collect();
     
     for segment in segments {

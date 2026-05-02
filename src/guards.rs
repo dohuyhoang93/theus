@@ -8,7 +8,6 @@ use crate::proxy::SupervisorProxy;
 use crate::zones::{resolve_zone, ContextZone, get_zone_physics, is_absolute_ceiling, CAP_READ, CAP_UPDATE, CAP_APPEND, CAP_DELETE};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use once_cell::sync::Lazy;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub struct SharedPolicy {
@@ -17,7 +16,7 @@ pub struct SharedPolicy {
     pub strict_guards: bool,
 }
 
-static POLICY_REGISTRY: Lazy<Mutex<HashMap<SharedPolicy, Arc<SharedPolicy>>>> = Lazy::new(|| {
+static POLICY_REGISTRY: std::sync::LazyLock<Mutex<HashMap<SharedPolicy, Arc<SharedPolicy>>>> = std::sync::LazyLock::new(|| {
     Mutex::new(HashMap::new())
 });
 
@@ -55,7 +54,7 @@ impl ContextGuard {
                   match zone {
                       ContextZone::Signal | ContextZone::Meta => {
                           return Err(PyPermissionError::new_err(
-                              format!("SECURITY VIOLATION: Input '{}' belongs to restricted Control Zone {:?}.", inp, zone)
+                              format!("SECURITY VIOLATION: Input '{inp}' belongs to restricted Control Zone {zone:?}.")
                           ));
                       },
                       _ => {}
@@ -79,23 +78,23 @@ impl ContextGuard {
         let is_ok = if is_write {
              self.policy.outputs.iter().any(|rule| {
                 rule == full_path || 
-                rule.starts_with(&format!("{}.", full_path)) || 
-                full_path.starts_with(&format!("{}.", rule)) || 
-                full_path.starts_with(&format!("{}[", rule))
+                rule.starts_with(&format!("{full_path}.")) || 
+                full_path.starts_with(&format!("{rule}.")) || 
+                full_path.starts_with(&format!("{rule}["))
              })
         } else {
              // Read: Check Inputs OR Outputs (implicit read for output path traversal)
              self.policy.inputs.iter().chain(self.policy.outputs.iter()).any(|rule| {
                 rule == full_path || 
-                rule.starts_with(&format!("{}.", full_path)) || 
-                full_path.starts_with(&format!("{}.", rule)) || 
-                full_path.starts_with(&format!("{}[", rule))
+                rule.starts_with(&format!("{full_path}.")) || 
+                full_path.starts_with(&format!("{rule}.")) || 
+                full_path.starts_with(&format!("{rule}["))
              })
         };
 
         if !is_ok {
             let op = if is_write { "Write" } else { "Read" };
-            return Err(PyPermissionError::new_err(format!("Illegal {}: '{}'", op, full_path)));
+            return Err(PyPermissionError::new_err(format!("Illegal {op}: '{full_path}'")));
         }
         Ok(())
     }
@@ -232,10 +231,9 @@ impl ContextGuard {
                  final_caps,
              );
              return Ok(Py::new(py, proxy)?.into_py(py));
-        } else {
-             // println!("DEBUG: Regular Object detected at '{}': Type={}", full_path, type_name);
-             // std::io::stdout().flush().unwrap();
         }
+        // println!("DEBUG: Regular Object detected at '{}': Type={}", full_path, type_name);
+        // std::io::stdout().flush().unwrap();
         
         let tx_bound = tx.bind(py);
         let shadow = tx_bound.borrow_mut().get_shadow(py, val.clone_ref(py), Some(full_path.clone()))?; 
@@ -278,9 +276,9 @@ impl ContextGuard {
     }
 
     /// [v3.3 FIX] Native getter for outbox to bypass __getattr__ shadowing from #[pyclass(dict)]
-    /// CRITICAL: Must return raw Outbox object, NOT wrapped in ContextGuard.
+    /// CRITICAL: Must return raw Outbox object, NOT wrapped in `ContextGuard`.
     /// The Outbox struct has its own Arc<Mutex> buffer that is shared with Transaction.
-    /// Wrapping it in ContextGuard would cause add() to fail silently.
+    /// Wrapping it in `ContextGuard` would cause `add()` to fail silently.
     #[getter]
     fn outbox(&self, py: Python) -> PyResult<PyObject> {
         // NOTE: Try to extract ProcessContext and return raw Outbox directly
@@ -295,7 +293,7 @@ impl ContextGuard {
         
         // Fallback: target is not ProcessContext (shouldn't happen in normal flow)
         // Try direct getattr as last resort
-        target_bound.getattr("outbox").map(|v| v.unbind())
+        target_bound.getattr("outbox").map(pyo3::Bound::unbind)
     }
 
     /// [RFC-001] Native getter for Flyweight Verification
@@ -311,13 +309,13 @@ impl ContextGuard {
             // and need AttributeError to gracefully fallback. Only block single-underscore privates.
             if name.starts_with("__") && name.ends_with("__") {
                 return Err(pyo3::exceptions::PyAttributeError::new_err(
-                    format!("'ContextGuard' object has no attribute '{}'", name)
+                    format!("'ContextGuard' object has no attribute '{name}'")
                 ));
             }
-            return Err(PyPermissionError::new_err(format!("Access to private attribute '{}' denied in Strict Mode", name)));
+            return Err(PyPermissionError::new_err(format!("Access to private attribute '{name}' denied in Strict Mode")));
         }
 
-        if name.starts_with("_") {
+        if name.starts_with('_') {
              return self.target.bind(py).getattr(name.as_str())?.extract();
         }
 
@@ -352,7 +350,7 @@ impl ContextGuard {
 
         self.check_permissions(&full_path, true)?;
 
-        let old_val = self.target.bind(py).getattr(name.as_str()).ok().map(|v| v.unbind());
+        let old_val = self.target.bind(py).getattr(name.as_str()).ok().map(pyo3::Bound::unbind);
 
         let mut value = value;
         if let Ok(nested) = value.bind(py).getattr("supervisor_target") {
@@ -373,7 +371,7 @@ impl ContextGuard {
         
         if (mutation_caps & CAP_UPDATE) == 0 {
              return Err(PyPermissionError::new_err(
-                format!("Permission Denied: UPDATE capability required for '{}' (Zone Physics blocked it).", full_path)
+                format!("Permission Denied: UPDATE capability required for '{full_path}' (Zone Physics blocked it).")
             ));
         }
         
@@ -389,7 +387,7 @@ impl ContextGuard {
                 Some(name.clone())
             )?;
             } else {
-                 return Err(PyPermissionError::new_err(format!("Security Violation: Write to '{}' denied (No active transaction).", full_path)));
+                 return Err(PyPermissionError::new_err(format!("Security Violation: Write to '{full_path}' denied (No active transaction).")));
             }
         }
         
@@ -426,7 +424,7 @@ impl ContextGuard {
              return self.__getattr__(py, key_str);
         }
         
-        target.get_item(&key).map(|v| v.unbind())
+        target.get_item(&key).map(pyo3::Bound::unbind)
     }
 
     fn __setitem__(&mut self, py: Python, key: PyObject, value: PyObject) -> PyResult<()> {
@@ -452,7 +450,7 @@ impl ContextGuard {
              value_to_set = shadow.unbind();
         }
         
-        let old_val = target.get_item(&key).ok().map(|v| v.unbind());
+        let old_val = target.get_item(&key).ok().map(pyo3::Bound::unbind);
         
         let zone = if let Ok(key_str) = key.extract::<String>(py) {
              resolve_zone(&key_str)
@@ -469,7 +467,7 @@ impl ContextGuard {
         
         if (mutation_caps & CAP_UPDATE) == 0 {
              return Err(PyPermissionError::new_err(
-                format!("Permission Denied: UPDATE capability required for '{}' (Zone Physics blocked it).", full_path)
+                format!("Permission Denied: UPDATE capability required for '{full_path}' (Zone Physics blocked it).")
             ));
         }
 
@@ -485,7 +483,7 @@ impl ContextGuard {
                     Some(key.to_string())
                 )?;
             } else {
-                 return Err(PyPermissionError::new_err(format!("Security Violation: Write to '{}' denied (No active transaction).", full_path)));
+                 return Err(PyPermissionError::new_err(format!("Security Violation: Write to '{full_path}' denied (No active transaction).")));
             }
         }
 
@@ -505,11 +503,11 @@ impl ContextGuard {
     /// DX Log method: ctx.log("msg")
     /// Writes to standard output for now (or could use meta logs if accessible)
     fn log(&self, message: String) {
-        println!("[CTX LOG] {}", message);
+        println!("[CTX LOG] {message}");
     }
 
     /// [RFC-001] Elevate this guard to Admin status for current thread.
-    /// Used by AdminTransaction context manager.
+    /// Used by `AdminTransaction` context manager.
     fn _elevate(&mut self, enabled: bool) {
         self.is_admin = enabled;
     }

@@ -2,7 +2,7 @@ import unittest
 import pickle
 import numpy as np
 from multiprocessing import shared_memory
-from theus.context import ShmArray, rebuild_shm_array
+from theus.context import ShmArray
 
 
 class TestShmPickling(unittest.TestCase):

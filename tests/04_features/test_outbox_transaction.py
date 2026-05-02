@@ -1,4 +1,3 @@
-import pytest
 from theus.contracts import OutboxMsg
 from theus.engine import TheusEngine
 

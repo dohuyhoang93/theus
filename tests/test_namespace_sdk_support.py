@@ -1,9 +1,6 @@
 import pytest
-import os
 import yaml
-from pathlib import Path
-from theus.context import BaseSystemContext, BaseGlobalContext, BaseDomainContext, NamespaceRegistry
-from theus.linter import run_lint
+from theus.context import BaseSystemContext, BaseDomainContext, NamespaceRegistry
 from theus.schema_gen import generate_schema_from_file, generate_code_from_schema
 
 def test_basesystemcontext_dynamic_access():

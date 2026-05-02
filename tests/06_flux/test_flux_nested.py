@@ -3,7 +3,6 @@ Test Flux DSL: Nested structures
 Tests complex nested while/if combinations via Rust WorkflowEngine.
 """
 
-import pytest
 
 
 class TestFluxNested:

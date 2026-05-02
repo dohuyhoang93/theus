@@ -9,7 +9,7 @@ pub fn log_heavy_access(path: &str) {
     let set_mutex = LOGGED_HEAVY_PATHS.get_or_init(|| Mutex::new(HashSet::new()));
     if let Ok(mut set) = set_mutex.lock() {
         if !set.contains(path) {
-             eprintln!("[Theus] HEAVY zone: skipping shadow copy for '{}' (Logged once)", path);
+             eprintln!("[Theus] HEAVY zone: skipping shadow copy for '{path}' (Logged once)");
              set.insert(path.to_string());
         }
     }
@@ -97,6 +97,7 @@ impl Transaction {
     }
 
     #[new]
+    #[must_use] 
     pub fn new() -> Self {
         Transaction { 
             delta_log: Vec::new(),
@@ -135,8 +136,8 @@ impl Transaction {
                 let set_mutex = LOGGED_HEAVY_PATHS.get_or_init(|| Mutex::new(HashSet::new()));
                 if let Ok(mut set) = set_mutex.lock() {
                     if !set.contains(p) {
-                         eprintln!("[Theus] HEAVY zone: skipping shadow copy for '{}' (Logged once)", p);
-                         set.insert(p.to_string());
+                         eprintln!("[Theus] HEAVY zone: skipping shadow copy for '{p}' (Logged once)");
+                         set.insert(p.clone());
                     }
                 }
                 
@@ -151,10 +152,9 @@ impl Transaction {
             Ok(s) => s.unbind(),
             Err(e) => {
                 // NOTE: Log warning when fallback happens - behavior should not be silent
-                let type_name = original.bind(py).get_type().name().ok().map(|n| n.to_string()).unwrap_or_else(|| "unknown".to_string());
+                let type_name = original.bind(py).get_type().name().ok().map_or_else(|| "unknown".to_string(), |n| n.to_string());
                 let path_str = path.as_deref().unwrap_or("unknown");
-                eprintln!("[Theus] WARNING: Cannot copy '{}' (type: {}): {}. Using reference instead.", 
-                         path_str, type_name, e);
+                eprintln!("[Theus] WARNING: Cannot copy '{path_str}' (type: {type_name}): {e}. Using reference instead.");
                 self.shadow_cache.insert(id, (original.clone_ref(py), original.clone_ref(py)));
                 return Ok(original);
             }
@@ -176,7 +176,7 @@ impl Transaction {
     }
     
     pub fn commit(&mut self, py: Python) -> PyResult<()> {
-        for (_, (original, shadow)) in self.shadow_cache.iter() {
+        for (original, shadow) in self.shadow_cache.values() {
             // If original IS shadow (re-shadow case), skip
             if original.bind(py).as_ptr() == shadow.bind(py).as_ptr() {
                  continue;

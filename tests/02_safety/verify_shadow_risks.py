@@ -1,11 +1,9 @@
 """
 Kiểm chứng 5 rủi ro Shadow Copy — kết quả ghi VÀO FILE (bypass Rust trace noise).
 """
-import sys
 import time
 import gc
 import tracemalloc
-import io
 import os
 import traceback
 

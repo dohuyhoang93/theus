@@ -1,7 +1,4 @@
 import pytest
-import os
-import shutil
-import sys
 from theus.engine import TheusEngine
 
 # TDD: Auto-Discovery (scan_and_register)

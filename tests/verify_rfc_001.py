@@ -1,8 +1,6 @@
 import pytest
 from theus.engine import TheusEngine
 from theus.contracts import process, AdminTransaction
-from theus.zones import ContextZone
-import theus_core
 
 @process(outputs=["domain.log_events"])
 def process_log_append(ctx):
@@ -59,7 +57,6 @@ async def test_semantic_policy_enforcement():
     state_obj = engine.state
     print(f"DEBUG: Engine Version={state_obj.version}")
     state_data = state_obj.data
-    import json
     # Use to_dict() if available or just raw print
     raw_data = state_data.to_dict() if hasattr(state_data, "to_dict") else state_data
     print(f"DEBUG: Full State Data={raw_data}")

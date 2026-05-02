@@ -75,11 +75,10 @@ impl ConflictManager {
                  // I am already VIP. Keep trying.
                  // Don't fail me.
                  return RetryDecision { should_retry: true, wait_ms: 1 };
-            } else {
-                 // VIP occupied by someone else, and I hit limit.
-                 // Give up.
-                 return RetryDecision { should_retry: false, wait_ms: 0 };
             }
+            // VIP occupied by someone else, and I hit limit.
+            // Give up.
+            return RetryDecision { should_retry: false, wait_ms: 0 };
         }
 
         *count += 1;

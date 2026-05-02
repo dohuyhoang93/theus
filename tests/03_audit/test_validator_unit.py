@@ -1,7 +1,6 @@
 import unittest
-from unittest.mock import MagicMock
 from theus.validator import AuditValidator
-from theus.audit import AuditSystem, AuditRecipe, AuditLevel, AuditBlockError, AuditStopError, AuditWarning
+from theus.audit import AuditSystem, AuditRecipe, AuditLevel, AuditBlockError
 
 class TestValidatorUnit(unittest.TestCase):
 

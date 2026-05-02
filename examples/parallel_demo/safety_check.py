@@ -16,8 +16,7 @@ except ImportError:
         print("Failed to import workers. Ensure you run from project root.")
         sys.exit(1)
 
-from theus import TheusEngine, process
-from theus.context import HeavyZoneAllocator
+from theus import TheusEngine
 
 # --- Setup ---
 FULL_TEST = True

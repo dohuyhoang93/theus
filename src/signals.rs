@@ -2,11 +2,10 @@ use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use tokio::sync::broadcast;
 use std::sync::Arc;
-use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
 
 // Global Tokio Runtime for background tasks/channels
-static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
+static RUNTIME: std::sync::LazyLock<Runtime> = std::sync::LazyLock::new(|| {
     Runtime::new().expect("Failed to create Tokio Runtime")
 });
 
@@ -54,7 +53,7 @@ pub struct SignalReceiver {
 
 #[pymethods]
 impl SignalReceiver {
-    /// Blocking receive. intended to be called via asyncio.to_thread()
+    /// Blocking receive. intended to be called via `asyncio.to_thread()`
     fn recv(&self, py: Python<'_>) -> PyResult<String> {
         let rx_arc = self.rx.clone();
         
@@ -74,7 +73,7 @@ impl SignalReceiver {
                         Err(pyo3::exceptions::PyStopAsyncIteration::new_err("Channel Closed"))
                     },
                     Err(broadcast::error::RecvError::Lagged(count)) => {
-                        Err(pyo3::exceptions::PyRuntimeError::new_err(format!("Channel Lagged: missed {} messages", count)))
+                        Err(pyo3::exceptions::PyRuntimeError::new_err(format!("Channel Lagged: missed {count} messages")))
                     }
                 }
             })
@@ -101,7 +100,7 @@ impl SignalReceiver {
                 },
                 Err(broadcast::error::RecvError::Lagged(count)) => {
                     Err(pyo3::exceptions::PyRuntimeError::new_err(
-                        format!("Channel Lagged: missed {} messages", count)
+                        format!("Channel Lagged: missed {count} messages")
                     ))
                 }
             }

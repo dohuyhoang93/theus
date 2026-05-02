@@ -1,8 +1,6 @@
 import pytest
-import asyncio
-import time
 from theus.engine import TheusEngine
-from theus.contracts import process, AdminTransaction, SemanticType
+from theus.contracts import process, AdminTransaction
 
 # Attempt to import Namespace (Expected to fail until implemented)
 try:

@@ -1,9 +1,7 @@
 # === THEUS V3.0 FLUX DEMO ===
-import sys
 import asyncio
 import logging
 import os
-import time
 
 
 # --- ANSI COLORS ---

@@ -1,9 +1,7 @@
 import ast
-import os
 import json
-import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Optional, Set
 from rich.console import Console
 from rich.table import Table
 
@@ -258,7 +256,7 @@ class POPLinter(ast.NodeVisitor):
             # Method is the last part
             method_name = parts[-1]
             # Variable path is everything before the method
-            var_path = ".".join(parts[:-1])
+            ".".join(parts[:-1])
             leaf_name = parts[-2] if len(parts) > 1 else ""
 
             if method_name in DESTRUCTIVE_METHODS:

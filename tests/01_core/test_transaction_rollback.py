@@ -1,6 +1,4 @@
-import pytest
 from theus.engine import TheusEngine
-from theus.structures import State
 
 # TDD: Rollback works by discarding the 'future' reference, not by undoing writes.
 

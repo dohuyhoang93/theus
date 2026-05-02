@@ -8,7 +8,6 @@ import pytest
 import asyncio
 from pydantic import BaseModel, Field
 from theus import TheusEngine, process
-from theus.structures import StateUpdate
 from theus.context import BaseSystemContext
 
 # 1. Define Test Context
@@ -96,7 +95,6 @@ steps:
         @process(outputs=['domain'])
         async def conflicting_increment(ctx):
             # Read current version
-            v = engine.state.version
             # Trigger a background write to cause conflict
             await asyncio.sleep(0.02)
             ctx.domain.counter += 1

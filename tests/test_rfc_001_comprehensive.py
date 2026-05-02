@@ -3,7 +3,7 @@ import asyncio
 import random
 import time
 from theus.engine import TheusEngine
-from theus.contracts import process, AdminTransaction, SemanticType
+from theus.contracts import process, AdminTransaction
 
 # =============================================================================
 # 1. SAMPLE (MẪU): Basic Functionality

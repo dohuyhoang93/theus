@@ -1,7 +1,5 @@
 
 import time
-import os
-import sys
 import multiprocessing
 from multiprocessing import shared_memory
 from concurrent.futures import ProcessPoolExecutor

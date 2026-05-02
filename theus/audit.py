@@ -1,5 +1,4 @@
 from typing import List, Optional, TYPE_CHECKING
-import sys
 
 # [DX] Theus v3 requires Rust Core. Fail fast if missing.
 try:

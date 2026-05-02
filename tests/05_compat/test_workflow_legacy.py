@@ -1,7 +1,6 @@
 import pytest
-import yaml
 from theus_core import WorkflowEngine
-from theus.structures import State, FrozenDict
+from theus.structures import State
 
 # TDD: V2 Compatibility (Linear Steps -> Graph)
 
@@ -31,7 +30,7 @@ def test_legacy_linear_workflow_parsing():
     # But simulate signature: simulate(py, ctx)
     # in Python: engine.simulate(ctx)
 
-    state = State()  # Empty state
+    State()  # Empty state
     # We need a context object that behaves like dict or object for eval?
     # fsm.rs uses checking ctx.bind(py).
     # We can pass empty dict? Or ProcessContext?

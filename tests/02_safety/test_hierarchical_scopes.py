@@ -4,7 +4,6 @@ from theus.engine import TheusEngine
 
 # TDD: Output Scopes
 
-from theus.structures import StateUpdate
 
 
 @process(inputs=[], outputs=["domain.user.*"])

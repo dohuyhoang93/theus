@@ -1,12 +1,9 @@
 import os
-import time
 import sys
 
 # Ensure we can import theus
 sys.path.insert(0, os.path.abspath("."))
 from theus.structures import ManagedAllocator
-from multiprocessing import shared_memory
-import signal
 
 
 def create_zombie():

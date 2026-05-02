@@ -1,5 +1,4 @@
 import asyncio
-import numpy as np
 import os
 import sys
 
@@ -98,7 +97,7 @@ async def main():
         # Note: Implementation detail - Engine usually clears signals after processing.
         # In manual transaction mode, they might persist until consumed?
         # Let's inspect raw state.
-        signals = getattr(engine.state, "signal", {}) # or signals
+        getattr(engine.state, "signal", {}) # or signals
         # V3 Rust State exposes .signal getter?
         # If not, let's assume if no error, it passed.
         

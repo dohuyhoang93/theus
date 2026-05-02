@@ -1,4 +1,3 @@
-import random
 from theus.contracts import process
 
 # --- Business Logic ---

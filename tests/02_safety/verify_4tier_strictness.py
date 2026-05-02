@@ -2,7 +2,6 @@
 import asyncio
 import os
 import sys
-import unittest
 
 # Ensure current directory is in path
 sys.path.insert(0, os.getcwd())

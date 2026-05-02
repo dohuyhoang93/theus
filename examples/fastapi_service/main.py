@@ -9,7 +9,7 @@ from typing import Annotated
 
 from theus import TheusEngine
 # Import Rust Core Exceptions for mapping
-from theus_core import AuditBlockError, AuditStopError, ContextError
+from theus_core import AuditBlockError, ContextError
 
 from src.dependencies import get_engine
 
@@ -48,7 +48,7 @@ async def create_order_endpoint(
     """
     try:
         # Await the execution (Async Engine v3)
-        result = await engine.execute(
+        await engine.execute(
             "create_order", 
             order_id=req.order_id, 
             item_id=req.item_id, 
@@ -71,7 +71,7 @@ async def create_order_endpoint(
             detail=f"Transaction Blocked by Audit Policy: {e}"
         )
         
-    except ContextError as e:
+    except ContextError:
         # Concurrency/CAS Conflict
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

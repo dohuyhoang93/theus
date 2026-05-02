@@ -27,7 +27,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Install dependencies
         run: |
-          pip install pytest numpy pytest-asyncio
+          pip install pytest numpy pytest-asyncio pyright ruff
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
       - name: Install Theus
@@ -38,10 +38,34 @@ jobs:
         run: |
           python scripts/gen_stubs.py
           git diff --exit-code theus/theus_core.pyi
-      - name: Run Clippy
-        run: cargo clippy -- -D warnings
+      - name: Run Clippy (Strict + Pedantic)
+        run: >-
+          cargo clippy --all-targets --all-features --
+          -D warnings
+          -W clippy::pedantic
+          -A clippy::needless_pass_by_value
+          -A clippy::unnecessary_wraps
+          -A clippy::unused_self
+          -A clippy::missing_errors_doc
+          -A clippy::missing_panics_doc
+          -A clippy::manual_let_else
+          -A clippy::used_underscore_items
+          -A clippy::used_underscore_binding
+          -A clippy::doc_link_with_quotes
+          -A clippy::match_same_arms
+          -A clippy::cast_possible_truncation
+          -A clippy::cast_sign_loss
+          -A clippy::cast_precision_loss
+          -A clippy::items_after_statements
+          -A clippy::unreadable_literal
+          -A clippy::needless_continue
+          -A clippy::only_used_in_recursion
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+      - name: Run Pyright
+        run: python -m pyright
+      - name: Run Ruff
+        run: python -m ruff check .
       - name: Run Rust Tests
         run: cargo test
         env:

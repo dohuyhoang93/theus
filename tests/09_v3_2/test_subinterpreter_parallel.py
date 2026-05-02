@@ -1,6 +1,5 @@
 import pytest
 import threading
-import os
 import time
 from theus.parallel import InterpreterPool, INTERPRETERS_SUPPORTED
 

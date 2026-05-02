@@ -1,6 +1,4 @@
 
-import time
-import struct
 # NO numpy import to ensure Sub-interpreter compatibility
 # from multiprocessing import shared_memory <-- standard lib
 

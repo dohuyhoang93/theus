@@ -1,7 +1,6 @@
 import logging
 import contextvars
-from typing import Any, Dict, List, Optional, Set, Union
-import functools
+from typing import Any, Optional, Set
 
 # NOTE: Transaction is stored here instead of in ContextGuard instances to prevent
 # Transaction refs from leaking into the serializable object graph. This breaks

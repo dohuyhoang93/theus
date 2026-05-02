@@ -1,5 +1,4 @@
 from theus import TheusEngine
-import os
 
 def repro():
     print("--- REPRO: LIST MUTATION BACKDOOR ---")

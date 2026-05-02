@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, List
 
 logger = logging.getLogger("FSM")
 

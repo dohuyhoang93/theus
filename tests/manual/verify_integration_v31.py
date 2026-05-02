@@ -3,8 +3,7 @@ Integration Test: ContextGuard + SupervisorProxy
 Verifies that ContextGuard returns SupervisorProxy and Transaction mutation logging works.
 """
 
-from theus_core import TheusEngine, SupervisorCore, SupervisorProxy, ContextGuard
-from theus.contracts import process, SemanticType
+from theus_core import TheusEngine, ContextGuard
 
 print("=" * 60)
 print("TEST: ContextGuard Integration")
@@ -67,9 +66,12 @@ with core.transaction() as tx:
     print(f"    Read back .a: {nested_proxy.a}")
     print(f"    Read back ['b']: {nested_proxy['b']}")
 
-    # IMPORTANT: In a manual transaction, we must explicitly write back the modified shadow
-    # TheusEngine normally handles this mapping for processes.
-    # TheusEngine normally handles this mapping for processes.
+    # IMPORTANT: nested proxy writes do not automatically mutate the parent shadow
+    # object in this manual flow. Flush nested values back to root shadow explicitly.
+    shadow_domain["nested"]["a"] = nested_proxy.a
+    shadow_domain["nested"]["b"] = nested_proxy["b"]
+
+    # In manual transaction flow, we must explicitly map the shadow back via tx.update.
     tx.update(data={"domain": shadow_domain})
 
 print("2.8 Transaction committed")

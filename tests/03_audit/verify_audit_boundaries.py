@@ -1,8 +1,5 @@
-import asyncio
-import sys
 import unittest
-from theus import TheusEngine
-from theus.contracts import process, SemanticType
+from theus.contracts import process
 from theus.audit import AuditSystem, AuditRecipe, AuditLevel, AuditBlockError, AuditStopError, AuditWarning
 
 # Mock Processes

@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, Future
-from typing import Callable, Any, Optional
+from typing import Callable
 from ..interfaces import IScheduler
 
 

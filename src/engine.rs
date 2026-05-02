@@ -185,8 +185,7 @@ impl TheusEngine {
         if current_version != expected_version {
             if strict_cas {
                  return Err(ContextError::new_err(format!(
-                    "Strict CAS Mismatch: Expected {}, Found {} (Strict CAS Enabled)", 
-                    expected_version, current_version
+                    "Strict CAS Mismatch: Expected {expected_version}, Found {current_version} (Strict CAS Enabled)"
                 )));
             }
 
@@ -207,7 +206,7 @@ impl TheusEngine {
                          if let Ok(inner_dict) = zone_v.downcast::<PyDict>() {
                              for (ik, _) in inner_dict {
                                  let inner_key = ik.extract::<String>()?;
-                                 let field_path = format!("{}.{}", zone_key, inner_key);  // "domain.counter"
+                                 let field_path = format!("{zone_key}.{inner_key}");  // "domain.counter"
                                  
                                  if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
                                      if *last_ver > expected_version {
@@ -240,7 +239,7 @@ impl TheusEngine {
                              if let Ok(inner_dict) = zone_v.downcast::<PyDict>() {
                                  for (ik, _) in inner_dict {
                                      let inner_key = ik.extract::<String>()?;
-                                     let field_path = format!("{}.{}", zone_key, inner_key);
+                                     let field_path = format!("{zone_key}.{inner_key}");
                                      
                                      if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
                                          if *last_ver > expected_version {
@@ -265,8 +264,7 @@ impl TheusEngine {
 
             if !safe {
                 return Err(ContextError::new_err(format!(
-                    "CAS Version Mismatch (Conflict Detected): Expected {}, Found {} (Keys Changed)", 
-                    expected_version, current_version
+                    "CAS Version Mismatch (Conflict Detected): Expected {expected_version}, Found {current_version} (Keys Changed)"
                 )));
             }
             // If safe, fall through to update (Optimistic Merge)
@@ -297,7 +295,7 @@ impl TheusEngine {
                  
                  if let Err(e) = schema.call_method1(py, "model_validate", (dict_data,)) {
                      // Reject Commit!
-                     return Err(crate::config::SchemaViolationError::new_err(format!("Schema Violation (CAS): {}", e)));
+                     return Err(crate::config::SchemaViolationError::new_err(format!("Schema Violation (CAS): {e}")));
                  }
              }
         }
@@ -378,18 +376,51 @@ pub struct Transaction {
     pub shadows_inferred: Arc<Mutex<bool>>, // [v3.3] Prevent double-inference hangs
 }
 
+impl Transaction {
+    /// Collect all explicit pending paths from a nested dict.
+    ///
+    /// Example:
+    /// {"domain": {"documents": {...}, "`outbox_queue"`: [...]}}
+    /// => "domain", "domain.documents", "`domain.outbox_queue`"
+    fn collect_pending_paths(
+        py: Python,
+        obj: &Bound<'_, PyAny>,
+        prefix: &str,
+        out: &mut std::collections::HashSet<String>,
+    ) -> PyResult<()> {
+        if let Ok(d) = obj.downcast::<PyDict>() {
+            for (k, v) in d.iter() {
+                let key = k.extract::<String>()?;
+                let path = if prefix.is_empty() {
+                    key
+                } else {
+                    format!("{prefix}.{key}")
+                };
+
+                out.insert(path.clone());
+                Self::collect_pending_paths(py, &v, &path, out)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Normalize path representation for robust overlap checks.
+    /// Converts bracket notation (a[b][c]) into dotted form (a.b.c).
+    fn normalize_path(path: &str) -> String {
+        path.replace('[', ".").replace(']', "")
+    }
+}
+
 
 #[pymethods]
 impl Transaction {
     #[new]
     #[pyo3(signature = (engine=None, write_timeout_ms=5000))]
     fn new(py: Python, engine: Option<Py<TheusEngine>>, write_timeout_ms: u64) -> PyResult<Self> {
-        let engine_obj = match engine {
-            Some(e) => e,
-            None => {
-                let engine_struct = TheusEngine::new(py)?;
-                Py::new(py, engine_struct)?
-            }
+        let engine_obj = if let Some(e) = engine { e } else {
+            let engine_struct = TheusEngine::new(py)?;
+            Py::new(py, engine_struct)?
         };
 
         Ok(Transaction {
@@ -470,7 +501,7 @@ impl Transaction {
         Ok(())
     }
     
-    /// Get shadow updates keyed by root path (e.g., 'domain' -> shadow_dict)
+    /// Get shadow updates keyed by root path (e.g., 'domain' -> `shadow_dict`)
     /// This extracts all modified root-level objects for committing to State.
     fn get_shadow_updates(&self, py: Python) -> PyResult<PyObject> {
         let result = PyDict::new_bound(py);
@@ -501,7 +532,7 @@ impl Transaction {
         Ok(result.unbind().into_py(py))
     }
 
-    /// [v3.1 Delta Replay] Build pending_data from delta_log by replaying mutations
+    /// [v3.1 Delta Replay] Build `pending_data` from `delta_log` by replaying mutations
     fn build_pending_from_deltas(&self, py: Python) -> PyResult<PyObject> {
         // [v3.1.2] Differential Shadow Merging: Infer Deltas from unlogged mutations
         self.infer_shadow_deltas(py)?;
@@ -540,7 +571,7 @@ impl Transaction {
         Ok(paths)
     }
 
-    /// [v3.3] Manual Flush for Flux Engine / execute()
+    /// [v3.3] Manual Flush for Flux Engine / `execute()`
     fn flush_outbox(&self, py: Python) -> PyResult<()> {
         let mut pending = self.pending_outbox.lock().unwrap();
         if pending.is_empty() { return Ok(()); }
@@ -614,7 +645,7 @@ impl Transaction {
                  
                  // Pydantic model_validate
                  if let Err(e) = schema.call_method1(py, "model_validate", (dict_data,)) {
-                      return Err(crate::config::SchemaViolationError::new_err(format!("Schema Violation: {}", e)));
+                      return Err(crate::config::SchemaViolationError::new_err(format!("Schema Violation: {e}")));
                  }
              }
         }
@@ -738,10 +769,10 @@ impl Transaction {
         let shadow = match copy_mod.call_method1("deepcopy", (&val,)) { 
             Ok(s) => s.unbind(),
             Err(e) => {
-                 let type_name = val.bind(py).get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string());
+                 let type_name = val.bind(py).get_type().name().map_or_else(|_| "unknown".to_string(), |n| n.to_string());
                  return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                     format!("Transaction isolation failure: cannot deepcopy object of type '{}' at path {:?}. \
-                              Store non-copyable objects in Heavy Zone instead. Original error: {}", type_name, path, e)
+                     format!("Transaction isolation failure: cannot deepcopy object of type '{type_name}' at path {path:?}. \
+                              Store non-copyable objects in Heavy Zone instead. Original error: {e}")
                  ));
             }
         };
@@ -771,7 +802,7 @@ impl Transaction {
     }
 
     /// [v3.1 Zero Trust] Commit Delta Log to Pending State
-    /// This applies the implicit mutations (captured in shadow objects) to the pending_data/heavy buffers.
+    /// This applies the implicit mutations (captured in shadow objects) to the `pending_data/heavy` buffers.
     pub fn commit(&self, py: Python) -> PyResult<()> {
         // NOTE: shadow_cache iteration below is a no-op analysis block.
         // We scope the lock tightly to avoid holding it during set_nested_value,
@@ -792,6 +823,20 @@ impl Transaction {
         // This ensures parent paths (e.g., "domain") are set BEFORE child paths
         // (e.g., "domain[items]"), so the more specific child delta always wins.
         // Without sorting, a stale parent delta can overwrite a correct child delta.
+        //
+        // [v3.5 FIX] Explicit pending updates must win over inferred shadow deltas.
+        // CoW processes can produce explicit output mapping (tx.update) while delta inference
+        // still contains stale parent shadows. If we replay stale parent shadows after explicit
+        // updates, they can silently drop newly returned data.
+        //
+        // Rule: if pending_data already contains a path that is equal to, parent of,
+        // or child of a delta path, skip that delta.
+        let mut explicit_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+        {
+            let pending_bound = self.pending_data.bind(py);
+            Self::collect_pending_paths(py, pending_bound.as_any(), "", &mut explicit_paths)?;
+        }
+
         let log = self.delta_log.lock().unwrap();
         let mut sorted_entries: Vec<&crate::delta::DeltaEntry> = log.iter()
             .filter(|e| e.op == "SET" && e.value.is_some())
@@ -800,6 +845,19 @@ impl Transaction {
         
         for entry in &sorted_entries {
             if let Some(ref new_val) = entry.value {
+                 let norm_entry_path = Self::normalize_path(&entry.path);
+
+                 let overlaps_with_explicit = explicit_paths.iter().any(|p| {
+                     p == &norm_entry_path
+                         || p.starts_with(&(norm_entry_path.clone() + "."))
+                         || norm_entry_path.starts_with(&(p.clone() + "."))
+                 });
+
+                 if overlaps_with_explicit {
+                     // Explicit tx.update/output mapping takes precedence.
+                     continue;
+                 }
+
                  // Check Zone
                  let is_heavy = crate::zones::resolve_zone(&entry.path) == crate::zones::ContextZone::Heavy;
                  let target_dict = if is_heavy { &self.pending_heavy } else { &self.pending_data };

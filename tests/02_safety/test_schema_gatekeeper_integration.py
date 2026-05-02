@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from typing import Dict, Any
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 import theus.engine
 import theus.contracts

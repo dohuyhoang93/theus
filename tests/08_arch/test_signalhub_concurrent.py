@@ -22,7 +22,7 @@ class TestSignalHubConcurrent:
         hub = SignalHub()
         rx = hub.subscribe()
         
-        messages_sent = threading.Event()
+        threading.Event()
         received = []
         receiver_done = threading.Event()
         
@@ -87,7 +87,7 @@ class TestSignalHubConcurrent:
         def receiver_worker(rx_id, rx):
             try:
                 for _ in range(500):  # Expect up to 500 messages
-                    msg = rx.recv()
+                    rx.recv()
                     with locks[rx_id]:
                         received_counts[rx_id] += 1
             except (RuntimeError, StopAsyncIteration):

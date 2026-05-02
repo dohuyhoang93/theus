@@ -17,7 +17,7 @@ pyo3::create_exception!(theus_core, AuditWarning, pyo3::exceptions::PyUserWarnin
 // AuditLevel Enum (S/A/B/C)
 // ============================================================================
 
-/// Audit Level per MIGRATION_AUDIT.md
+/// Audit Level per `MIGRATION_AUDIT.md`
 /// - S (Stop): Immediate halt on first failure
 /// - A (Abort): Cancel current operation, allow retry
 /// - B (Block): Block after threshold exceeded
@@ -68,6 +68,7 @@ pub struct RingBuffer {
 }
 
 impl RingBuffer {
+    #[must_use] 
     pub fn new(capacity: usize) -> Self {
         RingBuffer {
             buffer: Vec::with_capacity(capacity),
@@ -87,6 +88,7 @@ impl RingBuffer {
         self.count += 1;
     }
 
+    #[must_use] 
     pub fn get_all(&self) -> Vec<AuditLogEntry> {
         if self.buffer.len() < self.capacity {
             // Not yet wrapped around
@@ -102,10 +104,12 @@ impl RingBuffer {
         }
     }
 
+    #[must_use] 
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }
@@ -179,7 +183,7 @@ impl AuditSystem {
         }
     }
 
-    /// Log a failure event. Behavior depends on AuditLevel.
+    /// Log a failure event. Behavior depends on `AuditLevel`.
     /// Can override global level and threshold per-call.
     #[pyo3(signature = (key, level=None, threshold_max=None))]
     pub fn log_fail(&mut self, py: Python, key: String, level: Option<AuditLevel>, threshold_max: Option<u32>) -> PyResult<()> {
@@ -192,7 +196,7 @@ impl AuditSystem {
 
         // Now: immutable borrows are safe
         // Log to ring buffer
-        self.log_internal(&key, &format!("Fail #{}", current_count));
+        self.log_internal(&key, &format!("Fail #{current_count}"));
 
         // Use Overrides (Granular) OR Fallback to Global (Defcon)
         let effective_level = level.unwrap_or(self.recipe.level);
@@ -203,21 +207,20 @@ impl AuditSystem {
             AuditLevel::Stop => {
                 // S-Level: Immediate halt on first failure
                 return Err(AuditStopError::new_err(format!(
-                    "Audit Stop: {} triggered immediate halt", key
+                    "Audit Stop: {key} triggered immediate halt"
                 )));
             }
             AuditLevel::Abort => {
                 // A-Level: Abort current operation
                 return Err(AuditAbortError::new_err(format!(
-                    "Audit Abort: {} operation cancelled", key
+                    "Audit Abort: {key} operation cancelled"
                 )));
             }
             AuditLevel::Block => {
                 // B-Level: Block after threshold exceeded
                 if current_count > effective_threshold {
                     return Err(AuditBlockError::new_err(format!(
-                        "Audit Blocked: {} exceeded threshold {}", 
-                        key, effective_threshold
+                        "Audit Blocked: {key} exceeded threshold {effective_threshold}"
                     )));
                 }
                 // Check warning threshold (Global only for now)
@@ -226,13 +229,12 @@ impl AuditSystem {
                     pyo3::PyErr::warn_bound(
                         py,
                         &py.get_type_bound::<AuditWarning>(),
-                        &format!("WARNING: Approaching threshold ({}/{})", current_count, effective_threshold),
+                        &format!("WARNING: Approaching threshold ({current_count}/{effective_threshold})"),
                         0
                     )?;
                     
                     // Also log to ring buffer
-                    self.log_internal(&key, &format!("WARN: Approaching threshold ({}/{})", 
-                        current_count, effective_threshold));
+                    self.log_internal(&key, &format!("WARN: Approaching threshold ({current_count}/{effective_threshold})"));
                 }
             }
             AuditLevel::Count => {
@@ -254,11 +256,13 @@ impl AuditSystem {
     }
 
     /// Get current count for a key.
+    #[must_use] 
     pub fn get_count(&self, key: String) -> u32 {
         *self.counts.get(&key).unwrap_or(&0)
     }
 
     /// Get total count across all keys.
+    #[must_use] 
     pub fn get_count_all(&self) -> usize {
         self.ring_buffer.lock().unwrap().count
     }
@@ -270,12 +274,14 @@ impl AuditSystem {
     }
 
     /// Get all logs from ring buffer.
+    #[must_use] 
     pub fn get_logs(&self) -> Vec<AuditLogEntry> {
         self.ring_buffer.lock().unwrap().get_all()
     }
 
     /// Get number of logs in buffer.
     #[getter]
+    #[must_use] 
     pub fn ring_buffer_len(&self) -> usize {
         self.ring_buffer.lock().unwrap().len()
     }
@@ -285,8 +291,7 @@ impl AuditSystem {
     fn log_internal(&self, key: &str, message: &str) {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0);
+            .map_or(0.0, |d| d.as_secs_f64());
 
         let entry = AuditLogEntry {
             timestamp,

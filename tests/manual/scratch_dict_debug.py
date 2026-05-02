@@ -1,5 +1,4 @@
 """Diagnostic: How is __dict__ being resolved on SupervisorProxy?"""
-import theus_core
 from theus_core import SupervisorProxy
 
 # 1. Check type-level __dict__ descriptor

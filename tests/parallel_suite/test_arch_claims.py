@@ -1,10 +1,6 @@
 import pytest
-import os
-import sys
 from theus.engine import TheusEngine
-from theus.contracts import process
-from theus.structures import StateUpdate
-from theus_core import AuditSystem, AuditLevel, AuditRecipe
+from theus_core import AuditLevel, AuditRecipe
 
 # Import tasks module (must be importable by workers)
 from . import tasks_claims
@@ -33,7 +29,7 @@ class TestArchitectureClaims:
         engine.register(tasks_claims.failing_worker_task)
 
         # [2] Proof 1: Commit Success (Happy Path)
-        res = await engine.execute("heavy_worker_task")
+        await engine.execute("heavy_worker_task")
         
         state_val = engine.state.data.get("evidence")
         assert state_val is not None

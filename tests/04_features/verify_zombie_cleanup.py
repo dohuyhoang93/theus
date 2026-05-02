@@ -1,8 +1,6 @@
 import os
 import sys
-import time
 import subprocess
-import pytest
 from theus.structures import ManagedAllocator
 
 
@@ -36,7 +34,7 @@ def test_zombie_cleanup():
 
     # 3. Launch NEW Allocator (Should trigger scan_zombies)
     print("[Cleaner] Initializing new Allocator to trigger Startup Scan...")
-    alloc = ManagedAllocator(capacity_mb=10)
+    ManagedAllocator(capacity_mb=10)
 
     # 4. Verify Cleanup
     # Registry file should be rewritten without the zombie record (or marked cleaned)
@@ -55,7 +53,6 @@ def test_zombie_cleanup():
         # pytest.fail("Zombie not cleaned up")
 
     # 5. Verify SHM is actually unlinkable (or already unlinked)
-    from multiprocessing import shared_memory
 
     try:
         # Try to attach to the zombie shm.

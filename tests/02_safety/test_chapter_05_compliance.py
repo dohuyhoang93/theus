@@ -1,9 +1,7 @@
 
 import pytest
-import asyncio
 from theus.engine import TheusEngine
 from theus.contracts import process
-from theus.context import TransactionError
 
 # --- Chapter 05 Audit Verification ---
 # Goal: Validating "Iron Discipline" Claims
@@ -113,7 +111,7 @@ async def test_claim_zone_enforcement_edge(engine):
     try:
         engine.register(task_signal_input_allowed_relaxed)
         await engine.execute("task_signal_input_allowed_relaxed")
-    except Exception as e:
+    except Exception:
         # If it fails, the claim is TRUE (Enforced).
         # But wait, looking at specs, Signals ARE valid triggers. 
         # The restriction is usually on *Stateful* processes depending on *Transient* signals for *Peristent* logic.

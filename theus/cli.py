@@ -281,7 +281,7 @@ def main():
     audit_subs = parser_audit.add_subparsers(dest="audit_command")
 
     # audit gen-spec
-    parser_gen = audit_subs.add_parser(
+    audit_subs.add_parser(
         "gen-spec", help="Generate/Update audit_recipe.yaml from code."
     )
 

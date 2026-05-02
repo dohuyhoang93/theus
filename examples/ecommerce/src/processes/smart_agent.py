@@ -17,7 +17,7 @@ def sense_environment(ctx):
     # Simulate reading sensor
     # Access global using getattr because 'global' is reserved
     global_state = getattr(ctx.state, "global")
-    t = global_state.get("time", 0)
+    global_state.get("time", 0)
 
     if cnt < 3:
         # High Temp -> Trigger Action

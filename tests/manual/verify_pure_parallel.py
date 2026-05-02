@@ -4,6 +4,13 @@ import os
 # Ensure we can find theus
 sys.path.insert(0, os.getcwd())
 
+from theus.parallel import INTERPRETERS_SUPPORTED
+
+if not INTERPRETERS_SUPPORTED:
+    print("⚠️  Skipped: Sub-interpreters require Python 3.14+ (PEP 734). "
+          f"Current: Python {sys.version_info.major}.{sys.version_info.minor}")
+    sys.exit(0)
+
 try:
     from theus.parallel import InterpreterPool
     from tests.manual.test_standalone_task import standalone_add
@@ -40,3 +47,4 @@ except Exception as e:
     import traceback
 
     traceback.print_exc()
+    sys.exit(1)

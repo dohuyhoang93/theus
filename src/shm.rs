@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use uuid::Uuid;
 use std::collections::HashMap;
 
-/// BufferDescriptor: The "Passport" for Zero-Copy Data.
+/// `BufferDescriptor`: The "Passport" for Zero-Copy Data.
 /// Contains metadata needed for Python to reconstruct a memoryview.
 #[pyclass]
 #[derive(Clone, Debug)]
@@ -30,7 +30,7 @@ impl BufferDescriptor {
     }
 }
 
-/// ShmAllocator: Manages the lifecycle of Memory-Mapped Files.
+/// `ShmAllocator`: Manages the lifecycle of Memory-Mapped Files.
 /// This acts as the "Heavy Zone" Governor.
 #[allow(dead_code)]
 pub struct ShmAllocator {
@@ -50,7 +50,7 @@ impl ShmAllocator {
     }
 
     /// Allocates a new global SHM block.
-    /// Returns the name (shm_name) of the block.
+    /// Returns the name (`shm_name`) of the block.
     pub fn allocate(&mut self, _size: usize) -> Result<String, std::io::Error> {
         let name = format!("theus_shm_{}", Uuid::new_v4());
         

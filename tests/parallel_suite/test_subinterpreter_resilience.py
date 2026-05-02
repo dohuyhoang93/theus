@@ -37,7 +37,7 @@ class TestSubInterpreterResilience:
         Chứng minh import StateUpdate không lỗi.
         """
         print("\n--- Test Standard Echo ---")
-        result = await engine.execute("task_standard_echo", item="Hello World")
+        await engine.execute("task_standard_echo", item="Hello World")
         
         # Verify result in engine state
         assert engine.state.data["last_echo"] == "Echo: Hello World"

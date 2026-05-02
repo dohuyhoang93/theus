@@ -29,7 +29,7 @@ def clean_func(ctx):
         p.write_text(clean_code, encoding="utf-8")
 
         passed = run_lint(clean_dir)
-        assert passed == True
+        assert passed
 
     def test_linter_violations(self, clean_dir):
         """Verify linter catches violations."""
@@ -48,7 +48,7 @@ def bad_func(ctx):
         p.write_text(bad_code, encoding="utf-8")
 
         passed = run_lint(clean_dir)
-        assert passed == False
+        assert not passed
 
         # Parse manually to check violation count
         import ast

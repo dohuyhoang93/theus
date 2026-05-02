@@ -31,7 +31,7 @@ def generate_stub_block(obj, name):
 def main():
     print("Generating stubs for theus_core...")
     
-    content = ["from typing import Any, Optional, List, Dict", "", ""]
+    content = ["", ""]
     
     # Introspect TheusEngine
     # Logic: inspect.signature works for pyo3 classes if annotated!

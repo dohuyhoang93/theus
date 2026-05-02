@@ -1,6 +1,5 @@
 import unittest
 import inspect
-from typing import get_type_hints
 
 import theus.engine
 import theus_core

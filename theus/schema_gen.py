@@ -1,7 +1,7 @@
 import yaml
 import ast
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 
 def generate_schema_from_file(context_path: str) -> Dict[str, Any]:
@@ -74,7 +74,7 @@ def generate_schema_from_file(context_path: str) -> Dict[str, Any]:
                                 # Simple literals
                                 val = ast.literal_eval(item.value)
                                 field_def["default"] = val
-                            except:
+                            except (ValueError, SyntaxError, TypeError):
                                 pass
 
                         schema["context"][target][field_name] = field_def

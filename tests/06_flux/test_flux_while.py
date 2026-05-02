@@ -37,7 +37,7 @@ steps:
             elif name == "increment":
                 ctx["counter"] += 1
 
-        result = engine.execute(ctx, executor)
+        engine.execute(ctx, executor)
 
         # Expected: init_counter, increment x3, finalize
         assert executed == [

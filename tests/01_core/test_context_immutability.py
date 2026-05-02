@@ -1,6 +1,4 @@
 import pytest
-from theus.contracts import process
-from theus.engine import TheusEngine
 from theus.structures import State, ContextError
 
 # TDD: v3 Context is Immutable

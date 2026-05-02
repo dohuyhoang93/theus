@@ -1,12 +1,10 @@
 if __name__ == "__main__":
     import sys
-    import os
 
     # Force print buffering off
     sys.stdout.reconfigure(line_buffering=True)
 
     import theus
-    import pytest
     from theus import TheusEngine
 
     print(f"DEBUG: theus path: {theus.__file__}")
@@ -53,7 +51,7 @@ if __name__ == "__main__":
                     print(
                         "✅ SUCCESS: Verified nested structure domain.nested.value == 'success'"
                     )
-                except Exception as e:
+                except Exception:
                     # Try attribute access
                     try:
                         val = domain.nested.value

@@ -37,7 +37,7 @@ enum FluxStep {
 // Parser: YAML -> Vec<FluxStep>
 // ============================================================================
 
-/// Parse a YAML sequence into a vector of FluxStep.
+/// Parse a YAML sequence into a vector of `FluxStep`.
 fn parse_steps(yaml_seq: &[Value]) -> Result<Vec<FluxStep>, String> {
     let mut steps = Vec::new();
     
@@ -49,7 +49,7 @@ fn parse_steps(yaml_seq: &[Value]) -> Result<Vec<FluxStep>, String> {
     Ok(steps)
 }
 
-/// Parse a single YAML value into a FluxStep.
+/// Parse a single YAML value into a `FluxStep`.
 fn parse_single_step(item: &Value) -> Result<FluxStep, String> {
     // Case 1: Simple string (process name)
     if let Some(name) = item.as_str() {
@@ -136,16 +136,16 @@ fn parse_single_step(item: &Value) -> Result<FluxStep, String> {
                 }
                 
                 _ => {
-                    return Err(format!("Unknown flux type: '{}'", flux_type));
+                    return Err(format!("Unknown flux type: '{flux_type}'"));
                 }
             }
         }
         
         // Unknown mapping format - try to extract a meaningful error
-        return Err(format!("Unknown step format: {:?}", item));
+        return Err(format!("Unknown step format: {item:?}"));
     }
     
-    Err(format!("Invalid step type: expected string or mapping, got {:?}", item))
+    Err(format!("Invalid step type: expected string or mapping, got {item:?}"))
 }
 
 // ============================================================================
@@ -153,7 +153,7 @@ fn parse_single_step(item: &Value) -> Result<FluxStep, String> {
 // ============================================================================
 
 /// FSM State for Workflow execution tracking.
-/// Supports: Pending -> Running -> WaitingIO -> Complete/Failed
+/// Supports: Pending -> Running -> `WaitingIO` -> Complete/Failed
 #[pyclass(module = "theus_core", eq, eq_int)]
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FSMState {
@@ -188,12 +188,12 @@ impl WorkflowEngine {
     #[pyo3(signature = (yaml_config, max_ops=10000, debug=false))]
     fn new(yaml_config: String, max_ops: u32, debug: bool) -> PyResult<Self> {
         let config: Value = serde_yaml::from_str(&yaml_config)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid YAML: {}", e)))?;
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid YAML: {e}")))?;
         
         // Parse 'steps' into FluxStep AST
         let steps = if let Some(steps_seq) = config.get("steps").and_then(|v| v.as_sequence()) {
             parse_steps(steps_seq)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {}", e)))?
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Parse error: {e}")))?
         } else {
             Vec::new()
         };
@@ -222,7 +222,7 @@ impl WorkflowEngine {
         *self.fsm_state.lock().unwrap()
     }
 
-    /// Alias for fsm_state (for test compatibility).
+    /// Alias for `fsm_state` (for test compatibility).
     #[getter]
     fn state(&self) -> FSMState {
         *self.fsm_state.lock().unwrap()
@@ -235,7 +235,7 @@ impl WorkflowEngine {
     }
 
     /// Add an observer callback for state changes.
-    /// Callback signature: (old_state, new_state) -> None
+    /// Callback signature: (`old_state`, `new_state`) -> None
     fn add_state_observer(&self, callback: PyObject) {
         self.observers.lock().unwrap().push(callback);
     }
@@ -243,7 +243,7 @@ impl WorkflowEngine {
     /// Execute the workflow using the provided executor callback.
     /// 
     /// Args:
-    ///     ctx: PyDict - Context for condition evaluation (e.g., {"domain": {...}, "global": {...}})
+    ///     ctx: `PyDict` - Context for condition evaluation (e.g., {"domain": {...}, "global": {...}})
     ///     executor: Callable[[str], None] - Function to execute a process by name
     /// 
     /// Returns:
@@ -280,7 +280,7 @@ impl WorkflowEngine {
     }
 
     /// Execute the workflow asynchronously.
-    /// Wraps the synchronous execution in a thread (asyncio.to_thread) to avoid blocking the event loop.
+    /// Wraps the synchronous execution in a thread (`asyncio.to_thread`) to avoid blocking the event loop.
     /// Handles FSM state transitions correctly for async steps by blocking the worker thread.
     #[pyo3(signature = (ctx, executor))]
     fn execute_async(
@@ -315,27 +315,24 @@ impl WorkflowEngine {
         // This is a simplified version - full graph traversal logic from old implementation
         let mut path = Vec::new();
         
-        let nodes = match self.config.get("nodes") {
-            Some(n) => n,
-            None => {
-                // Fallback: Linear Flux Simulation (Simple traversal for legacy compat)
-                // This handles legacy V2 "steps" list which parses into linear FluxSteps
-                let mut stack: Vec<&FluxStep> = self.steps.iter().rev().collect();
-                while let Some(step) = stack.pop() {
-                    match step {
-                         FluxStep::Process { name } => path.push(name.clone()),
-                         FluxStep::Run { steps } => {
-                             for s in steps.iter().rev() {
-                                 stack.push(s);
-                             }
-                         },
-                         // Ignore control flow (If/While) in basic legacy simulation 
-                         // as legacy YAMLs tested here are linear.
-                         _ => {} 
-                    }
+        let nodes = if let Some(n) = self.config.get("nodes") { n } else {
+            // Fallback: Linear Flux Simulation (Simple traversal for legacy compat)
+            // This handles legacy V2 "steps" list which parses into linear FluxSteps
+            let mut stack: Vec<&FluxStep> = self.steps.iter().rev().collect();
+            while let Some(step) = stack.pop() {
+                match step {
+                     FluxStep::Process { name } => path.push(name.clone()),
+                     FluxStep::Run { steps } => {
+                         for s in steps.iter().rev() {
+                             stack.push(s);
+                         }
+                     },
+                     // Ignore control flow (If/While) in basic legacy simulation 
+                     // as legacy YAMLs tested here are linear.
+                     _ => {} 
                 }
-                return Ok(path);
             }
+            return Ok(path);
         };
         
         let start_val = nodes.get("start").ok_or_else(|| {
@@ -404,7 +401,7 @@ impl WorkflowEngine {
 // ============================================================================
 
 impl WorkflowEngine {
-    /// Recursively execute a list of FluxStep with safety limits.
+    /// Recursively execute a list of `FluxStep` with safety limits.
     fn execute_steps(
         &self,
         py: Python,
@@ -425,7 +422,7 @@ impl WorkflowEngine {
             }
             
             if self.debug {
-                eprintln!("[FLUX-DEBUG] Op #{}: {:?}", ops_counter, step);
+                eprintln!("[FLUX-DEBUG] Op #{ops_counter}: {step:?}");
             }
             
             match step {
@@ -519,14 +516,14 @@ impl WorkflowEngine {
         }
         
         if self.debug {
-            eprintln!("[FLUX-DEBUG] Evaluating condition: '{}'", expr);
+            eprintln!("[FLUX-DEBUG] Evaluating condition: '{expr}'");
         }
         
         let result = py.eval_bound(expr, Some(&globals), None)?;
         let is_true = result.is_truthy()?;
         
         if self.debug {
-            eprintln!("[FLUX-DEBUG] Condition result: {}", is_true);
+            eprintln!("[FLUX-DEBUG] Condition result: {is_true}");
         }
         
         Ok(is_true)
@@ -549,13 +546,13 @@ impl WorkflowEngine {
             guard.iter().map(|o| o.clone_ref(py)).collect()
         };
         
-        for callback in observers.iter() {
+        for callback in &observers {
             // Call observer with (old_state, new_state)
             let _ = callback.call1(py, (old_state, new_state));
         }
         
         if self.debug {
-            eprintln!("[FLUX-DEBUG] FSM State: {:?} -> {:?}", old_state, new_state);
+            eprintln!("[FLUX-DEBUG] FSM State: {old_state:?} -> {new_state:?}");
         }
         
         Ok(())

@@ -1,9 +1,7 @@
 import os
 import sys
-import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 # Goal: Verify the "Real World" usage of Theus CLI tools (Chapter 15)
@@ -15,7 +13,15 @@ from pathlib import Path
 # 5. check
 
 def run_command(args, cwd):
-    """Run CLI command as a subprocess."""
+    """Run CLI command as a subprocess. Pass expected_nonzero=True to suppress the ❌ on non-zero exit."""
+    return _run_command(args, cwd, expected_nonzero=False)
+
+def run_command_expect_failure(args, cwd):
+    """Run CLI command expecting a non-zero exit (e.g. linter finding violations)."""
+    return _run_command(args, cwd, expected_nonzero=True)
+
+def _run_command(args, cwd, expected_nonzero=False):
+    """Internal: Run CLI command as a subprocess."""
     print(f"   $ python -m theus.cli {' '.join(args)}")
     cmd = [sys.executable, "-m", "theus.cli"] + args
     result = subprocess.run(
@@ -26,7 +32,7 @@ def run_command(args, cwd):
         text=True,
         env={**os.environ, "PYTHONPATH": os.getcwd()} # Point PYTHONPATH to current root
     )
-    if result.returncode != 0:
+    if result.returncode != 0 and not expected_nonzero:
         print(f"   ❌ FAILED: {result.stderr}")
     return result
 
@@ -79,7 +85,7 @@ class AppDomain(BaseDomainContext):
         (project_dir / "src/context.py").write_text(context_code, encoding="utf-8")
 
         print("\n[Step 2] Verify 'check' (Linter)")
-        res = run_command(["check", "src/processes"], cwd=project_dir)
+        res = run_command_expect_failure(["check", "src/processes"], cwd=project_dir)
         if "Found 1 violations" in res.stdout or "POP-E01" in res.stdout:
             print("   ✅ Linter (check): OK (Caught violations)")
         else:

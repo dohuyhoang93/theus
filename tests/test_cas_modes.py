@@ -83,7 +83,7 @@ def test_default_is_smart_cas():
     engine = TheusEngine()  # No strict_cas argument
 
     # Check internal flag
-    if engine._strict_cas == False:
+    if not engine._strict_cas:
         print("✅ Default mode is Smart CAS (strict_cas=False)")
         # return True
     else:

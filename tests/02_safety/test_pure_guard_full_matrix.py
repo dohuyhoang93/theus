@@ -2,7 +2,6 @@ import pytest
 import asyncio
 from theus.engine import TheusEngine, ContractViolationError
 from theus.contracts import process
-from theus.structures import StateUpdate
 
 # --- SCENARIOS ---
 
@@ -67,7 +66,7 @@ def attack_edge_deep(ctx):
         d = ctx.domain.safe_dict
         d['hacked'] = True # MUTATION!
         return "VULNERABLE_DEEP_DICT"
-    except Exception as e:
+    except Exception:
         pass
         
     return "SECURE"

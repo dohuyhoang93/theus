@@ -1,7 +1,5 @@
 import os
-import sys
 import time
-import numpy as np
 import asyncio
 from theus import TheusEngine, process
 
@@ -27,8 +25,7 @@ async def run_heavy_verification():
     
     # 1. Allocate 100MB Array in Main Process
     print("\n[Step 1] Allocating 100MB Shared Memory...")
-    size = 100 * 1024 * 1024 // 8 # float64 = 8 bytes
-    shape = (size,)
+    100 * 1024 * 1024 // 8 # float64 = 8 bytes
     
     try:
         # User API: ctx.heavy.alloc(key, shape, dtype)
@@ -105,7 +102,7 @@ async def run_heavy_verification():
     print("\n[Step 2] Launching Worker to access Data...")
     start = time.time()
     res = await engine.execute("analyze_large_data")
-    total_dur = time.time() - start
+    time.time() - start
     
     print(f"   Worker Result: {res}")
     

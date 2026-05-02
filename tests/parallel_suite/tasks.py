@@ -1,6 +1,4 @@
-import time
 import os
-import sys
 
 # Try importing StateUpdate. 
 # In the sub-interpreter (with the fix), this should work as a Pure Python class
@@ -48,7 +46,7 @@ def task_conflict_generator(ctx):
     """
     target_version = ctx.input.get("target_version", 1)
     # Everyone tries to set 'race_key' to their ID
-    worker_id = str(os.getpid()) # Or some random ID
+    str(os.getpid()) # Or some random ID
     import uuid
     val = ctx.input.get("val", str(uuid.uuid4()))
     

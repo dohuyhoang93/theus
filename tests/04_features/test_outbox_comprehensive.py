@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from theus import TheusEngine, process
-from theus.contracts import OutboxMsg, ContractViolationError
+from theus.contracts import OutboxMsg
 
 # ==========================================
 # TEST CASE 1: SAMPLE (Happy Path)

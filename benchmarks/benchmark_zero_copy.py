@@ -3,7 +3,6 @@ import numpy as np
 import multiprocessing
 import multiprocessing.pool
 import multiprocessing.shared_memory
-import threading
 from concurrent.futures import ThreadPoolExecutor
 import os
 import sys
@@ -113,7 +112,7 @@ def run_smart_zerocopy(arr):
 
 # --- Full API Benchmark (TheusEngine) ---
 
-from zc_tasks import process_heavy_task, process_simple_task
+from zc_tasks import process_heavy_task
 
 
 def run_theus_engine(arr):
@@ -133,7 +132,7 @@ def run_theus_engine(arr):
     start = time.time()
 
     # 1. Khởi tạo Engine với Context chuẩn
-    from dataclasses import dataclass, field
+    from dataclasses import dataclass
 
     @dataclass
     class BenchDomain(BaseDomainContext):

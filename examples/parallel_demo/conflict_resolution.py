@@ -1,14 +1,13 @@
 import asyncio
 import os
 import sys
-import numpy as np
 import time
 
 # Config
 os.environ["THEUS_USE_PROCESSES"] = "1"
 sys.path.append(os.path.dirname(__file__))
 
-from theus import TheusEngine, ContractViolationError
+from theus import TheusEngine
 from theus.contracts import process
 
 # --- Define Tasks ---
@@ -103,7 +102,6 @@ async def verify_conflict_resolution():
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     wins = sum(1 for r in results if not isinstance(r, Exception))
-    avg_ver = engine.state.version
 
     print(f"[*] Results: {wins} Wins / {5 - wins} Fails")
     if wins == 5:

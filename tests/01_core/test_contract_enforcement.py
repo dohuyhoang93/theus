@@ -1,6 +1,5 @@
 import asyncio
 import unittest
-import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
@@ -10,7 +9,7 @@ from theus.contracts import ContractViolationError
 from theus.context import BaseSystemContext, BaseDomainContext
 
 # We still import Audit to configure the engine, proving it is IGNORED
-from theus_core import AuditRecipe, AuditLevel, AuditBlockError
+from theus_core import AuditRecipe, AuditLevel
 
 
 # --- Setup Context ---

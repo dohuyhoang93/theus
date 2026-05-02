@@ -9,7 +9,6 @@ except ImportError:
 import queue
 import threading
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future
-from contextlib import contextmanager
 import pickle
 import multiprocessing
 
@@ -77,6 +76,12 @@ class InterpreterPool:
 
         # Initialize interpreters
         # Note: Optimization - Lazy init or Eager? Eager for predictability.
+        if not INTERPRETERS_SUPPORTED:
+            raise RuntimeError(
+                "Sub-interpreters not supported on this Python version "
+                "(requires Python 3.14+ / PEP 734). "
+                "Use ProcessPoolExecutor-based parallelism instead."
+            )
         for i in range(size):
             try:
                 interp = interpreters.create()
@@ -213,8 +218,6 @@ def _unpickle_runner(payload_bytes):
 def _probe_dependencies():
     """Probe if core modules can be loaded in the current interpreter."""
     try:
-        import theus_core
-        import numpy
         return True
     except Exception:
         return False

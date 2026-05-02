@@ -192,7 +192,7 @@ async def run_comprehensive_benchmark():
         t0 = time.perf_counter()
         # For a simple test, we just check if it can validate
         # BenchModel.model_validate(proxy)
-        t_pydantic = time.perf_counter() - t0
+        time.perf_counter() - t0
         print("Interoperability Check: ✅ PASSED")
 
     print("\nBenchmark Complete.")

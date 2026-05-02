@@ -28,7 +28,7 @@ impl SupervisorEntry {
     }
 }
 
-/// SupervisorCore - The central state manager using references
+/// `SupervisorCore` - The central state manager using references
 #[pyclass(module = "theus_core")]
 pub struct SupervisorCore {
     heap: Arc<RwLock<HashMap<String, Arc<SupervisorEntry>>>>,

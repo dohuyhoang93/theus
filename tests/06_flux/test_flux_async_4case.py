@@ -121,7 +121,7 @@ steps:
             if name == "loop_body":
                 state["i"] += 1
 
-        result = await engine.execute_async(ctx, executor)
+        await engine.execute_async(ctx, executor)
         assert executed == ["loop_body", "loop_body", "loop_body", "done"]
         assert engine.fsm_state == FSMState.Complete
 

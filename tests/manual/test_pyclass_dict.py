@@ -1,5 +1,4 @@
 """Minimal test: Does SupervisorProxy have __dict__ after removing subclass?"""
-import theus_core
 from theus_core import SupervisorProxy
 
 # Check type-level dict for __dict__ descriptor

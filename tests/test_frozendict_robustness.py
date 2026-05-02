@@ -1,6 +1,5 @@
 import unittest
 import numpy as np
-import pytest
 from theus_core import TheusEngine, Transaction
 
 # Helper to access internal FrozenDict if exposed, or verify via state.heavy

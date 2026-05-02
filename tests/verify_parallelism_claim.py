@@ -2,7 +2,6 @@ import time
 import math
 import threading
 import os
-import sys
 import asyncio
 from theus.engine import TheusEngine
 from theus.contracts import ProcessContract as Contract, SemanticType

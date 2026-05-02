@@ -1,5 +1,4 @@
 import numpy as np
-import time
 from theus.contracts import process
 from multiprocessing.shared_memory import SharedMemory
 

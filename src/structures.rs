@@ -311,7 +311,7 @@ impl State {
                 if let Ok(inner_dict) = v.downcast::<PyDict>() {
                     for (ik, _iv) in inner_dict {
                         let inner_key = ik.extract::<String>()?;
-                        let field_path = format!("{}.{}", zone_key, inner_key);  // "domain.counter"
+                        let field_path = format!("{zone_key}.{inner_key}");  // "domain.counter"
                         new_state.key_last_modified.insert(field_path, new_state.version);
                     }
                 }
@@ -351,7 +351,7 @@ impl State {
                 if let Ok(inner_dict) = v.downcast::<PyDict>() {
                     for (ik, _iv) in inner_dict {
                         let inner_key = ik.extract::<String>()?;
-                        let field_path = format!("{}.{}", zone_key, inner_key);  // "heavy.buffer"
+                        let field_path = format!("{zone_key}.{inner_key}");  // "heavy.buffer"
                         new_state.key_last_modified.insert(field_path, new_state.version);
                     }
                 }
@@ -383,7 +383,7 @@ impl State {
                         let topic = k.extract::<String>()?;
                         let payload = v.to_string(); 
 
-                        new_state.signal.publish(format!("{}:{}", topic, payload));
+                        new_state.signal.publish(format!("{topic}:{payload}"));
                         // Latch for Flux
                         new_state.last_signals.insert(topic, payload);
                      }
@@ -392,7 +392,7 @@ impl State {
                  for (k, v) in s_dict {
                     let topic = k.extract::<String>()?;
                     let payload = v.to_string(); 
-                    new_state.signal.publish(format!("{}:{}", topic, payload));
+                    new_state.signal.publish(format!("{topic}:{payload}"));
                     // Latch for Flux
                     new_state.last_signals.insert(topic, payload);
                 }
@@ -508,7 +508,7 @@ impl State {
         }
     }
 
-    /// v3.1: Returns domain wrapped in SupervisorProxy (preserves PyObject idiomatics)
+    /// v3.1: Returns domain wrapped in `SupervisorProxy` (preserves `PyObject` idiomatics)
     fn domain_proxy(&self, py: Python, read_only: Option<bool>) -> PyResult<PyObject> {
         match self.data.get("domain") {
             Some(val) => {
@@ -626,8 +626,8 @@ impl ProcessContext {
         self.domain(py)
     }
 
-    /// [FIX v3.3] Explicit Domain Getter — Transaction NOT injected into SupervisorProxy.
-    /// SupervisorProxy queries contextvars for Transaction when it needs to log or COW.
+    /// [FIX v3.3] Explicit Domain Getter — Transaction NOT injected into `SupervisorProxy`.
+    /// `SupervisorProxy` queries contextvars for Transaction when it needs to log or COW.
     #[getter]
     fn domain(&self, py: Python) -> PyResult<PyObject> {
         let state_bound = self.state.bind(py);
@@ -685,7 +685,7 @@ impl ProcessContext {
             Ok(v) => Ok(v.unbind()),
             Err(_) => {
                 // Return None or raise?
-                Err(pyo3::exceptions::PyAttributeError::new_err(format!("'ProcessContext' object has no attribute '{}'", name)))
+                Err(pyo3::exceptions::PyAttributeError::new_err(format!("'ProcessContext' object has no attribute '{name}'")))
             }
         }
     }

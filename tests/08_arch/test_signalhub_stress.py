@@ -6,7 +6,6 @@ Tests system behavior under high load and stress conditions.
 import pytest
 import asyncio
 import time
-import threading
 from theus import SignalHub
 
 
@@ -62,7 +61,7 @@ class TestSignalHubLoad:
         async def async_receiver(idx, rx):
             """Receiver using native recv_async()."""
             for _ in range(100):
-                msg = await asyncio.wait_for(
+                await asyncio.wait_for(
                     rx.recv_async(),  # Native async - timeout works!
                     timeout=2.0
                 )
@@ -207,7 +206,7 @@ class TestSignalHubPerformance:
         Measure publish() latency.
         """
         hub = SignalHub()
-        rx = hub.subscribe()
+        hub.subscribe()
         
         iterations = 10000
         start = time.perf_counter()

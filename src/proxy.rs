@@ -15,9 +15,9 @@ use crate::zones::{CAP_APPEND, CAP_UPDATE, CAP_DELETE};
 
 // SafePyRef Removed (Unused)
 
-/// SupervisorProxy - The Gatekeeper for Python object access
+/// `SupervisorProxy` - The Gatekeeper for Python object access
 /// 
-/// Unlike FrozenDict which returns copies, SupervisorProxy returns
+/// Unlike `FrozenDict` which returns copies, `SupervisorProxy` returns
 /// the original Python object while intercepting mutations.
 // [RFC-001 §10] Removed `subclass` to eliminate __dict__ allocation.
 // No Python code subclasses SupervisorProxy — verified by grep.
@@ -38,7 +38,7 @@ pub struct SupervisorProxy {
     /// This prevents Transaction refs from leaking into the serializable object graph.
     is_mutable: bool,
     /// [INC-013] If true, this proxy wraps a Shadow Object.
-    /// Children of a Shadow are implicitly Shadows and should NOT trigger CoW.
+    /// Children of a Shadow are implicitly Shadows and should NOT trigger `CoW`.
     is_shadow: bool,
     /// [RFC-001] Capability Bitmask
     // [RFC-001] Expose capabilities to Python so AdminTransaction can elevate
@@ -54,7 +54,7 @@ thread_local! {
 
 /// Helper: Query active Transaction.
 /// 1. Check thread-local Rust storage (set by SupervisorProxy.new or ProcessContext.domain/global)
-/// 2. Fallback to Python contextvars (_current_tx)
+/// 2. Fallback to Python contextvars (_`current_tx`)
 fn get_current_tx(py: Python) -> Option<PyObject> {
     // Fast path: thread-local Rust storage
     let tl_result = THREAD_LOCAL_TX.with(|cell| {
@@ -96,7 +96,7 @@ fn get_current_tx(py: Python) -> Option<PyObject> {
 #[pymethods]
 impl SupervisorProxy {
     #[new]
-    #[pyo3(signature = (target, path="".to_string(), read_only=false, transaction=None, is_shadow=false, capabilities=15))]
+    #[pyo3(signature = (target, path=String::new(), read_only=false, transaction=None, is_shadow=false, capabilities=15))]
     pub fn new(
         py: Python,
         target: PyObject,
@@ -125,8 +125,8 @@ impl SupervisorProxy {
     }
 
     /// [RFC-001 §10] Intercept ALL attribute access at C level.
-    /// __getattribute__ runs BEFORE getset_descriptors (including __dict__).
-    /// Without this, PyO3's auto-generated __dict__ descriptor bypasses __getattr__.
+    /// __getattribute__ runs BEFORE `getset_descriptors` (including __dict__).
+    /// Without this, `PyO3`'s auto-generated __dict__ descriptor bypasses __getattr__.
     fn __getattribute__(slf: &Bound<'_, Self>, name: &str) -> PyResult<PyObject> {
         if name == "__dict__" {
             // NOTE: Return empty dict instead of PermissionError.
@@ -169,7 +169,7 @@ impl SupervisorProxy {
         }
         if name.starts_with('_') {
             return Err(pyo3::exceptions::PyAttributeError::new_err(
-                format!("'SupervisorProxy' object has no attribute '{}'", name)
+                format!("'SupervisorProxy' object has no attribute '{name}'")
             ));
         }
 
@@ -324,7 +324,7 @@ impl SupervisorProxy {
 
         if (mutation_caps & crate::zones::CAP_UPDATE) == 0 {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
-                format!("Permission Denied: UPDATE capability required for '{}'. (Current Lens: {:04b})", full_path, mutation_caps)
+                format!("Permission Denied: UPDATE capability required for '{full_path}'. (Current Lens: {mutation_caps:04b})")
             ));
         }
 
@@ -485,7 +485,7 @@ impl SupervisorProxy {
 
         if (mutation_caps & CAP_UPDATE) == 0 {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
-                format!("Permission Denied: UPDATE capability required for item assignment at '{}'. (Current Lens: {:04b})", full_path_tmp, mutation_caps)
+                format!("Permission Denied: UPDATE capability required for item assignment at '{full_path_tmp}'. (Current Lens: {mutation_caps:04b})")
             ));
         }
 
@@ -547,15 +547,15 @@ impl SupervisorProxy {
     fn to_dict(&self, py: Python) -> PyResult<PyObject> {
         let inner = self.inner.bind(py);
         if inner.hasattr("model_dump")? {
-            inner.call_method0("model_dump").map(|x| x.unbind())
+            inner.call_method0("model_dump").map(pyo3::Bound::unbind)
         } else if inner.hasattr("dict")? {
-            inner.call_method0("dict").map(|x| x.unbind())
+            inner.call_method0("dict").map(pyo3::Bound::unbind)
         } else if inner.hasattr("to_dict")? {
-            inner.call_method0("to_dict").map(|x| x.unbind())
+            inner.call_method0("to_dict").map(pyo3::Bound::unbind)
         } else if inner.is_instance_of::<PyDict>() {
             // It is already a dict, but target is PyAny. Return clone as dict.
             // Actually, usually we want a copy.
-            inner.call_method0("copy").map(|x| x.unbind())
+            inner.call_method0("copy").map(pyo3::Bound::unbind)
         } else {
              Err(pyo3::exceptions::PyAttributeError::new_err("Wrapped object has no to_dict/model_dump"))
         }

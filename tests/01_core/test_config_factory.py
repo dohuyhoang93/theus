@@ -1,8 +1,6 @@
-import pytest
 from theus.config import ConfigFactory
-from theus_core import AuditLevel, AuditRecipe
+from theus_core import AuditLevel
 import yaml
-import os
 
 
 class TestConfigFactory:
@@ -27,7 +25,7 @@ class TestConfigFactory:
         assert book.rust_recipe.level == AuditLevel.Stop
         assert book.rust_recipe.threshold_min == 2
         assert book.rust_recipe.threshold_max == 5
-        assert book.rust_recipe.reset_on_success == True
+        assert book.rust_recipe.reset_on_success
 
     def test_load_recipe_supports_level_abbreviations(self, tmp_path):
         """Verify ConfigFactory accepts single-letter level codes (S/A/B/C)."""

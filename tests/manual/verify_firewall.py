@@ -39,7 +39,6 @@ async def spy_process(ctx):
     _ = ctx.domain.declared
 
     print("    -> [Spy] Trying to read SECRET (Undeclared)...")
-    secret = ctx.domain.secret  # Should FAIL here in Strict Mode
     return "stole_secret"
 
 

@@ -15,7 +15,6 @@ def investigate_cas_failure():
     print("[1] Engine Initialized")
 
     # 2. Setup Initial State
-    init_version = 0
     init_data = {"counter": 0, "status": "init"}
     engine._core.compare_and_swap(0, init_data)  # Hydrate
     print(f"[2] Hydrated State: {engine.state.domain} (Ver: {engine.state.version})")

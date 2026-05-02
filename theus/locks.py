@@ -1,7 +1,7 @@
 import logging
 import threading
 from contextlib import contextmanager
-from typing import Literal, Optional
+from typing import Optional
 
 logger = logging.getLogger("Theus.LockManager")
 

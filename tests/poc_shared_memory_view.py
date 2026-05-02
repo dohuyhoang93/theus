@@ -1,6 +1,4 @@
 import sys
-import time
-import struct
 import multiprocessing
 from multiprocessing import shared_memory
 import numpy as np

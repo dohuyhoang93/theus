@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 import threading
 from theus.engine import TheusEngine
 from theus.contracts import process

@@ -78,8 +78,66 @@ def step_test_manual(env):
     run_step([sys.executable, "tests/manual/run_suite.py"], env, "Running Manual Integration Suite")
 
 def step_clippy(env):
-    """Run Cargo Clippy."""
-    run_step(["cargo", "clippy", "--", "-D", "warnings"], env, "Running Cargo Clippy")
+    """Run Cargo Clippy with strict lint levels (pedantic minimum)."""
+    run_step(
+        [
+            "cargo",
+            "clippy",
+            "--all-targets",
+            "--all-features",
+            "--",
+            "-D",
+            "warnings",
+            "-W",
+            "clippy::pedantic",
+            "-A",
+            "clippy::needless_pass_by_value",
+            "-A",
+            "clippy::unnecessary_wraps",
+            "-A",
+            "clippy::unused_self",
+            "-A",
+            "clippy::missing_errors_doc",
+            "-A",
+            "clippy::missing_panics_doc",
+            "-A",
+            "clippy::manual_let_else",
+            "-A",
+            "clippy::used_underscore_items",
+            "-A",
+            "clippy::used_underscore_binding",
+            "-A",
+            "clippy::doc_link_with_quotes",
+            "-A",
+            "clippy::match_same_arms",
+            "-A",
+            "clippy::cast_possible_truncation",
+            "-A",
+            "clippy::cast_sign_loss",
+            "-A",
+            "clippy::cast_precision_loss",
+            "-A",
+            "clippy::items_after_statements",
+            "-A",
+            "clippy::unreadable_literal",
+            "-A",
+            "clippy::needless_continue",
+            "-A",
+            "clippy::only_used_in_recursion",
+        ],
+        env,
+        "Running Cargo Clippy (Strict + Pedantic)",
+    )
+
+def step_pyright(env):
+    """Run Pyright static type checking."""
+    env["PYTHONPATH"] = get_project_root()
+    run_step([sys.executable, "-m", "pyright"], env, "Running Pyright")
+
+def step_ruff(env):
+    """Run Ruff Python linter/formatter."""
+    env["PYTHONPATH"] = get_project_root()
+    run_step([sys.executable, "-m", "ruff", "check", "."], env, "Running Ruff")
 
 def step_rust_test(env):
     """Run Rust unit tests."""
@@ -101,9 +159,9 @@ def main():
     if not args or args[0] in ["--help", "-h", "help"]:
         print("\nUsage: python scripts/Local_CI.py <command>")
         print("Commands:")
-        print("  full   : Build -> Stubs -> Clippy -> Rust Test -> Pytest -> Manual Test")
+        print("  full   : Build -> Stubs -> Clippy -> Pyright -> Ruff -> Rust Test -> Pytest -> Manual Test")
         print("  build  : Build -> Install")
-        print("  verify : Build -> Clippy -> Rust Test -> Verify API Parity")
+        print("  verify : Build -> Clippy -> Pyright -> Ruff -> Rust Test -> Verify API Parity")
         print("  help   : Show this help message")
         sys.exit(0)
         
@@ -114,6 +172,8 @@ def main():
         step_build_install(env)
         step_gen_stubs(env)
         step_clippy(env)
+        step_pyright(env)
+        step_ruff(env)
         step_rust_test(env)
         step_test_automated(env)
         step_test_manual(env)
@@ -122,6 +182,8 @@ def main():
     elif command == "verify":
         step_build_install(env)
         step_clippy(env)
+        step_pyright(env)
+        step_ruff(env)
         step_rust_test(env)
         step_verify_parity(env)
     else:

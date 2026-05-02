@@ -1,4 +1,4 @@
-from typing import List, Optional, Callable, Dict
+from typing import List, Callable
 import functools
 import inspect
 from enum import Enum
@@ -16,6 +16,35 @@ class ContractViolationError(Exception):
     """Raised when a Process violates its declared POP Contract."""
 
     pass
+
+
+def _normalize_multi_output_return(result, func_name: str, outputs: List[str]):
+    """
+    Enforce explicit return contract for multi-output processes.
+
+    Rule:
+      - None        → OK: proxy mutations are the sole source of truth
+      - tuple/list  → OK: unpack positionally onto declared outputs
+      - dict        → OK: map by key onto declared outputs
+      - scalar      → ContractViolationError (str, int, float, bool, etc.)
+                      A scalar return for a multi-output process is always
+                      ambiguous — it cannot be mapped to N paths without
+                      guessing. Use return None for proxy-only processes.
+    """
+    if len(outputs) <= 1:
+        return result
+    if result is None or isinstance(result, (tuple, list, dict)):
+        return result
+    # Scalar return with multiple declared outputs — contract violation
+    raise ContractViolationError(
+        f"Process '{func_name}' declares {len(outputs)} outputs {outputs!r} "
+        f"but returned a single {type(result).__name__!r} value ({result!r}).\n"
+        f"  Multi-output processes must return one of:\n"
+        f"    • None               — proxy mutations are sole source of truth\n"
+        f"    • {len(outputs)}-tuple/list       — positional: (val_0, val_1, ...)\n"
+        f"    • dict               — by key: {{\"output.path\": val, ...}}\n"
+        f"  Got: {result!r}"
+    )
 
 
 class SemanticType(str, Enum):
@@ -101,7 +130,8 @@ def process(
             async def wrapper(system_ctx, *args, **kwargs):
                 filtered_kwargs = filter_kwargs(kwargs)
                 try:
-                    return await func(system_ctx, *args, **filtered_kwargs)
+                    result = await func(system_ctx, *args, **filtered_kwargs)
+                    return _normalize_multi_output_return(result, func.__name__, outputs)
                 except Exception as e:
                     raise e
             
@@ -114,7 +144,8 @@ def process(
             def wrapper(system_ctx, *args, **kwargs):
                 filtered_kwargs = filter_kwargs(kwargs)
                 try:
-                    return func(system_ctx, *args, **filtered_kwargs)
+                    result = func(system_ctx, *args, **filtered_kwargs)
+                    return _normalize_multi_output_return(result, func.__name__, outputs)
                 except Exception as e:
                     raise e
             
@@ -153,9 +184,9 @@ def process(
             async def wrapper(system_ctx, *args, **kwargs):
                 filtered_kwargs = filter_kwargs(kwargs)
                 try:
-                    return await func(system_ctx, *args, **filtered_kwargs)
+                    result = await func(system_ctx, *args, **filtered_kwargs)
+                    return _normalize_multi_output_return(result, func.__name__, outputs)
                 except Exception as e:
-                    # Log logic if needed
                     raise e
 
             # [FIX] Copy contract to wrapper
@@ -167,7 +198,8 @@ def process(
             def wrapper(system_ctx, *args, **kwargs):
                 filtered_kwargs = filter_kwargs(kwargs)
                 try:
-                    return func(system_ctx, *args, **filtered_kwargs)
+                    result = func(system_ctx, *args, **filtered_kwargs)
+                    return _normalize_multi_output_return(result, func.__name__, outputs)
                 except Exception as e:
                     raise e
 

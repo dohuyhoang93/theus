@@ -1,9 +1,7 @@
-import asyncio
 import unittest
-import os
 from theus import TheusEngine
-from theus.contracts import process, SemanticType
-from theus_core import AuditBlockError, AuditStopError, AuditWarning
+from theus.contracts import process
+from theus_core import AuditBlockError
 
 # Mock Process
 @process(inputs=['age', 'server'], outputs=['domain.score'])

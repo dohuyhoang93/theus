@@ -1,6 +1,3 @@
-import sys
-import os
-import pytest
 from theus import TheusEngine as Theus
 try:
     from theus.engine import SupervisorProxy

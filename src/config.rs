@@ -47,7 +47,7 @@ impl ConfigLoader {
     #[staticmethod]
     fn load_from_string(content: String) -> PyResult<()> {
         let _config: RootConfig = serde_yaml::from_str(&content)
-            .map_err(|e| SchemaViolationError::new_err(format!("Config Error: {}", e)))?;
+            .map_err(|e| SchemaViolationError::new_err(format!("Config Error: {e}")))?;
         Ok(())
     }
 }

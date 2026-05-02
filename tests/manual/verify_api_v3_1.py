@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.abspath("."))
 
 from theus import TheusEngine, process
 from theus.context import BaseSystemContext, BaseDomainContext, BaseGlobalContext
-from theus.structures import ContextError
 
 
 # --- SETUP CONTEXT ---

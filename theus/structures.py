@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional
 from dataclasses import dataclass
 
 # [DX] Theus v3 requires Rust Core. Fail fast if missing.

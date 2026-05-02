@@ -8,7 +8,6 @@ Unit Tests:
 Integration Tests (no mock):
   - Real TheusEngine + @process + no mock objects
 """
-import asyncio
 import unittest
 from theus.engine import TheusEngine
 from theus.contracts import process, AdminTransaction

@@ -1,5 +1,4 @@
 from theus_core import TheusEngine
-import sys
 
 engine = TheusEngine()
 large_data = {"nested": {"a": 1}}

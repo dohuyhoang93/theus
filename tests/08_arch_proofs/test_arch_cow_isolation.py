@@ -1,4 +1,3 @@
-import pytest
 from theus.engine import TheusEngine as Theus
 from pydantic import BaseModel, Field
 from typing import List

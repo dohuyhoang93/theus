@@ -2,7 +2,6 @@ import asyncio
 import os
 import sys
 from theus import TheusEngine
-from theus.contracts import ContractViolationError
 
 # Add project root to path
 sys.path.append(os.getcwd())
@@ -165,7 +164,7 @@ async def run_scenario_c(engine):
     print(">> [2] Creating Notification (Outbox)...")
     await engine.execute("notify_user_outbox")
 
-    assert engine.state.domain.notified == True
+    assert engine.state.domain.notified
     print("✅ Outbox Message Queued")
 
 
@@ -176,7 +175,7 @@ async def main():
     import yaml
 
     with open(AUDIT_PATH, "r") as f:
-        recipe_dict = yaml.safe_load(f)
+        yaml.safe_load(f)
 
     from theus_core import AuditLevel
 
@@ -234,7 +233,7 @@ async def run_scenario_d(engine):
         import os
         import threading
 
-        main_pid = os.getpid()
+        os.getpid()
         main_tid = threading.get_ident()
 
         if result["tid"] != main_tid:

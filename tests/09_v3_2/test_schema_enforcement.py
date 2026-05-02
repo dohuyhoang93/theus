@@ -1,6 +1,6 @@
 import pytest
-from pydantic import BaseModel, ValidationError
-from theus import TheusEngine, process, SchemaViolationError
+from pydantic import BaseModel
+from theus import TheusEngine, SchemaViolationError
 
 
 # Define Schema

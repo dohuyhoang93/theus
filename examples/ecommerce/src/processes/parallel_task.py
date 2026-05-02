@@ -1,7 +1,6 @@
 from theus import process
 import os
 import threading
-import time
 
 
 @process(inputs=["domain.cpu_load"], outputs=["domain.parallel_result"])

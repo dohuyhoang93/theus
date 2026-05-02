@@ -1,6 +1,5 @@
 import pytest
 import asyncio
-import time
 from theus import TheusEngine, process
 
 

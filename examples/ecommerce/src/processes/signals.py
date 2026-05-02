@@ -1,5 +1,4 @@
 from theus import process
-from theus.contracts import SemanticType
 from theus_core import OutboxMsg
 
 

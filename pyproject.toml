@@ -33,6 +33,12 @@ dependencies = [
     "questionary>=2.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pyright>=1.1.390",
+    "ruff>=0.8.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/dohuyhoang93/theus"
 Repository = "https://github.com/dohuyhoang93/theus"
@@ -56,4 +62,44 @@ norecursedirs = ["tests/manual"]
 python_files = ["test_*.py", "verify_*.py", "repro_*.py"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = [
+    "target",
+    "venv",
+    ".venv",
+    "Documents",
+    "benchmarks",
+    "examples",
+]
+
+[tool.ruff.lint]
+ignore = [
+    "E402",  # Module level import not at top of file
+    "E701",  # Multiple statements on one line (colon)
+    "E722",  # Bare except used in defensive code paths
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F401"]  # Tests can have unused imports for test setup
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+include = ["scripts"]
+exclude = [
+    "target",
+    "examples",
+    "benchmarks",
+    "Documents",
+    "tests",
+    "theus/scaffold",
+    "theus/structures.py",
+    "theus/validator.py",
+    "theus/workflow.py",
+    "theus/schema_gen.py",
+    "theus/theus_core.pyi",
 ]

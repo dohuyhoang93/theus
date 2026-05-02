@@ -3,7 +3,6 @@ import os
 import sys
 import numpy as np
 import subprocess
-from multiprocessing import shared_memory
 
 # Config
 os.environ["THEUS_USE_PROCESSES"] = "1"

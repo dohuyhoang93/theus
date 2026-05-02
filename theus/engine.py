@@ -1,9 +1,7 @@
 import os
 import sys
-import threading
 import dataclasses
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Union, Callable
 
 # Load Core Rust Module
 try:
@@ -14,7 +12,7 @@ try:
     except ImportError:
         class SupervisorProxy(dict): pass
 
-    from theus.structures import StateUpdate, FunctionResult
+    from theus.structures import StateUpdate
 
     _HAS_RUST_CORE = True
 except ImportError as e:
@@ -22,7 +20,7 @@ except ImportError as e:
     print(f"WARNING: 'theus_core' not found. Reason: {e}")
     print("Running in Pure Python Fallback (Slower).")
 
-from theus.context import BaseSystemContext, TransactionError, NamespaceRegistry, NamespacePolicy
+from theus.context import BaseSystemContext, TransactionError, NamespaceRegistry
 from theus.contracts import SemanticType, ContractViolationError
 from theus.guards import ContextGuard
 
@@ -742,7 +740,6 @@ class TheusEngine:
         # v3.0.2: Auto-Dispatch Parallel Processes
         # Transaction Management (v3.1 Explicit Lifecycle)
         # Transaction is now passed from execute() to preserve Outbox across retries.
-        start_version = self.state.version
         
         result = None
         ran_locally = True
@@ -794,8 +791,23 @@ class TheusEngine:
                     # Helper to unwrap ContextGuard before crossing Rust FFI boundary
                     def _deep_unwrap_res(v):
                         from .guards import ContextGuard
+                        from .structures import StateUpdate
                         if isinstance(v, ContextGuard):
                             return _deep_unwrap_res(v._inner)
+                        if StateUpdate and isinstance(v, StateUpdate):
+                            return StateUpdate(
+                                key=v.key,
+                                val=_deep_unwrap_res(v.val),
+                                data={k: _deep_unwrap_res(sub_v) for k, sub_v in (v.data or {}).items()} if v.data else None,
+                                heavy={k: _deep_unwrap_res(sub_v) for k, sub_v in (v.heavy or {}).items()} if v.heavy else None,
+                                signal={k: _deep_unwrap_res(sub_v) for k, sub_v in (v.signal or {}).items()} if v.signal else None,
+                                assert_version=v.assert_version,
+                            )
+                        if hasattr(v, "supervisor_target"):
+                            try:
+                                return _deep_unwrap_res(getattr(v, "supervisor_target"))
+                            except Exception:
+                                pass
                         if isinstance(v, dict):
                             return {k: _deep_unwrap_res(sub_v) for k, sub_v in v.items()}
                         if isinstance(v, list):
@@ -811,7 +823,6 @@ class TheusEngine:
                         _current_tx.set(tx)
                         
                         # [v3.3 FIX] Extract outbox BEFORE creating ContextGuard
-                        raw_outbox = ctx.outbox
                         
                         native_guard = ContextGuard(
                             target_obj=ctx,
@@ -832,8 +843,23 @@ class TheusEngine:
                     # Helper to unwrap ContextGuard before crossing Rust FFI boundary
                     def _deep_unwrap_res(v):
                         from .guards import ContextGuard
+                        from .structures import StateUpdate
                         if isinstance(v, ContextGuard):
                             return _deep_unwrap_res(v._inner)
+                        if StateUpdate and isinstance(v, StateUpdate):
+                            return StateUpdate(
+                                key=v.key,
+                                val=_deep_unwrap_res(v.val),
+                                data={k: _deep_unwrap_res(sub_v) for k, sub_v in (v.data or {}).items()} if v.data else None,
+                                heavy={k: _deep_unwrap_res(sub_v) for k, sub_v in (v.heavy or {}).items()} if v.heavy else None,
+                                signal={k: _deep_unwrap_res(sub_v) for k, sub_v in (v.signal or {}).items()} if v.signal else None,
+                                assert_version=v.assert_version,
+                            )
+                        if hasattr(v, "supervisor_target"):
+                            try:
+                                return _deep_unwrap_res(getattr(v, "supervisor_target"))
+                            except Exception:
+                                pass
                         if isinstance(v, dict):
                             return {k: _deep_unwrap_res(sub_v) for k, sub_v in v.items()}
                         if isinstance(v, list):
@@ -1034,13 +1060,32 @@ class TheusEngine:
                                 # If it's a raw dict return for a multi-output process, it's ambiguous.
                                 vals = [result] + [None] * (len(outputs) - 1)
                             else:
-                                raise TypeError(f"Process {func.__name__} has multiple outputs {outputs} but returned a single {type(result)}.")
+                                # Defensive fallback: _normalize_multi_output_return in contracts.py
+                                # should have already converted scalar acks to None before reaching here.
+                                # If not (e.g. process bypassed the decorator wrapper), treat as None.
+                                vals = [None] * len(outputs)
                         else:
                             vals = (result,)
+
+                def _proxy_delta_exists(pending, dotted_path):
+                    """Return True if `dotted_path` was already written by a proxy mutation
+                    (i.e. the path is present in pending_data built from delta_log)."""
+                    parts = dotted_path.split(".")
+                    d = pending
+                    for part in parts[:-1]:
+                        if not isinstance(d, dict) or part not in d:
+                            return False
+                        d = d[part]
+                    return isinstance(d, dict) and parts[-1] in d
 
                 for path, val in zip(outputs, vals):
                     # [FIX v3.1.3] Skip if val is None (Do not overwrite Proxy mutations)
                     if val is None:
+                        continue
+
+                    # [FIX hybrid-precedence] If proxy delta already wrote this path,
+                    # the mutation wins — return value is treated as ack, not data.
+                    if _proxy_delta_exists(pending_data, path):
                         continue
 
                     parts = path.split(".")

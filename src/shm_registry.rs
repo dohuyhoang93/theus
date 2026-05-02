@@ -75,7 +75,9 @@ impl MemoryRegistry {
                     alive
                 };
 
-                if !is_alive {
+                if is_alive {
+                    active_records.push(record);
+                } else {
                     // ZOMBIE! Unlink via open-then-drop with owner=true
                     // Even if Open fails (already gone), we drop the record.
                     if let Ok(mut shm) = ShmemConf::new().os_id(&record.name).open() {
@@ -83,8 +85,6 @@ impl MemoryRegistry {
                         _zombies_cleaned += 1;
                     }
                     records_dropped += 1;
-                } else {
-                    active_records.push(record);
                 }
             }
         }
@@ -95,13 +95,13 @@ impl MemoryRegistry {
                 Ok(mut f) => {
                     for rec in active_records {
                         if let Ok(s) = serde_json::to_string(&rec) {
-                            let _ = writeln!(f, "{}", s);
+                            let _ = writeln!(f, "{s}");
                         }
                     }
                     eprintln!("[TheusCore] Cleanup SUCCESS. File rewritten.");
                 }
                 Err(e) => {
-                    eprintln!("[TheusCore] Cleanup ERROR: Failed to create reg file: {}", e);
+                    eprintln!("[TheusCore] Cleanup ERROR: Failed to create reg file: {e}");
                 }
             }
         } else {
@@ -131,7 +131,7 @@ impl MemoryRegistry {
             .unwrap_or_else(|_| std::fs::File::create(REGISTRY_FILE).unwrap());
             
         if let Ok(s) = serde_json::to_string(&record) {
-            let _ = writeln!(file, "{}", s);
+            let _ = writeln!(file, "{s}");
         }
     }
     

@@ -439,9 +439,6 @@ import uuid
 import atexit
 import os
 
-import json
-import signal
-import time
 
 REGISTRY_FILE = ".theus_memory_registry.jsonl"
 
@@ -498,7 +495,9 @@ class HeavyZoneAllocator:
     def alloc(self, key: str, shape: tuple, dtype) -> Any:
         """
         Allocate a managed ShmArray.
-        Name format: theus:{session}:{pid}:{key}
+        Name format: theus_{session}_{pid}_{key}
+        Note: colons are avoided — Python's resource_tracker splits on ':' expecting
+        exactly 3 fields (cmd:name:rtype) and raises ValueError with extra colons.
         """
         if np is None:
             raise ImportError("Numpy/SharedMemory not available")
@@ -506,7 +505,8 @@ class HeavyZoneAllocator:
         current_pid = os.getpid()
 
         # 1. Resolve Namespace (Dynamic PID to prevent collision in forks)
-        full_name = f"theus:{self._session_id}:{current_pid}:{key}"
+        # Use underscores — colons in SHM names corrupt resource_tracker protocol parsing.
+        full_name = f"theus_{self._session_id}_{current_pid}_{key}"
 
         # 2. Calculate Size
         temp = np.dtype(dtype)

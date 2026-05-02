@@ -1,0 +1,797 @@
+📦 Including license file `LICENSE`
+🔗 Found pyo3 bindings
+🐍 Found CPython 3.12 at /home/hoang/Downloads/theus/.venv/bin/python
+📡 Using build options features from pyproject.toml
+Ignoring pyright: markers 'extra == "dev"' don't match your environment
+Ignoring ruff: markers 'extra == "dev"' don't match your environment
+Requirement already satisfied: pydantic>=2.0 in ./.venv/lib/python3.12/site-packages (2.13.3)
+Requirement already satisfied: pyyaml>=6.0 in ./.venv/lib/python3.12/site-packages (6.0.3)
+Requirement already satisfied: typing-extensions>=4.0 in ./.venv/lib/python3.12/site-packages (4.15.0)
+Requirement already satisfied: rich>=13.0 in ./.venv/lib/python3.12/site-packages (15.0.0)
+Requirement already satisfied: questionary>=2.0 in ./.venv/lib/python3.12/site-packages (2.1.1)
+Requirement already satisfied: annotated-types>=0.6.0 in ./.venv/lib/python3.12/site-packages (from pydantic>=2.0) (0.7.0)
+Requirement already satisfied: pydantic-core==2.46.3 in ./.venv/lib/python3.12/site-packages (from pydantic>=2.0) (2.46.3)
+Requirement already satisfied: typing-inspection>=0.4.2 in ./.venv/lib/python3.12/site-packages (from pydantic>=2.0) (0.4.2)
+Requirement already satisfied: markdown-it-py>=2.2.0 in ./.venv/lib/python3.12/site-packages (from rich>=13.0) (4.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in ./.venv/lib/python3.12/site-packages (from rich>=13.0) (2.20.0)
+Requirement already satisfied: prompt_toolkit<4.0,>=2.0 in ./.venv/lib/python3.12/site-packages (from questionary>=2.0) (3.0.52)
+Requirement already satisfied: wcwidth in ./.venv/lib/python3.12/site-packages (from prompt_toolkit<4.0,>=2.0->questionary>=2.0) (0.7.0)
+Requirement already satisfied: mdurl~=0.1 in ./.venv/lib/python3.12/site-packages (from markdown-it-py>=2.2.0->rich>=13.0) (0.1.2)
+    Finished `release` profile [optimized] target(s) in 0.04s
+📦 Built wheel for CPython 3.12 to /tmp/.tmp4UgGJJ/theus-3.0.25-cp312-cp312-linux_x86_64.whl
+✏️ Setting installed package as editable
+🛠 Installed theus-3.0.25
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+Generating stubs for theus_core...
+Processing Class: AuditAbortError
+Processing Class: AuditBlockError
+Processing Class: AuditLevel
+Processing Class: AuditLogEntry
+Processing Class: AuditRecipe
+Processing Class: AuditStopError
+Processing Class: AuditSystem
+Processing Class: AuditWarning
+Processing Class: ConfigLoader
+Processing Class: ConflictManager
+Processing Class: ContextError
+Processing Class: ContextGuard
+Processing Class: FSMState
+Processing Class: FrozenDict
+Processing Class: MetaLogEntry
+Processing Class: OutboxCollector
+Processing Class: OutboxMsg
+Processing Class: ProcessContext
+Processing Class: RetryDecision
+Processing Class: SchemaViolationError
+Processing Class: SignalHub
+Processing Class: SignalReceiver
+Processing Class: State
+Processing Class: SupervisorCore
+Processing Class: SupervisorProxy
+Processing Class: TheusEngine
+Processing Class: Transaction
+Processing Class: WorkflowEngine
+Processing Class: WriteTimeoutError
+✅ Generated theus/theus_core.pyi
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+0 errors, 0 warnings, 0 informations
+All checks passed!
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/theus_core-27f1d72e42b80208)
+
+running 1 test
+test structures_helper::tests::test_parse_path_segments ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0
+rootdir: /home/hoang/Downloads/theus
+configfile: pyproject.toml
+plugins: asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 385 items
+
+tests/01_core/test_config_factory.py .....                               [  1%]
+tests/01_core/test_config_schema.py ..                                   [  1%]
+tests/01_core/test_context_immutability.py ...                           [  2%]
+tests/01_core/test_contract_enforcement.py .                             [  2%]
+tests/01_core/test_engine_polymorphism.py .                              [  3%]
+tests/01_core/test_proxy_mutators.py .                                   [  3%]
+tests/01_core/test_supervisor_v31.py ....                                [  4%]
+tests/01_core/test_transaction_rollback.py ..                            [  4%]
+tests/02_safety/repro_deadlock_abba.py ..                                [  5%]
+tests/02_safety/repro_inc011_strict_desync.py .                          [  5%]
+tests/02_safety/repro_silent_loss.py .                                   [  5%]
+tests/02_safety/test_chapter_05_compliance.py .....                      [  7%]
+tests/02_safety/test_concurrency_cas.py ..                               [  7%]
+tests/02_safety/test_hierarchical_scopes.py .                            [  8%]
+tests/02_safety/test_proxy_containment.py .                              [  8%]
+tests/02_safety/test_pure_guard_full_matrix.py .....                     [  9%]
+tests/02_safety/test_repro_overwrite.py .                                [  9%]
+tests/02_safety/test_schema_gatekeeper_integration.py .                  [ 10%]
+tests/02_safety/test_semantic_firewall.py ..                             [ 10%]
+tests/02_safety/test_silent_loss_comprehensive.py .                      [ 10%]
+tests/02_safety/test_snapshot_isolation.py .                             [ 11%]
+tests/02_safety/verify_strict_decoupling.py .                            [ 11%]
+tests/03_audit/test_audit_integration.py ..                              [ 11%]
+tests/03_audit/test_validator_unit.py ......                             [ 13%]
+tests/03_audit/verify_audit_boundaries.py ....                           [ 14%]
+tests/03_interop/test_proxy_serialization.py ...                         [ 15%]
+tests/03_mechanics/test_lifecycle_scopes.py .                            [ 15%]
+tests/03_mechanics/test_production_data_hazards.py ..                    [ 16%]
+tests/03_mechanics/test_workflow_graph.py .                              [ 16%]
+tests/04_features/test_conflict_advanced.py ...                          [ 17%]
+tests/04_features/test_heavy_zone.py .                                   [ 17%]
+tests/04_features/test_outbox_comprehensive.py ....                      [ 18%]
+tests/04_features/test_outbox_transaction.py .                           [ 18%]
+tests/04_features/test_output_mapping.py .                               [ 18%]
+tests/04_features/test_sub_interpreter.py ..                             [ 19%]
+tests/04_features/test_universal_mutation.py .                           [ 19%]
+tests/04_features/verify_zombie_cleanup.py .                             [ 20%]
+tests/05_compat/test_async_sync_bridge.py ...                            [ 20%]
+tests/05_compat/test_workflow_legacy.py ..                               [ 21%]
+tests/06_flux/test_flux_async_4case.py .........                         [ 23%]
+tests/06_flux/test_flux_debug_integration.py .                           [ 23%]
+tests/06_flux/test_flux_fsm_4case.py ..........                          [ 26%]
+tests/06_flux/test_flux_if.py ....                                       [ 27%]
+tests/06_flux/test_flux_if_4case.py .............                        [ 30%]
+tests/06_flux/test_flux_integration_4case.py .......                     [ 32%]
+tests/06_flux/test_flux_nested.py ....                                   [ 33%]
+tests/06_flux/test_flux_parser_4case.py ...........                      [ 36%]
+tests/06_flux/test_flux_signals.py ...                                   [ 37%]
+tests/06_flux/test_flux_while.py ...                                     [ 38%]
+tests/06_flux/test_flux_while_4case.py ............                      [ 41%]
+tests/06_flux/test_workflow_async_4case.py ........                      [ 43%]
+tests/07_audit/test_audit_levels.py ........                             [ 45%]
+tests/07_audit/test_audit_ring_buffer.py ..s...                          [ 47%]
+tests/07_audit/test_fsm_states.py .......                                [ 48%]
+tests/07_audit/test_meta_ring_buffer.py .......                          [ 50%]
+tests/07_audit/test_write_timeout.py ......                              [ 52%]
+tests/08_arch/test_signalhub_async.py ..................                 [ 56%]
+tests/08_arch/test_signalhub_boundary.py ...................             [ 61%]
+tests/08_arch/test_signalhub_concurrent.py .........                     [ 64%]
+tests/08_arch/test_signalhub_stress.py ..........                        [ 66%]
+tests/08_arch/test_tokio_channels.py s..                                 [ 67%]
+tests/08_arch_proofs/test_arch_cow_isolation.py .                        [ 67%]
+tests/08_arch_proofs/test_arch_custom_objects.py .                       [ 68%]
+tests/08_arch_proofs/test_arch_dict_strategy.py .                        [ 68%]
+tests/09_v3_2/test_auto_discovery.py .                                   [ 68%]
+tests/09_v3_2/test_deep_integration.py .                                 [ 68%]
+tests/09_v3_2/test_numpy_equality.py ...                                 [ 69%]
+tests/09_v3_2/test_schema_enforcement.py ....                            [ 70%]
+tests/09_v3_2/test_shm_import_mechanics.py ....                          [ 71%]
+tests/09_v3_2/test_subinterpreter_parallel.py sss                        [ 72%]
+tests/10_integration/test_outbox_production.py .                         [ 72%]
+tests/11_rfc001/test_inc021_snapshot_lag.py ..........                   [ 75%]
+tests/11_rfc001/test_rfc001_const_internal.py ..........                 [ 77%]
+tests/integration/test_zero_copy_proof.py .                              [ 78%]
+tests/parallel_suite/test_arch_claims.py .                               [ 78%]
+tests/parallel_suite/test_subinterpreter_resilience.py ......            [ 80%]
+tests/repro_api_consistency.py ..                                        [ 80%]
+tests/test_cas_modes.py ...                                              [ 81%]
+tests/test_cli_linter.py ...                                             [ 82%]
+tests/test_cli_v3.py .                                                   [ 82%]
+tests/test_explicit_contract_stress_4case.py ..............              [ 85%]
+tests/test_explicit_output_contract_4case.py ....                        [ 87%]
+tests/test_frozendict_robustness.py ........                             [ 89%]
+tests/test_managed_memory.py ....                                        [ 90%]
+tests/test_namespace_sdk_support.py .....                                [ 91%]
+tests/test_proxy_mutation_stress_4case.py ................               [ 95%]
+tests/test_rfc_001_v3_2_full.py .....                                    [ 96%]
+tests/test_rfc_001_zones.py ..                                           [ 97%]
+tests/test_shm_pickling.py ..                                            [ 97%]
+tests/test_smart_cas_zones.py ..                                         [ 98%]
+tests/test_zero_copy_integration.py .                                    [ 98%]
+tests/verify_api_parity.py .                                             [ 98%]
+tests/verify_error_handling.py ..                                        [ 99%]
+tests/verify_flyweight.py .                                              [ 99%]
+tests/verify_rfc_001.py .                                                [100%]
+
+=============================== warnings summary ===============================
+tests/02_safety/test_chapter_05_compliance.py::test_claim_zone_enforcement_edge
+  /home/hoang/Downloads/theus/tests/02_safety/test_chapter_05_compliance.py:101: RuntimeWarning: ContextGuard.__getattr__('signal'): RuntimeError from Rust proxy — Transaction isolation failure: cannot deepcopy object of type 'SignalHub' at path Some("signal"). Store non-copyable objects in Heavy Zone instead. Original error: TypeError: cannot pickle 'theus_core.SignalHub' object
+    return ctx.signal.get("ping")
+
+tests/07_audit/test_audit_levels.py::TestAuditLevels::test_audit_dual_threshold_warning
+  /home/hoang/Downloads/theus/tests/07_audit/test_audit_levels.py:106: AuditWarning: WARNING: Approaching threshold (2/5)
+    audit.log_fail("test_key")  # count=2, warning threshold
+
+tests/07_audit/test_audit_levels.py::TestAuditLevels::test_audit_dual_threshold_warning
+  /home/hoang/Downloads/theus/tests/07_audit/test_audit_levels.py:113: AuditWarning: WARNING: Approaching threshold (4/5)
+    audit.log_fail("test_key")  # count=4
+
+tests/07_audit/test_audit_levels.py::TestAuditLevels::test_audit_dual_threshold_warning
+  /home/hoang/Downloads/theus/tests/07_audit/test_audit_levels.py:114: AuditWarning: WARNING: Approaching threshold (5/5)
+    audit.log_fail("test_key")  # count=5
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 380 passed, 5 skipped, 4 warnings in 36.97s ==================
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+Checking Parallelism Primitives (Automated CI Mode)...
+
+--- Testing Backend: ProcessPool ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+Parallel Backend Active: ProcessPool
+1. Running Serial Task...
+   [CPU] Heavy loop starting (n=20000000)...
+   OK: PID=103989, TID=130152160761536
+2. Running Parallel Task...
+   OK: PID=104019, TID=135789290913920
+   [CPU] Heavy loop starting (n=20000000)...
+   [CPU] Heavy loop starting (n=20000000)...
+
+✅ Parallel Smoke Test Passed for all modes.
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+SupervisorProxy type has __dict__ descriptor: True
+vars(SupervisorProxy) = type <class 'mappingproxy'>, keys: ['__new__', '__repr__', '__str__', '__getattribute__', '__setattr__']...
+
+SupervisorProxy.__flags__: 4608
+SupervisorProxy.__basicsize__: 64
+
+__dict__ descriptor found on: <class 'theus_core.SupervisorProxy'>
+  descriptor type: <class 'getset_descriptor'>
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+Test 1: Basic async receive
+✅ Received: test_message
+
+Test 2: Timeout works
+✅ Timeout raised correctly
+
+Test 3: Can be awaited multiple times
+✅ Received sequentially: msg2, msg3
+
+✅ All manual tests passed!
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+Checking Standalone Pure Tasks...
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+1. Running Standalone Add (10, 20)...
+   Result: 30 (Expected 30)
+✅ Standalone Smoke Test Passed.
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+initializing Standard Theus Engine...
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+Init State Keys: ['domain_ctx', 'global_ctx', 'global', 'domain']
+Engine Ready.
+
+
+--- [Tier 1] Implicit POP (@process) ---
+DEBUG: Current State Keys: ['domain_ctx', 'global_ctx', 'global', 'domain']
+After : counter=1, status=processed
+✅ PASS: Implicit POP worked correctly.
+
+--- [Tier 2] Batch Transaction (tx.update) ---
+After : config={'mode': 'production', 'shards': 5}
+✅ PASS: Transaction committed successfully.
+
+--- [Tier 2] Safe Edit (engine.edit) ---
+After : counter=999
+✅ PASS: Safe Edit modified state directly.
+
+--- [Tier 3] Smart CAS (strict_cas=False) ---
+✅ PASS: Smart CAS allowed partial merge.
+
+--- [Tier 3] Strict CAS (strict_cas=True) ---
+✅ PASS: Strict CAS rejected stale update: Strict CAS Mismatch: Expected 6, Found 7 (Strict CAS Enabled)
+
+========================================
+🎉 ALL SYSTEMS GO: Standard Verification Passed.
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+
+--- TEST 1: APP DEVELOPER API (ctx) ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+1. Initial State: 10, <SupervisorProxy[dict] at path='domain.nested' cap=0001>
+   [Process] Read ctx.domain.counter: 10
+   [Process] Mutated local ctx.domain.counter -> 11
+   [Process] Mutated local ctx.domain.nested['a'] -> 999
+DEBUG: Local Read of counter: 12
+2. Final State:   12, <SupervisorProxy[dict] at path='domain.nested' cap=0001>
+✅ SUCCESS: Nested mutation persisted correctly (Deep Persistence).
+
+--- TEST 2: SYSTEM API SAFETY (Legacy vs Proxy) ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+A. Testing Legacy API (state.domain)...
+   Type: <class 'theus_core.SupervisorProxy'>
+   ✅ Shallow Mutation BLOCKED: PURE process cannot write
+   Attempting Deep Mutation (Legacy Backdoor)...
+   Unexpected block: PURE process cannot write
+
+B. Testing Supervisor API (state.domain_proxy)...
+   Type: <class 'theus_core.SupervisorProxy'>
+   Attempting Deep Mutation (Supervisor Guard)...
+   ✅ Supervisor BLOCKED Deep Mutation: PURE process cannot write to 'domain.nested.secret'
+   ✅ State Integrity Preserved.
+
+--- TEST 3: STRICT CAS MODE ---
+A. Smart CAS (strict_cas=False)
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+   Attempting update 'a' with STALE version 1 (Current: 2)...
+   ✅ Smart CAS ALLOWED update (Non-conflicting key).
+
+B. Strict CAS (strict_cas=True)
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+   Attempting update 'a' with STALE version 1 (Current: 2)...
+   ✅ Strict CAS REJECTED update (Version Mismatch): Strict CAS Mismatch: Expected 1, Found 2 (Strict CAS Enabled)
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+==============================================
+   THEUS ARCHITECTURE CLAIMS VERIFICATION 
+   (Chapter 16 Masterclass) 
+==============================================
+
+[Claim 1] Python Version: 3.12.3
+   ✅ Python 3.10+ (V3 Requirement Met)
+
+[Claim 2] Rust Core Integration
+   ✅ Rust Core Found: /home/hoang/Downloads/theus/.venv/lib/python3.12/site-packages/theus_core/__init__.py
+
+[Claim 3] Performance: Strict (Safe) vs Non-Strict (Fast)
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+   🚀 Non-Strict Mode: 2394.0 ops/sec
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+   🛡️  Strict Mode:    2496.3 ops/sec
+   ℹ️  Safety Overhead: ~-4.1%
+   ✅ Dual-Mode Architecture Verified.
+
+==============================================
+   🎉 ARCHITECTURE MASTERCLASS VERIFIED
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+==============================================
+   THEUS DISPATCHER VERIFICATION (CHAP 17) 
+==============================================
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+   Main Thread ID: 137830461624448
+
+[Test] Running Async + Sync concurrently...
+   [Async] Start sleeping 1s on Loop... (Thread: 137830461624448)
+   [Sync] Start blocking 1s... (Thread: 137829740914368)
+   [Async] Done.
+   [Sync] Done.
+
+   Total Duration: 1.00s
+   ✅ SUCCESS: Parallel execution confirmed (< 1.2s).
+      Sync function was offloaded to Thread Pool.
+
+==============================================
+==============================================
+   THEUS CLI TOOLS VERIFICATION (CHAP 15) 
+==============================================
+
+[Step 1] Verify 'init' command
+   $ python -m theus.cli init cli_demo_app --quiet
+   ✅ Project Scaffolding: OK
+
+[Step 2] Verify 'check' (Linter)
+   $ python -m theus.cli check src/processes
+   ✅ Linter (check): OK (Caught violations)
+
+[Step 3] Verify 'audit gen-spec'
+   $ python -m theus.cli audit gen-spec
+   ✅ Audit Spec Generation: OK
+
+[Step 4] Verify 'audit inspect'
+   $ python -m theus.cli audit inspect my_task
+   ✅ Audit Inspector: OK
+
+[Step 5] Verify 'schema gen'
+   $ python -m theus.cli schema gen
+   ✅ Schema Generation: OK
+
+==============================================
+   🎉 ALL CLI TOOLS VERIFIED SUCCESSFULLY
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+==============================================
+   THEUS CORE ARCHITECTURE VERIFICATION 
+   (Data, Heavy, Signal, Meta, CAS) 
+==============================================
+
+[Step 0] Initializing Engine...
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+   ✅ Engine Ready (Smart CAS + Audit)
+
+[Step 1] Verifying DATA Zone (Persistent)...
+   ✅ Data Write & Read: OK
+      Current Version: 1
+
+[Step 2] Verifying HEAVY Zone (Zero-Copy)...
+   ✅ Heavy Allocation & Write: OK
+      Read Back Value[0]: 3.141590118408203
+
+[Step 3] Verifying SIGNAL Zone (Ephemeral)...
+   Injected Signal. Current State keys: ['domain', 'global']
+   ✅ Signal Injection: OK (No Rejection)
+
+[Step 4] Verifying META Zone (Audit)...
+   Audit Logged Failure Count: 1
+   ✅ Meta/Audit System: OK
+
+[Step 5] Verifying Advanced CAS (Concurrency)...
+   Simulated Concurrent Update: v3 -> v4
+   ✅ Smart CAS: Allowed non-conflicting stale update (Correct).
+   ✅ Conflict Detection: Blocked overlapping stale update.
+      Caught expected error: CAS Version Mismatch (Conflict Detected): Expected 5, Found 6 (Keys Changed)
+
+==============================================
+   🎉 GRAND TOUR COMPLETED SUCCESSFULLY
+==============================================
+All 4 Zones verified in a single runtime environment.
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+=== Verifying domain_ctx vs domain behavior ===
+[TheusCore] Registry GC: 1 lines read, 0 kept (1 dropped). Rewriting...
+[TheusCore] Cleanup SUCCESS. File rewritten.
+[ManagedAllocator] Registry initialized successfully.
+Executing probe...
+
+[Probe Results]
+  domain_type: <class 'theus.guards.ContextGuard'>
+  domain_ctx_type: <class 'theus.guards.ContextGuard'>
+  global_ctx_access: OK (<class 'NoneType'>)
+  domain_mutation: Blocked: PURE process cannot write
+  domain_ctx_mutation: Blocked: PURE process cannot write
+------------------------------
+Global State 'counter' value: 100
+✅ Global State remains immutable (100).
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+
+--- Testing Contract Enforcement | Strict: True ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+    -> [Spy] Reading declared...
+    -> [Spy] Trying to read SECRET (Undeclared)...
+    [Result] EXECUTION SUCCESS (Guard did not block)
+
+--- Testing Contract Enforcement | Strict: False ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+    -> [Spy] Reading declared...
+    -> [Spy] Trying to read SECRET (Undeclared)...
+    [Result] EXECUTION SUCCESS (Guard did not block)
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+Verifying Transaction Guard Whitelist...
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+Inside process -- accessing transaction...
+Got transaction object: <theus_core.Transaction object at 0x7f2a8ae35d30>
+SUCCESS: Transaction accessed safely without DeepCopy error
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+==============================================
+   THEUS HEAVY ZONE VERIFICATION (CHAP 20) 
+==============================================
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+
+[Step 1] Allocating 100MB Shared Memory...
+   Initializing Allocator...
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+   Allocating 'large_data'...
+   Created Array. Shape: (10000000,). Mean: 1.0000004
+
+[Step 2] Launching Worker to access Data...
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+   Worker Result: {'pid': 104465, 'shape': (10000000,), 'mean': 1.0000004, 'access_time': 0.01776719093322754}
+
+[Analysis]
+   Worker Access Time: 0.017767s
+   Worker PID: 104465 (Main: 104435)
+   Data Integrity: ✅ Clean
+   ✅ SUCCESS: Zero-Copy Shared Memory Verified.
+
+==============================================
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+============================================================
+TEST: ContextGuard Integration
+============================================================
+1.1 Engine initialized
+1.2 Data populated
+
+--- Manual Transaction ---
+2.1 Transaction started
+2.2 ContextGuard created: <builtins.ContextGuard object at 0x740a9c744b70>
+2.3 guard['nested'] type: <class 'theus_core.SupervisorProxy'>
+    repr: <SupervisorProxy[dict] at path='domain.nested' cap=1111>
+2.4 Accessing nested_proxy.a: 1
+2.5 Modifying nested_proxy.a = 99...
+2.6 Modifying nested_proxy['b'] = 2...
+    Read back .a: 99
+    Read back ['b']: 2
+2.8 Transaction committed
+3.1 State version: 2
+3.2 Verified persistence: a=99, b=2
+
+✅ SUCCESS: Mutations persisted!
+
+--- PURE Process Test ---
+✅ PURE test skipped (Covered by Phase 1 Unit Test)
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+==============================================
+   THEUS PARALLELISM VERIFICATION (CHAP 19) 
+==============================================
+   Python Version: 3.12.3
+
+=== MODE 2: ProcessPool (Production Standard) ===
+[TheusCore] Registry GC: 1 lines read, 0 kept (1 dropped). Rewriting...
+[TheusCore] Cleanup SUCCESS. File rewritten.
+[ManagedAllocator] Registry initialized successfully.
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+
+--- Running Suite: ProcessPool [ProcessPool] ---
+   [Baseline] Running 2 Serial Tasks (Threaded/GIL)...
+   [CPU] Heavy loop starting (n=20000000)...
+   [CPU] Heavy loop starting (n=20000000)...
+      Duration: 1.326s
+   [Experiment] Running 2 Parallel Tasks...
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+      Duration: 0.715s
+   ℹ️  Speedup: 1.85x
+   ✅ ProcessPool working perfectly (>1.4x)
+
+==============================================
+   [CPU] Heavy loop starting (n=20000000)...
+   [CPU] Heavy loop starting (n=20000000)...
+   [CPU] Heavy loop starting (n=20000000)...
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+Verifying Proxy to_dict with Pydantic v2...
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+Proxy type: <class 'theus_core.SupervisorProxy'>
+Result: {'x': 1}
+SUCCESS: to_dict returned correct dict
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+⚠️  Skipped: Sub-interpreters require Python 3.14+ (PEP 734). Current: Python 3.12
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+
+--- TEST 1: Smart CAS (Key-Level Optimism) ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+Initial Version: 1
+Worker 1 Updated 'user'. Version: 2 (Expected 2)
+✅ Smart CAS Succeeded! (Merged safely due to disjoint keys)
+   State Correct: {'user': 'B', 'counter': 1}
+✅ Smart CAS Correctly Rejected Conflict: CAS Version Mismatch (Conflict Detected): Expected 1, Found 3 (Keys Changed)
+
+--- TEST 2: Priority Ticket (VIP System) ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+Simulating 7 failures to guarantee VIP...
+Decision: RetryDecision(retry=true, wait=1ms)
+✅ VIP Likely Granted (Low wait time).
+✅ VIP Write Succeeded (Authenticated)
+Attempting Anonymous Write (Expect Failure)...
+✅ Anonymous Write Correctly Blocked: System Busy (VIP Access Only)
+
+All Tests Passed
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+
+--- Testing strict_guards=True ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+  [Process] Type of ctx.domain.data_items: <class 'theus.guards.ContextGuard'>
+  [Process] Mutation SUCCESS (strict_guards=False behavior)
+Result: EXECUTION SUCCESS
+
+--- Testing strict_guards=False ---
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+  [Process] Type of ctx.domain.data_items: <class 'theus.guards.ContextGuard'>
+  [Process] Mutation SUCCESS (strict_guards=False behavior)
+Result: EXECUTION SUCCESS
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+
+========================================
+ TESTING TRANSACTION | Strict Guards: True
+========================================
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+  [Init] Items: []
+  [Step 1] Executing 'process_that_crashes'...
+    -> [Process] Appending 'bad_data'...
+    -> [Process] 'bad_data' appended. Now raising ValueError...
+[DEBUG] Execute Exception: 'Intentional Crash to test Rollback' | CAS=False | Busy=False
+  [Caught] Expected Error: Intentional Crash to test Rollback
+  [Result] Items after Crash: <SupervisorProxy[list] at path='domain.data_list' cap=0001>
+  [PASS] ✅ ROLLBACK SUCCESSFUL! State is clean.
+  [Step 2] Executing 'process_success'...
+  [Result] Items after Success: <SupervisorProxy[list] at path='domain.data_list' cap=0001>
+  [PASS] ✅ COMMIT SUCCESSFUL!
+
+========================================
+ TESTING TRANSACTION | Strict Guards: False
+========================================
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+  [Init] Items: []
+  [Step 1] Executing 'process_that_crashes'...
+    -> [Process] Appending 'bad_data'...
+    -> [Process] 'bad_data' appended. Now raising ValueError...
+[DEBUG] Execute Exception: 'Intentional Crash to test Rollback' | CAS=False | Busy=False
+  [Caught] Expected Error: Intentional Crash to test Rollback
+  [Result] Items after Crash: <SupervisorProxy[list] at path='domain.data_list' cap=0001>
+  [PASS] ✅ ROLLBACK SUCCESSFUL! State is clean.
+  [Step 2] Executing 'process_success'...
+  [Result] Items after Success: <SupervisorProxy[list] at path='domain.data_list' cap=0001>
+  [PASS] ✅ COMMIT SUCCESSFUL!
+[THEUS-CORE] Loaded Version: 3.0.25 (Target Env Build)
+==============================================
+   THEUS OUTBOX PATTERN VERIFICATION (CHAP 18) 
+==============================================
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[ManagedAllocator] Registry initialized successfully.
+
+[Step 1] Producer: Creating 3 Events...
+   State Outbox Count: 3
+   ✅ Events persisted in State.
+
+[Step 2] System Relay (Consumer): Processing...
+   📤 Sending 3 messages to external system...
+   Sent IDs: ['msg_1777751466419', 'msg_1777751466421', 'msg_1777751466422']
+   🔒 Committing (Clearing Queue) via CAS...
+   ✅ Commit Successful.
+
+   ✅ Outbox is EMPTY (Items Processed & Removed).
+   🎉 TRANSACTIONAL OUTBOX VERIFIED
+Found 25 verification scripts.
+============================================================
+
+>> RUNNING: test_linter_behavioral.py
+------------------------------
+
+>> RUNNING: test_linter_mutation.py
+------------------------------
+
+>> RUNNING: test_linter_paradox.py
+------------------------------
+
+>> RUNNING: test_parallel_tasks.py
+------------------------------
+
+>> RUNNING: test_pyclass_dict.py
+------------------------------
+
+>> RUNNING: test_recv_async_manual.py
+------------------------------
+
+>> RUNNING: test_standalone_task.py
+------------------------------
+
+>> RUNNING: verify_all_mutations.py
+------------------------------
+
+>> RUNNING: verify_api_v3_1.py
+------------------------------
+
+>> RUNNING: verify_architecture_claims.py
+------------------------------
+
+>> RUNNING: verify_async_dispatch.py
+------------------------------
+
+>> RUNNING: verify_cli_tools.py
+------------------------------
+
+>> RUNNING: verify_core_architecture.py
+------------------------------
+
+>> RUNNING: verify_domain_ctx_leak.py
+------------------------------
+
+>> RUNNING: verify_firewall.py
+------------------------------
+
+>> RUNNING: verify_guard_transaction.py
+------------------------------
+
+>> RUNNING: verify_heavy_zone.py
+------------------------------
+
+>> RUNNING: verify_integration_v31.py
+------------------------------
+
+>> RUNNING: verify_parallel_execution.py
+------------------------------
+
+>> RUNNING: verify_proxy_todict.py
+------------------------------
+
+>> RUNNING: verify_pure_parallel.py
+------------------------------
+
+>> RUNNING: verify_smart_cas.py
+------------------------------
+
+>> RUNNING: verify_strict_mode.py
+------------------------------
+
+>> RUNNING: verify_transaction.py
+------------------------------
+
+>> RUNNING: verify_transactional_outbox.py
+------------------------------
+
+============================================================
+MANUAL SUITE SUMMARY
+============================================================
+✅ PASS | test_linter_behavioral.py           | 0.09s
+✅ PASS | test_linter_mutation.py             | 0.10s
+✅ PASS | test_linter_paradox.py              | 0.10s
+✅ PASS | test_parallel_tasks.py              | 2.04s
+✅ PASS | test_pyclass_dict.py                | 0.02s
+✅ PASS | test_recv_async_manual.py           | 0.64s
+✅ PASS | test_standalone_task.py             | 0.19s
+✅ PASS | verify_all_mutations.py             | 0.20s
+✅ PASS | verify_api_v3_1.py                  | 0.22s
+✅ PASS | verify_architecture_claims.py       | 4.31s
+✅ PASS | verify_async_dispatch.py            | 1.21s
+✅ PASS | verify_cli_tools.py                 | 1.19s
+✅ PASS | verify_core_architecture.py         | 0.17s
+✅ PASS | verify_domain_ctx_leak.py           | 0.21s
+✅ PASS | verify_firewall.py                  | 0.20s
+✅ PASS | verify_guard_transaction.py         | 0.20s
+✅ PASS | verify_heavy_zone.py                | 0.40s
+✅ PASS | verify_integration_v31.py           | 0.03s
+✅ PASS | verify_parallel_execution.py        | 2.98s
+✅ PASS | verify_proxy_todict.py              | 0.28s
+✅ PASS | verify_pure_parallel.py             | 0.14s
+✅ PASS | verify_smart_cas.py                 | 0.18s
+✅ PASS | verify_strict_mode.py               | 0.22s
+✅ PASS | verify_transaction.py               | 0.21s
+✅ PASS | verify_transactional_outbox.py      | 0.18s
+------------------------------------------------------------
+Total Time: 15.71s
+Passed: 25/25
+ALL GREEN.
+🛡️  Theus Local CI Automation Tool
+   Python: 3.12.3
+   Platform: Linux
+🔧 Auto-detected VIRTUAL_ENV: /home/hoang/Downloads/theus/.venv
+
+==================================================
+🚀 [STEP] Compiling Rust Core (Maturin)
+   Exec: maturin develop --release
+   CWD:  /home/hoang/Downloads/theus
+==================================================
+✅ [SUCCESS] Compiling Rust Core (Maturin) (1.40s)
+
+==================================================
+🚀 [STEP] Generating Type Stubs
+   Exec: /home/hoang/Downloads/theus/.venv/bin/python scripts/gen_stubs.py
+   CWD:  /home/hoang/Downloads/theus
+==================================================
+✅ [SUCCESS] Generating Type Stubs (0.04s)
+
+==================================================
+🚀 [STEP] Running Cargo Clippy (Strict + Pedantic)
+   Exec: cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic -A clippy::needless_pass_by_value -A clippy::unnecessary_wraps -A clippy::unused_self -A clippy::missing_errors_doc -A clippy::missing_panics_doc -A clippy::manual_let_else -A clippy::used_underscore_items -A clippy::used_underscore_binding -A clippy::doc_link_with_quotes -A clippy::match_same_arms -A clippy::cast_possible_truncation -A clippy::cast_sign_loss -A clippy::cast_precision_loss -A clippy::items_after_statements -A clippy::unreadable_literal -A clippy::needless_continue -A clippy::only_used_in_recursion
+   CWD:  /home/hoang/Downloads/theus
+==================================================
+✅ [SUCCESS] Running Cargo Clippy (Strict + Pedantic) (0.16s)
+
+==================================================
+🚀 [STEP] Running Pyright
+   Exec: /home/hoang/Downloads/theus/.venv/bin/python -m pyright
+   CWD:  /home/hoang/Downloads/theus
+==================================================
+✅ [SUCCESS] Running Pyright (0.93s)
+
+==================================================
+🚀 [STEP] Running Ruff
+   Exec: /home/hoang/Downloads/theus/.venv/bin/python -m ruff check .
+   CWD:  /home/hoang/Downloads/theus
+==================================================
+✅ [SUCCESS] Running Ruff (0.03s)
+
+==================================================
+🚀 [STEP] Running Rust Tests
+   Exec: cargo test
+   CWD:  /home/hoang/Downloads/theus
+==================================================
+✅ [SUCCESS] Running Rust Tests (0.14s)
+
+==================================================
+🚀 [STEP] Running Automated Tests (Pytest)
+   Exec: /home/hoang/Downloads/theus/.venv/bin/python -m pytest tests/
+   CWD:  /home/hoang/Downloads/theus
+==================================================
+✅ [SUCCESS] Running Automated Tests (Pytest) (37.44s)
+
+==================================================
+🚀 [STEP] Running Manual Integration Suite
+   Exec: /home/hoang/Downloads/theus/.venv/bin/python tests/manual/run_suite.py
+   CWD:  /home/hoang/Downloads/theus
+==================================================
+✅ [SUCCESS] Running Manual Integration Suite (15.76s)
+
+🎉 LOCAL CI COMPLETED SUCCESSFULLY!

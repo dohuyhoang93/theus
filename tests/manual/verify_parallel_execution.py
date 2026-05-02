@@ -1,13 +1,12 @@
 import time
 import os
-import threading
 import sys
 import asyncio
 
 # Ensure project root is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
-from theus import TheusEngine, process
+from theus import TheusEngine
 from theus.parallel import INTERPRETERS_SUPPORTED
 
 # Import tasks

@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from theus.engine import TheusEngine
 from theus import process
 from theus.contracts import SemanticType

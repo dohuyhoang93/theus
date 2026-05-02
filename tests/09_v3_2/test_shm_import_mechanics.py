@@ -1,5 +1,3 @@
-import pytest
-import sys
 
 def test_shm_module_existence():
     """

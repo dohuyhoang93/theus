@@ -1,8 +1,6 @@
 import unittest
 import numpy as np
 import time
-import os
-import sys
 from multiprocessing import shared_memory
 from theus.context import HeavyZoneAllocator, ShmArray
 
@@ -34,10 +32,9 @@ class TestManagedMemory(unittest.TestCase):
         self.created_names.append(name)
 
         # Verify name structure
-        # theus:{session}:{pid}:{key}
-        parts = name.split(":")
-        self.assertEqual(parts[0], "theus")
-        self.assertEqual(parts[3], "test_lifecycle")
+        # theus_{session}_{pid}_{key}
+        self.assertTrue(name.startswith("theus_"))
+        self.assertTrue(name.endswith("_test_lifecycle"))
 
         # Write data
         arr[:] = 99
@@ -71,7 +68,7 @@ class TestManagedMemory(unittest.TestCase):
         # 1. Simulate a Zombie Record
         fake_pid = 99999999  # Impossible PID
         fake_session = "zombie_sess"
-        zombie_name = f"theus:{fake_session}:{fake_pid}:zombie_data"
+        zombie_name = f"theus_{fake_session}_{fake_pid}_zombie_data"
         registry_file = ".theus_memory_registry.jsonl"
 
         # Create actual SHM for the zombie

@@ -100,10 +100,10 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
                     } else {
                         // Fallback to setattr
                         match current_bound.setattr(key.as_str(), value) {
-                            Ok(_) => {},
+                            Ok(()) => {},
                             Err(_) => {
                                 return Err(pyo3::exceptions::PyTypeError::new_err(
-                                    format!("Cannot set key '{}' on non-dict type '{}'", key, current_bound.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string()))
+                                    format!("Cannot set key '{}' on non-dict type '{}'", key, current_bound.get_type().name().map_or_else(|_| "unknown".to_string(), |n| n.to_string()))
                                 ));
                             }
                         }
@@ -127,7 +127,7 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
                             }
                             Err(_) => {
                                 return Err(pyo3::exceptions::PyTypeError::new_err(
-                                    format!("Cannot navigate key '{}' in non-dict type '{}'", key, current_bound.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string()))
+                                    format!("Cannot navigate key '{}' in non-dict type '{}'", key, current_bound.get_type().name().map_or_else(|_| "unknown".to_string(), |n| n.to_string()))
                                 ));
                             }
                         }
@@ -154,7 +154,7 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
                         dict.set_item(idx.to_string(), value)?;
                     } else {
                         return Err(pyo3::exceptions::PyTypeError::new_err(
-                            format!("Cannot set index [{}] on non-list/dict", idx)
+                            format!("Cannot set index [{idx}] on non-list/dict")
                         ));
                     }
                 } else {
@@ -164,12 +164,12 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
                             current = list.get_item(*idx)?.unbind();
                         } else {
                             return Err(pyo3::exceptions::PyIndexError::new_err(
-                                format!("Index [{}] out of range", idx)
+                                format!("Index [{idx}] out of range")
                             ));
                         }
                     } else {
                         return Err(pyo3::exceptions::PyTypeError::new_err(
-                            format!("Cannot navigate index [{}] in non-list", idx)
+                            format!("Cannot navigate index [{idx}] in non-list")
                         ));
                     }
                 }
@@ -178,17 +178,6 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
     }
     
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_parse_path_segments() {
-        let segs = parse_path_segments("domain.users[0].name");
-        assert_eq!(segs.len(), 4);
-    }
 }
 
 
@@ -331,20 +320,17 @@ fn deep_update_at_path(py: Python, root: &Bound<'_, PyDict>, path: &str, value: 
                      }
                  } else {
                      // Generic Fallback: Try attribute access
-                     match current_bound.getattr(key.as_str()) {
-                         Ok(next_obj) => {
-                             current = next_obj.unbind();
-                         }
-                         Err(_) => {
-                             // Try supervisor_target fallback (Proxy)
-                             if let Ok(target) = current_bound.getattr("supervisor_target") {
-                                 if let Ok(next_obj) = target.getattr(key.as_str()) {
-                                      current = next_obj.unbind();
-                                      continue;
-                                 }
+                     if let Ok(next_obj) = current_bound.getattr(key.as_str()) {
+                         current = next_obj.unbind();
+                     } else {
+                         // Try supervisor_target fallback (Proxy)
+                         if let Ok(target) = current_bound.getattr("supervisor_target") {
+                             if let Ok(next_obj) = target.getattr(key.as_str()) {
+                                  current = next_obj.unbind();
+                                  continue;
                              }
-                             return Err(pyo3::exceptions::PyTypeError::new_err(format!("Cannot navigate key '{}' in non-dict type '{}'", key, current_bound.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "unknown".to_string()))));
                          }
+                         return Err(pyo3::exceptions::PyTypeError::new_err(format!("Cannot navigate key '{}' in non-dict type '{}'", key, current_bound.get_type().name().map_or_else(|_| "unknown".to_string(), |n| n.to_string()))));
                      }
                  }
              }
@@ -362,16 +348,27 @@ fn deep_update_at_path(py: Python, root: &Bound<'_, PyDict>, path: &str, value: 
                         } else if *idx < list.len() {
                              current = list.get_item(*idx)?.unbind();
                         } else {
-                             return Err(pyo3::exceptions::PyIndexError::new_err(format!("Index [{}] out of range", idx)));
+                             return Err(pyo3::exceptions::PyIndexError::new_err(format!("Index [{idx}] out of range")));
                         }
                   } else {
                        // Support numeric dict keys too?
                        // Omitting for brevity unless crucial.
-                       return Err(pyo3::exceptions::PyTypeError::new_err(format!("Index [{}] on non-list", idx)));
+                       return Err(pyo3::exceptions::PyTypeError::new_err(format!("Index [{idx}] on non-list")));
                   }
              }
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_parse_path_segments() {
+        let segs = parse_path_segments("domain.users[0].name");
+        assert_eq!(segs.len(), 4);
+    }
 }
 

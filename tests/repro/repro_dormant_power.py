@@ -14,7 +14,6 @@ Scenarios:
 Result: If all assertions pass, the "Dormant Power" hypothesis is PROVEN.
 """
 
-import pytest
 import asyncio
 from theus import TheusEngine, process
 from theus.context import BaseDomainContext

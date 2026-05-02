@@ -3,11 +3,9 @@ Kiểm chứng 5 rủi ro Shadow Copy — UPDATE SAU KHI FIX.
 Risk 4 được mong đợi sẽ RAISE RuntimeError.
 Trace logging noise đã được xóa, Benchmark Bonus sẽ chính xác.
 """
-import sys
 import time
 import gc
 import tracemalloc
-import io
 import os
 import traceback
 

@@ -1,7 +1,6 @@
 import pytest
 import asyncio
 from theus.engine import TheusEngine
-from theus.structures import StateUpdate
 
 # TDD: Verify CAS (Compare-And-Swap) ensures Serializability via Retry Logic
 

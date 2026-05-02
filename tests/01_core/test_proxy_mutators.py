@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import MagicMock
-from theus import TheusEngine
 
 # We need to import SupervisorProxy but it's in theus_core.
 from theus_core import SupervisorProxy

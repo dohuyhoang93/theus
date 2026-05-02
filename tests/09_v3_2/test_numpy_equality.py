@@ -1,5 +1,4 @@
 
-import pytest
 import tempfile
 import numpy as np
 import shutil
@@ -50,7 +49,7 @@ class TestNumPyEquality:
         """
         print("\n[Test] Mutating NumPy Array via Proxy...")
         
-        with self.engine.transaction() as tx:
+        with self.engine.transaction():
             # 1. Access array (Creates Shadow)
             arr = self.ctx.domain.arrays["simple"]
             
@@ -73,7 +72,7 @@ class TestNumPyEquality:
         """
         print("\n[Test] Accessing NumPy Array without mutation...")
         
-        with self.engine.transaction() as tx:
+        with self.engine.transaction():
             arr = self.ctx.domain.arrays["matrix"]
             # Just read it
             _ = arr[0, 0]
@@ -89,7 +88,7 @@ class TestNumPyEquality:
         """
         new_arr = np.array([10, 20])
         
-        with self.engine.transaction() as tx:
+        with self.engine.transaction():
             self.ctx.domain.arrays["simple"] = new_arr
             
         res = self.engine.state.data["domain"]["arrays"]["simple"]

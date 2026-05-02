@@ -14,12 +14,11 @@ Mechanisms Tested:
 
 import sys
 import os
-import time
 
 # Ensure we import from local build
 sys.path.insert(0, os.path.abspath("."))
 
-from theus import TheusEngine, ContractViolationError
+from theus import TheusEngine
 from theus.contracts import process
 
 from dataclasses import dataclass, field
@@ -49,14 +48,16 @@ class MyContext(BaseSystemContext):
 @process(inputs=["domain.counter"], outputs=["domain.counter", "domain.status"])
 def increment_process(ctx):
     """Tier 1: Standard Worker"""
-    # 1. Read
+    # 1. Read + compute
     current = ctx.domain.counter
-
-    # 2. Compute
     new_val = current + 1
 
-    # 3. Return (Theus handles commit)
-    return {"domain.counter": new_val, "domain.status": "processed"}
+    # 2. Apply via proxy mutation (source of truth)
+    ctx.domain.counter = new_val
+    ctx.domain.status = "processed"
+
+    # 3. Explicitly return None for proxy-only write mode
+    return None
 
 
 # --- VERIFICATION SUITE ---
@@ -77,7 +78,7 @@ async def verify_tier_1_implicit_pop(engine):
 
     # Execute Async
     # Note: execute returns a coroutine even for sync functions if wrapped in @process
-    result = await engine.execute(increment_process)
+    await engine.execute(increment_process)
 
     # Check Result
     try:
