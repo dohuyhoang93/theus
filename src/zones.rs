@@ -77,7 +77,9 @@ pub fn resolve_zone(key: &str) -> ContextZone {
         if segment.starts_with("internal_") {
             return ContextZone::Private;
         }
-        if segment.starts_with("sig_") || segment.starts_with("cmd_") || segment == "sig" {
+        // [INC-022] Include full names "signal" and "cmd" — not just abbreviations "sig"/"cmd_*"
+        if segment.starts_with("sig_") || segment.starts_with("cmd_")
+            || segment == "sig" || segment == "signal" || segment == "cmd" {
             return ContextZone::Signal;
         }
         if segment.starts_with("meta_") || segment == "meta" {

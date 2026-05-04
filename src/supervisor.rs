@@ -44,12 +44,12 @@ impl SupervisorCore {
     }
 
     /// Read a value by key - returns reference (zero-copy)
-    pub fn read(&self, py: Python, key: String) -> PyResult<Option<PyObject>> {
+    pub fn read(&self, py: Python, key: &str) -> PyResult<Option<PyObject>> {
         let map_guard = self.heap.read().map_err(|_| {
             pyo3::exceptions::PyRuntimeError::new_err("Lock Poisoned")
         })?;
 
-        if let Some(entry_arc) = map_guard.get(&key) {
+        if let Some(entry_arc) = map_guard.get(key) {
             let entry_guard = entry_arc.payload.read().map_err(|_| {
                 pyo3::exceptions::PyRuntimeError::new_err("Entry Lock Poisoned")
             })?;
@@ -88,12 +88,12 @@ impl SupervisorCore {
     }
 
     /// Get version for a key
-    pub fn get_version(&self, key: String) -> PyResult<Option<u64>> {
+    pub fn get_version(&self, key: &str) -> PyResult<Option<u64>> {
         let map_read = self.heap.read().map_err(|_| {
             pyo3::exceptions::PyRuntimeError::new_err("Lock Poisoned")
         })?;
         
-        if let Some(entry_arc) = map_read.get(&key) {
+        if let Some(entry_arc) = map_read.get(key) {
             Ok(Some(entry_arc.version.load(Ordering::SeqCst)))
         } else {
             Ok(None)
@@ -101,11 +101,11 @@ impl SupervisorCore {
     }
 
     /// Check if key exists
-    pub fn contains(&self, key: String) -> PyResult<bool> {
+    pub fn contains(&self, key: &str) -> PyResult<bool> {
         let map_read = self.heap.read().map_err(|_| {
             pyo3::exceptions::PyRuntimeError::new_err("Lock Poisoned")
         })?;
-        Ok(map_read.contains_key(&key))
+        Ok(map_read.contains_key(key))
     }
 
     /// Get all keys
@@ -117,11 +117,11 @@ impl SupervisorCore {
     }
 
     /// Remove a key
-    pub fn remove(&self, key: String) -> PyResult<bool> {
+    pub fn remove(&self, key: &str) -> PyResult<bool> {
         let mut map_write = self.heap.write().map_err(|_| {
             pyo3::exceptions::PyRuntimeError::new_err("Lock Poisoned")
         })?;
-        Ok(map_write.remove(&key).is_some())
+        Ok(map_write.remove(key).is_some())
     }
 }
 

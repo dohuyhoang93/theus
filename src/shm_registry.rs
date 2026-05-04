@@ -40,6 +40,7 @@ impl MemoryRegistry {
         registry
     }
 
+    #[allow(clippy::unused_self)]
     pub fn scan_zombies(&self) {
         if !Path::new(REGISTRY_FILE).exists() {
             return;
@@ -49,10 +50,7 @@ impl MemoryRegistry {
         sys.refresh_all();
         
         let path = Path::new(REGISTRY_FILE);
-        let file = match std::fs::File::open(path) {
-            Ok(f) => f,
-            Err(_) => return,
-        };
+        let Ok(file) = std::fs::File::open(path) else { return };
         let reader = BufReader::new(file);
 
         let mut active_records = Vec::new();

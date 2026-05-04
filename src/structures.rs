@@ -31,10 +31,12 @@ impl FrozenDict {
         }
     }
     
+    #[allow(clippy::unused_self)]
     fn __setitem__(&self, _py: Python, _key: PyObject, _val: PyObject) -> PyResult<()> {
         Err(ContextError::new_err("Context is Immutable. Use .update()"))
     }
     
+    #[allow(clippy::unnecessary_wraps)]
     fn __str__(&self, py: Python) -> PyResult<String> {
         Ok(format!("FrozenDict({})", self.data.bind(py)))
     }
@@ -66,6 +68,7 @@ impl FrozenDict {
         self.data.bind(py).contains(key)
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn keys(&self, py: Python) -> PyResult<PyObject> {
         Ok(self.data.bind(py).keys().into())
     }
@@ -80,10 +83,12 @@ impl FrozenDict {
         Ok(Py::new(py, FrozenDict { data: new_dict })?.into_any())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn values(&self, py: Python) -> PyResult<PyObject> {
         Ok(self.data.bind(py).values().into())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn items(&self, py: Python) -> PyResult<PyObject> {
         Ok(self.data.bind(py).items().into())
     }
@@ -206,6 +211,7 @@ pub struct State {
 
 /// Helper: Deep Merge (Copy-on-Write) for State Updates
 /// preserved existing structure while merging new deltas.
+#[allow(clippy::needless_pass_by_value)]
 fn deep_merge_cow(py: Python, target: PyObject, source: &Bound<PyDict>) -> PyResult<PyObject> {
     if let Ok(target_dict) = target.downcast_bound::<PyDict>(py) {
         let new_dict = target_dict.copy()?; // Shallow copy
@@ -231,6 +237,7 @@ fn deep_merge_cow(py: Python, target: PyObject, source: &Bound<PyDict>) -> PyRes
 impl State {
     #[new]
     #[pyo3(signature = (data=None, heavy=None, signal=None, version=1, meta_capacity=1000))]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(data: Option<PyObject>, heavy: Option<PyObject>, signal: Option<PyObject>, version: u64, meta_capacity: usize, py: Python) -> PyResult<Self> {
         let _ = signal; // Suppress unused warning
         let mut state_data = HashMap::new();
@@ -375,31 +382,58 @@ impl State {
         }
         
         if let Some(s) = signal {
-            // Polymorphic handling: PyList (Batch from Transaction) or PyDict (Single update)
+            // [INC-023] State.update() ONLY populates last_signals latch (for Flux DSL).
+            // signal.publish() is intentionally NOT called here — it is deferred to
+            // State.publish_signals(), which must be called AFTER data commit.
+            // This ensures causal ordering: subscribers receive events only after
+            // the corresponding state transition is visible in engine.state.
             if let Ok(s_list) = s.downcast_bound::<PyList>(py) {
                 for item in s_list {
-                     let s_dict = item.downcast::<PyDict>()?;
-                     for (k, v) in s_dict {
+                    let s_dict = item.downcast::<PyDict>()?;
+                    for (k, v) in s_dict {
                         let topic = k.extract::<String>()?;
-                        let payload = v.to_string(); 
-
-                        new_state.signal.publish(format!("{topic}:{payload}"));
-                        // Latch for Flux
+                        let payload = v.to_string();
+                        // Latch for Flux — no publish here
                         new_state.last_signals.insert(topic, payload);
-                     }
+                    }
                 }
             } else if let Ok(s_dict) = s.downcast_bound::<PyDict>(py) {
-                 for (k, v) in s_dict {
+                for (k, v) in s_dict {
                     let topic = k.extract::<String>()?;
-                    let payload = v.to_string(); 
-                    new_state.signal.publish(format!("{topic}:{payload}"));
-                    // Latch for Flux
+                    let payload = v.to_string();
+                    // Latch for Flux — no publish here
                     new_state.last_signals.insert(topic, payload);
                 }
             }
         }
         
         Ok(new_state)
+    }
+
+    /// [INC-023] Deferred signal dispatch — call AFTER data is committed to engine.state.
+    /// `State.update()` populates `last_signals` for Flux but does NOT publish to the channel.
+    /// This method does the actual Tokio `broadcast::send`, guaranteeing that any subscriber
+    /// who receives an event can immediately query engine.state and see consistent data.
+    pub fn publish_signals(&self, py: Python, signal: Option<PyObject>) -> PyResult<()> {
+        let Some(s) = signal else { return Ok(()); };
+        if let Ok(s_list) = s.downcast_bound::<PyList>(py) {
+            for item in s_list {
+                if let Ok(s_dict) = item.downcast::<PyDict>() {
+                    for (k, v) in s_dict {
+                        let topic = k.extract::<String>()?;
+                        let payload = v.to_string();
+                        self.signal.publish(format!("{topic}:{payload}"));
+                    }
+                }
+            }
+        } else if let Ok(s_dict) = s.downcast_bound::<PyDict>(py) {
+            for (k, v) in s_dict {
+                let topic = k.extract::<String>()?;
+                let payload = v.to_string();
+                self.signal.publish(format!("{topic}:{payload}"));
+            }
+        }
+        Ok(())
     }
 
     /// Log a system event to the Meta Zone Ring Buffer.
@@ -552,6 +586,7 @@ impl State {
         self.get_meta_logs()
     }
     
+    #[allow(clippy::unused_self)]
     fn __setattr__(&self, _name: String, _value: PyObject) -> PyResult<()> {
         Err(ContextError::new_err("State is Immutable. Use .update() to create a new version."))
     }
@@ -679,9 +714,9 @@ impl ProcessContext {
     }
     
     // Forward getter access to state (except local) - Fallback
-    fn __getattr__(&self, py: Python, name: String) -> PyResult<PyObject> {
+    fn __getattr__(&self, py: Python, name: &str) -> PyResult<PyObject> {
         // First check state
-        match self.state.bind(py).getattr(name.as_str()) {
+        match self.state.bind(py).getattr(name) {
             Ok(v) => Ok(v.unbind()),
             Err(_) => {
                 // Return None or raise?

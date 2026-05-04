@@ -59,7 +59,7 @@ fn parse_path_segments(path: &str) -> Vec<PathSegment> {
 }
 
 /// Set nested value in a dict/list based on path notation
-/// Supports: "domain.users[0].name", "data['key']", "items.0"
+/// Supports: "domain.users[0].name", "data[`key`]", "items.0"
 pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObject) -> PyResult<()> {
     let segments = parse_path_segments(path);
     
@@ -185,6 +185,7 @@ pub fn set_nested_value(py: Python, root: &Py<PyDict>, path: &str, value: &PyObj
 /// - Clones the original dict (shallow copy of keys).
 /// - Recursively merges nested dicts.
 /// - Overwrites non-dict values.
+#[allow(clippy::needless_pass_by_value)]
 pub fn deep_merge_cow(py: Python, target: PyObject, updates: &Bound<'_, PyDict>) -> PyResult<PyObject> {
     // If target is a Dict, we merge.
     if let Ok(target_dict) = target.bind(py).downcast::<PyDict>() {

@@ -186,17 +186,17 @@ impl AuditSystem {
     /// Log a failure event. Behavior depends on `AuditLevel`.
     /// Can override global level and threshold per-call.
     #[pyo3(signature = (key, level=None, threshold_max=None))]
-    pub fn log_fail(&mut self, py: Python, key: String, level: Option<AuditLevel>, threshold_max: Option<u32>) -> PyResult<()> {
+    pub fn log_fail(&mut self, py: Python, key: &str, level: Option<AuditLevel>, threshold_max: Option<u32>) -> PyResult<()> {
         // First: update count (mutable borrow)
         let current_count: u32 = {
-            let count = self.counts.entry(key.clone()).or_insert(0);
+            let count = self.counts.entry(key.to_string()).or_insert(0);
             *count += 1;
             *count  // Copy value before releasing borrow
         };
 
         // Now: immutable borrows are safe
         // Log to ring buffer
-        self.log_internal(&key, &format!("Fail #{current_count}"));
+        self.log_internal(key, &format!("Fail #{current_count}"));
 
         // Use Overrides (Granular) OR Fallback to Global (Defcon)
         let effective_level = level.unwrap_or(self.recipe.level);
@@ -234,7 +234,7 @@ impl AuditSystem {
                     )?;
                     
                     // Also log to ring buffer
-                    self.log_internal(&key, &format!("WARN: Approaching threshold ({current_count}/{effective_threshold})"));
+                    self.log_internal(key, &format!("WARN: Approaching threshold ({current_count}/{effective_threshold})"));
                 }
             }
             AuditLevel::Count => {
@@ -257,8 +257,8 @@ impl AuditSystem {
 
     /// Get current count for a key.
     #[must_use] 
-    pub fn get_count(&self, key: String) -> u32 {
-        *self.counts.get(&key).unwrap_or(&0)
+    pub fn get_count(&self, key: &str) -> u32 {
+        *self.counts.get(key).unwrap_or(&0)
     }
 
     /// Get total count across all keys.
@@ -269,8 +269,8 @@ impl AuditSystem {
 
     /// Log a general event to ring buffer.
     #[pyo3(signature = (key, message))]
-    pub fn log(&mut self, key: String, message: String) {
-        self.log_internal(&key, &message);
+    pub fn log(&mut self, key: &str, message: &str) {
+        self.log_internal(key, message);
     }
 
     /// Get all logs from ring buffer.

@@ -186,8 +186,8 @@ pub struct WorkflowEngine {
 impl WorkflowEngine {
     #[new]
     #[pyo3(signature = (yaml_config, max_ops=10000, debug=false))]
-    fn new(yaml_config: String, max_ops: u32, debug: bool) -> PyResult<Self> {
-        let config: Value = serde_yaml::from_str(&yaml_config)
+    fn new(yaml_config: &str, max_ops: u32, debug: bool) -> PyResult<Self> {
+        let config: Value = serde_yaml::from_str(yaml_config)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid YAML: {e}")))?;
         
         // Parse 'steps' into FluxStep AST
@@ -249,6 +249,7 @@ impl WorkflowEngine {
     /// Returns:
     ///     List of executed process names (for debugging/logging)
     #[pyo3(signature = (ctx, executor))]
+    #[allow(clippy::needless_pass_by_value)]
     fn execute(&self, py: Python, ctx: Py<PyDict>, executor: PyObject) -> PyResult<Vec<String>> {
         // Transition: Pending -> Running
         self.transition_state(py, FSMState::Running)?;
@@ -283,6 +284,7 @@ impl WorkflowEngine {
     /// Wraps the synchronous execution in a thread (`asyncio.to_thread`) to avoid blocking the event loop.
     /// Handles FSM state transitions correctly for async steps by blocking the worker thread.
     #[pyo3(signature = (ctx, executor))]
+    #[allow(clippy::needless_pass_by_value)]
     fn execute_async(
         self_: Py<Self>,
         py: Python<'_>,
@@ -310,12 +312,13 @@ impl WorkflowEngine {
     
     /// Legacy method for backward compatibility with existing tests.
     /// Returns the simulated execution path without actually executing.
+    #[allow(clippy::needless_pass_by_value)]
     fn simulate(&self, py: Python, ctx: Py<PyDict>) -> PyResult<Vec<String>> {
         // For legacy compatibility, generate path from simple graph nodes
         // This is a simplified version - full graph traversal logic from old implementation
         let mut path = Vec::new();
         
-        let nodes = if let Some(n) = self.config.get("nodes") { n } else {
+        let Some(nodes) = self.config.get("nodes") else {
             // Fallback: Linear Flux Simulation (Simple traversal for legacy compat)
             // This handles legacy V2 "steps" list which parses into linear FluxSteps
             let mut stack: Vec<&FluxStep> = self.steps.iter().rev().collect();
@@ -348,15 +351,9 @@ impl WorkflowEngine {
         loop {
             path.push(current_node_name.clone());
             
-            let node_def = match nodes.get(&current_node_name) {
-                Some(n) => n,
-                None => break,
-            };
+            let Some(node_def) = nodes.get(&current_node_name) else { break };
             
-            let next_val = match node_def.get("next") {
-                Some(n) => n,
-                None => break,
-            };
+            let Some(next_val) = node_def.get("next") else { break };
             
             if let Some(s) = next_val.as_str() {
                 current_node_name = s.to_string();
@@ -530,6 +527,7 @@ impl WorkflowEngine {
     }
 
     /// Transition to a new FSM state, record in history, and notify observers.
+    #[allow(clippy::unnecessary_wraps)]
     fn transition_state(&self, py: Python, new_state: FSMState) -> PyResult<()> {
         let old_state = *self.fsm_state.lock().unwrap();
         

@@ -120,6 +120,7 @@ impl Transaction {
     }
     
     #[pyo3(signature = (original, path=None))]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn get_shadow(&mut self, py: Python, original: PyObject, path: Option<String>) -> PyResult<PyObject> {
         let id = original.bind(py).as_ptr() as usize;
         

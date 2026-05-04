@@ -51,6 +51,7 @@ impl ShmAllocator {
 
     /// Allocates a new global SHM block.
     /// Returns the name (`shm_name`) of the block.
+    #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
     pub fn allocate(&mut self, _size: usize) -> Result<String, std::io::Error> {
         let name = format!("theus_shm_{}", Uuid::new_v4());
         

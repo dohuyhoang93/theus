@@ -118,20 +118,25 @@ impl ContextGuard {
 
         // Check if Transaction is present
         // If NO Transaction (strict_mode=False), return raw value immediately
-        let tx = match &self.tx {
-            Some(t) => t,
-            None => {
+        let Some(tx) = &self.tx else {
                 // println!("DEBUG: No Transaction for guard path '{}', returning raw value", full_path);
                 // std::io::stdout().flush().unwrap();
                 return Ok(val); 
-            },
-        };
+            };
 
         
         // [RFC-001] Logic: Calculate Intersection
         let zone = resolve_zone(&full_path);
         let zone_physics = get_zone_physics(&zone);
-        
+
+        // [INC-022] System Infrastructure Zone bypass: Signal/Meta/Log zones contain
+        // non-transactional runtime objects (SignalHub, broadcast channels, log buffers).
+        // These must NOT be deepcopied — they are not part of the MVCC snapshot graph.
+        // Return the object as-is; no CoW isolation is semantically valid here.
+        if matches!(zone, ContextZone::Signal | ContextZone::Meta | ContextZone::Log) {
+            return Ok(val);
+        }
+
         // [RFC-001 Handbook §1.1] PRIVATE zone: non-admin cannot read at all.
         // Return Python None to hide the field completely.
         if zone == ContextZone::Private && !self.is_admin {
@@ -302,7 +307,7 @@ impl ContextGuard {
         Arc::as_ptr(&self.policy) as usize
     }
 
-    fn __getattr__(&self, py: Python, name: String) -> PyResult<PyObject> {
+    fn __getattr__(&self, py: Python, name: &str) -> PyResult<PyObject> {
         if self.policy.strict_guards && name.starts_with('_') {
             // NOTE: Dunder attributes (__xxx__) must raise AttributeError, not PermissionError.
             // Libraries like NumPy probe __array_struct__, __array_interface__ etc.
@@ -316,23 +321,23 @@ impl ContextGuard {
         }
 
         if name.starts_with('_') {
-             return self.target.bind(py).getattr(name.as_str())?.extract();
+             return self.target.bind(py).getattr(name)?.extract();
         }
 
         let full_path = if self.path_prefix.is_empty() {
-            name.clone()
+            name.to_string()
         } else {
             format!("{}.{}", self.path_prefix, name)
         };
 
         // Whitelist internal attributes
         if name == "outbox" || name == "policy_id" {
-             return self.target.bind(py).getattr(name.as_str())?.extract();
+             return self.target.bind(py).getattr(name)?.extract();
         }
 
         self.check_permissions(&full_path, false)?;
 
-        let val = self.target.bind(py).getattr(name.as_str())?.unbind();
+        let val = self.target.bind(py).getattr(name)?.unbind();
         self.apply_guard(py, val, full_path)
     }
 
@@ -399,6 +404,7 @@ impl ContextGuard {
         Ok(())
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn __getitem__(&self, py: Python, key: PyObject) -> PyResult<PyObject> {
         let target = self.target.bind(py);
         
@@ -421,7 +427,7 @@ impl ContextGuard {
         }
 
         if let Ok(key_str) = key.extract::<String>(py) {
-             return self.__getattr__(py, key_str);
+             return self.__getattr__(py, &key_str);
         }
         
         target.get_item(&key).map(pyo3::Bound::unbind)
@@ -502,7 +508,8 @@ impl ContextGuard {
 
     /// DX Log method: ctx.log("msg")
     /// Writes to standard output for now (or could use meta logs if accessible)
-    fn log(&self, message: String) {
+    #[allow(clippy::unused_self)]
+    fn log(&self, message: &str) {
         println!("[CTX LOG] {message}");
     }
 

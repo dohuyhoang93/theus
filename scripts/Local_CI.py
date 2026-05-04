@@ -67,9 +67,29 @@ def step_gen_stubs(env):
     env["PYTHONPATH"] = get_project_root()
     run_step([sys.executable, "scripts/gen_stubs.py"], env, "Generating Type Stubs")
 
+def step_purge_pycache(env):
+    """Purge stale __pycache__ directories under tests/ (INC-024 vaccine).
+
+    .pyc files embed compile-time absolute co_filename. If the project was
+    forked from another directory, stale bytecode carries the old path into
+    pytest warning output. Deleting __pycache__ forces fresh compilation with
+    correct paths on next pytest run.
+    """
+    import shutil
+    tests_dir = os.path.join(get_project_root(), "tests")
+    purged = 0
+    for dirpath, dirs, _ in os.walk(tests_dir):
+        if "__pycache__" in dirs:
+            cache_dir = os.path.join(dirpath, "__pycache__")
+            shutil.rmtree(cache_dir, ignore_errors=True)
+            dirs.remove("__pycache__")
+            purged += 1
+    print(f"   Purged {purged} __pycache__ director{'y' if purged == 1 else 'ies'} under tests/")
+
 def step_test_automated(env):
     """Run Pytest Suite."""
     env["PYTHONPATH"] = get_project_root()
+    step_purge_pycache(env)
     run_step([sys.executable, "-m", "pytest", "tests/"], env, "Running Automated Tests (Pytest)")
 
 def step_test_manual(env):
@@ -91,31 +111,11 @@ def step_clippy(env):
             "-W",
             "clippy::pedantic",
             "-A",
-            "clippy::needless_pass_by_value",
-            "-A",
-            "clippy::unnecessary_wraps",
-            "-A",
-            "clippy::unused_self",
-            "-A",
             "clippy::missing_errors_doc",
             "-A",
             "clippy::missing_panics_doc",
             "-A",
-            "clippy::manual_let_else",
-            "-A",
-            "clippy::used_underscore_items",
-            "-A",
-            "clippy::used_underscore_binding",
-            "-A",
-            "clippy::doc_link_with_quotes",
-            "-A",
             "clippy::match_same_arms",
-            "-A",
-            "clippy::cast_possible_truncation",
-            "-A",
-            "clippy::cast_sign_loss",
-            "-A",
-            "clippy::cast_precision_loss",
             "-A",
             "clippy::items_after_statements",
             "-A",

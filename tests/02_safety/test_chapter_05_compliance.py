@@ -102,21 +102,18 @@ async def task_signal_input_allowed_relaxed(ctx):
 
 @pytest.mark.asyncio
 async def test_claim_zone_enforcement_edge(engine):
-    """Verify Claim 3: Zone Enforcement (Signal/Meta inputs)."""
-    # Ch 5 says: "Input Guard... checks all inputs... cannot use SIGNAL or META".
-    # This is an ARCHITECTURAL constraint, not just permission.
-    
-    # If this passes, Ch 5 claims might be too strong or Engine config dependent.
-    # Theus v3.0 Strict Mode should theoretically block this registration or execution.
-    try:
-        engine.register(task_signal_input_allowed_relaxed)
+    """Verify Claim 3: Zone Enforcement — Signal inputs are BLOCKED in strict mode.
+
+    POP Ch5: Signal zone is ephemeral flow, not addressable state.
+    A process declaring signal.* as input with strict_guards=True must be rejected
+    with PermissionError at execution (ContextGuard creation), not silently crash.
+
+    INC-022 fix: zones.rs now classifies "signal" → Signal zone, so guards.rs
+    new_internal catches it before the CoW path is ever reached.
+    """
+    engine.register(task_signal_input_allowed_relaxed)
+    with pytest.raises((PermissionError, RuntimeError)):
         await engine.execute("task_signal_input_allowed_relaxed")
-    except Exception:
-        # If it fails, the claim is TRUE (Enforced).
-        # But wait, looking at specs, Signals ARE valid triggers. 
-        # The restriction is usually on *Stateful* processes depending on *Transient* signals for *Peristent* logic.
-        # Let's observe behavior.
-        pass
 
 # --- Tier 4: Conflict (Simulated) ---
 # Testing "Stale Reference" Trap mentioned in Chapter 5.

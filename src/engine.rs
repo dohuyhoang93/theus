@@ -82,7 +82,7 @@ impl TheusEngine {
     }
     
     // Conflict APIs for Python Retry Loop
-    fn report_conflict(&self, process_name: String) -> RetryDecision {
+    fn report_conflict(&self, process_name: &str) -> RetryDecision {
         self.conflict_manager.report_conflict(process_name)
     }
 
@@ -105,6 +105,7 @@ impl TheusEngine {
 
     // Return Transaction.
     #[pyo3(signature = (write_timeout_ms=5000))]
+    #[allow(clippy::unnecessary_wraps)]
     fn transaction(slf: Py<TheusEngine>, py: Python, write_timeout_ms: u64) -> PyResult<Transaction> {
         Ok(Transaction {
             engine: slf,
@@ -277,6 +278,10 @@ impl TheusEngine {
         // Safe practice: drop borrow.
         drop(current_state);
 
+        // [INC-023] Clone signal before moving into State.update() so we can publish
+        // after commit. State.update() only latches last_signals (Flux); actual publish
+        // is deferred to after self.state is updated below.
+        let signal_for_publish = signal.as_ref().map(|s| s.clone_ref(py));
 
         let new_state_obj = current_state_bound.call_method(
             "update", 
@@ -301,6 +306,14 @@ impl TheusEngine {
         }
         
         self.state = new_state_obj.extract::<Py<State>>()?;
+
+        // [INC-023] Deferred signal dispatch — fires AFTER self.state is committed.
+        // Guarantees that subscribers see consistent state when they receive the event.
+        // If schema validation failed above, this line is never reached — no orphaned signals.
+        if let Some(sig) = signal_for_publish {
+            self.state.bind(py).borrow().publish_signals(py, Some(sig))?;
+        }
+
         Ok(())
     }
 
@@ -308,7 +321,7 @@ impl TheusEngine {
     fn execute_process_async<'py>(
         &self, 
         py: Python<'py>, 
-        name: String, 
+        name: &str, 
         func: PyObject,
         tx: Option<PyObject>
     ) -> PyResult<Bound<'py, PyAny>> {
@@ -564,6 +577,7 @@ impl Transaction {
     }
 
     /// [v3.1.2] Expose raw delta log for strict contract validation
+    #[allow(clippy::unnecessary_wraps)]
     fn get_delta_log(&self, _py: Python) -> PyResult<Vec<String>> {
         let delta_log = self.delta_log.lock().unwrap();
         // Return only paths, values not needed for validation usually
@@ -572,6 +586,7 @@ impl Transaction {
     }
 
     /// [v3.3] Manual Flush for Flux Engine / `execute()`
+    #[allow(clippy::unnecessary_wraps)]
     fn flush_outbox(&self, py: Python) -> PyResult<()> {
         let mut pending = self.pending_outbox.lock().unwrap();
         if pending.is_empty() { return Ok(()); }
@@ -586,25 +601,28 @@ impl Transaction {
 
 
 
+    #[allow(clippy::unnecessary_wraps)]
     fn __enter__(mut slf: PyRefMut<Self>, _py: Python) -> PyResult<Py<Self>> {
         slf.start_time = Some(Instant::now());
         Ok(slf.into())
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn __exit__(
         &self, 
         py: Python, 
-        _exc_type: Option<PyObject>, 
+        exc_type: Option<PyObject>, 
         _exc_value: Option<PyObject>, 
         _traceback: Option<PyObject>
     ) -> PyResult<()> {
         
-        if _exc_type.is_some() {
+        if exc_type.is_some() {
             return Ok(());
         }
 
         // Enforce Timeout
         if let Some(start) = self.start_time {
+             #[allow(clippy::cast_possible_truncation)]
              if start.elapsed().as_millis() as u64 > self.write_timeout_ms {
                  return Err(WriteTimeoutError::new_err(format!(
                      "Transaction timed out after {}ms (limit {}ms)", 
@@ -651,7 +669,18 @@ impl Transaction {
         }
 
         engine.call_method1("commit_state", (new_state_obj,))?;
-        
+
+        // [INC-023] Deferred signal dispatch — fires AFTER data is committed to engine.state.
+        // State.update() above only populated last_signals (Flux latch), no publish yet.
+        // Now that engine.state is updated, subscribers will see consistent state.
+        {
+            let committed_state = engine.getattr("state")?;
+            committed_state.call_method1(
+                "publish_signals",
+                (self.pending_signal.clone_ref(py),)
+            )?;
+        }
+
         // Commit Outbox to Engine
         {
             let mut pending = self.pending_outbox.lock().unwrap();
@@ -666,6 +695,7 @@ impl Transaction {
     }
 
     /// [v3.1.2] Infer Deltas from Shadow Mutations (Differential Merging)
+    #[allow(clippy::unnecessary_wraps)]
     fn infer_shadow_deltas(&self, py: Python) -> PyResult<()> {
         // [v3.3] Idempotency Check: Prevent hangs during Transaction.__exit__ if already inferred
         {
@@ -743,6 +773,7 @@ impl Transaction {
     }
 
     /// Internal: Get shadow copy for CoW/Tracking
+    #[allow(clippy::needless_pass_by_value)]
     pub fn get_shadow(&self, py: Python, val: PyObject, path: Option<String>) -> PyResult<PyObject> {
         let id = val.bind(py).as_ptr() as usize;
 
@@ -879,9 +910,10 @@ impl Transaction {
 
     /// [v3.1 Zero Trust] Log operation for Audit
     #[pyo3(name = "log_delta", signature = (path, old_val=None, new_val=None))]
-    pub fn log_delta(&self, py: Python, path: String, old_val: Option<PyObject>, new_val: Option<PyObject>) -> PyResult<()> {
+    #[allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
+    pub fn log_delta(&self, py: Python, path: &str, old_val: Option<PyObject>, new_val: Option<PyObject>) -> PyResult<()> {
         let entry = crate::delta::DeltaEntry {
-            path: path.clone(),
+            path: path.to_string(),
             op: "SET".to_string(),
             value: new_val.as_ref().map(|v| v.clone_ref(py)),
             old_value: old_val.as_ref().map(|v| v.clone_ref(py)),
@@ -894,7 +926,7 @@ impl Transaction {
     }
 
     /// Internal: Log operation for Audit (Full)
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::unused_self, clippy::unnecessary_wraps)]
     pub fn log_internal(
         &self, 
         _path: String, 
@@ -910,6 +942,7 @@ impl Transaction {
 
     /// [v3.4] Fail-fast: Transaction cannot be pickled/deepcopied.
     /// Prevents silent corruption if Transaction leaks into serializable paths.
+    #[allow(clippy::unused_self)]
     fn __reduce__(&self) -> PyResult<()> {
         Err(pyo3::exceptions::PyRuntimeError::new_err(
             "Transaction objects cannot be pickled/deepcopied. \
@@ -918,6 +951,7 @@ impl Transaction {
         ))
     }
 
+    #[allow(clippy::unused_self)]
     fn __deepcopy__(&self, _memo: PyObject) -> PyResult<()> {
         Err(pyo3::exceptions::PyRuntimeError::new_err(
             "Transaction objects cannot be deepcopied. \
@@ -927,6 +961,7 @@ impl Transaction {
 
     /// [INC-013] Helper: Check if object is a tracked Shadow.
     #[pyo3(name = "is_known_shadow")]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn is_known_shadow(&self, py: Python, obj: PyObject) -> bool {
         let ptr = obj.bind(py).as_ptr() as usize;
         let cache = self.shadow_cache.lock().unwrap();

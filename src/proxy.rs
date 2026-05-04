@@ -81,10 +81,7 @@ fn get_current_tx(py: Python) -> Option<PyObject> {
         Err(_) => return None,
     };
     
-    let ctx_var = match guards_mod.getattr("_current_tx") {
-        Ok(v) => v,
-        Err(_) => return None,
-    };
+    let Ok(ctx_var) = guards_mod.getattr("_current_tx") else { return None };
     match ctx_var.call_method0("get") {
         Ok(val) => {
             if val.is_none() { None } else { Some(val.unbind()) }
@@ -97,6 +94,7 @@ fn get_current_tx(py: Python) -> Option<PyObject> {
 impl SupervisorProxy {
     #[new]
     #[pyo3(signature = (target, path=String::new(), read_only=false, transaction=None, is_shadow=false, capabilities=15))]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(
         py: Python,
         target: PyObject,
@@ -159,7 +157,7 @@ impl SupervisorProxy {
 
     /// Get attribute - Returns original object (or nested Proxy)
     /// v3.1: Supports Dict dot-access (d.key) fallback
-    fn __getattr__(&self, py: Python, name: String) -> PyResult<PyObject> {
+    fn __getattr__(&self, py: Python, name: &str) -> PyResult<PyObject> {
         // Skip internal attributes, but intercept __dict__ with PermissionError
         // [RFC-001 §10] Block __dict__ to prevent bypassing Zone Physics
         if name == "__dict__" {
@@ -174,7 +172,7 @@ impl SupervisorProxy {
         }
 
         let nested_path = if self.path.is_empty() {
-            name.clone()
+            name.to_string()
         } else {
             format!("{}.{}", self.path, name)
         };
@@ -195,13 +193,13 @@ impl SupervisorProxy {
         }
 
         // 1. Try generic getattr (methods, object fields)
-        let val_result = self.inner.getattr(py, name.as_str());
+        let val_result = self.inner.getattr(py, name);
         
         let val = match val_result {
             Ok(v) => v,
             Err(_e) => {
                 if self.inner.bind(py).is_instance_of::<PyDict>() {
-                    match self.inner.call_method1(py, "__getitem__", (name.clone(),)) {
+                    match self.inner.call_method1(py, "__getitem__", (name.to_string(),)) {
                         Ok(v) => v,
                         Err(_) => {
                             // If key missing, return original error but enriched
@@ -214,7 +212,6 @@ impl SupervisorProxy {
                         }, 
                     }
                 } else {
-                    let _ = _e;
                      return Err(pyo3::exceptions::PyAttributeError::new_err(
                         format!(
                             "'SupervisorProxy[{}]' object has no attribute '{}'. (Path: '{}')", 
@@ -227,7 +224,7 @@ impl SupervisorProxy {
 
         // Build nested path
         let nested_path = if self.path.is_empty() {
-            name.clone()
+            name.to_string()
         } else {
             format!("{}.{}", self.path, name)
         };
@@ -296,8 +293,8 @@ impl SupervisorProxy {
     }
 
     /// Set attribute - Intercept for logging and permission check
-    /// v3.1: Supports Dict dot-access (d.key = val -> d['key'] = val)
-    fn __setattr__(&self, py: Python, name: String, value: PyObject) -> PyResult<()> {
+    /// v3.1: Supports Dict dot-access (d.key = val -> d[`key`] = val)
+    fn __setattr__(&self, py: Python, name: &str, value: PyObject) -> PyResult<()> {
         // Block writes on read-only proxy (PURE processes)
         if self.read_only {
             return Err(pyo3::exceptions::PyPermissionError::new_err(
@@ -307,7 +304,7 @@ impl SupervisorProxy {
 
         // [RFC-001] Check field-specific Zone Physics
         let full_path = if self.path.is_empty() {
-            name.clone()
+            name.to_string()
         } else {
             format!("{}.{}", self.path, name)
         };
@@ -333,16 +330,16 @@ impl SupervisorProxy {
         // Log mutation via contextvars Transaction (not stored in self)
         if let Some(tx_obj) = get_current_tx(py) {
             let full_path = if self.path.is_empty() {
-                name.clone()
+                name.to_string()
             } else {
                 format!("{}.{}", self.path, name)
             };
             
             // Get old value for delta logging (handling Dict vs Object)
             let old_val = if is_dict {
-                 self.inner.call_method1(py, "get", (name.as_str(),)).ok()
+                 self.inner.call_method1(py, "get", (name,)).ok()
             } else {
-                 self.inner.getattr(py, name.as_str()).ok()
+                 self.inner.getattr(py, name).ok()
             };
             
             // Call transaction.log_delta(path, old, new)
@@ -367,7 +364,7 @@ impl SupervisorProxy {
             if is_dict {
                  self.inner.call_method1(py, "__setitem__", (name, value))?;
             } else {
-                 self.inner.setattr(py, name.as_str(), value)?;
+                 self.inner.setattr(py, name, value)?;
             }
             Ok(())
         } else {
@@ -377,6 +374,7 @@ impl SupervisorProxy {
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn __getitem__(&self, py: Python, key: PyObject) -> PyResult<PyObject> {
         let key_str = key.bind(py).str()?.to_string();
         let nested_path = if self.path.is_empty() {
@@ -458,7 +456,7 @@ impl SupervisorProxy {
         }
     }
 
-    /// Set item - For dict-like access ctx.domain["key"] = value
+    /// Set item - For dict-like access ctx.domain[`key`] = value
     fn __setitem__(&self, py: Python, key: PyObject, value: PyObject) -> PyResult<()> {
         if self.read_only {
             return Err(pyo3::exceptions::PyPermissionError::new_err(
@@ -529,6 +527,7 @@ impl SupervisorProxy {
 
     /// Helper for users confused by type checks
     /// "isinstance(proxy, dict)" fails, so we provide this hint.
+    #[allow(clippy::unused_self)]
     fn is_proxy(&self) -> bool {
         true
     }
@@ -712,11 +711,12 @@ impl SupervisorProxy {
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn get(&self, py: Python, key: PyObject, default: Option<PyObject>) -> PyResult<PyObject> {
         // Safe get that wraps result
         let val_res = self.inner.call_method1(py, "get", (key.clone_ref(py), default));
         match val_res {
-            Ok(val) => self._wrap_result(py, key.bind(py).str()?.to_string(), val),
+            Ok(val) => self.wrap_result(py, key.bind(py).str()?.to_string(), val),
             Err(e) => Err(e),
         }
     }
@@ -734,7 +734,7 @@ impl SupervisorProxy {
         
         let mut wrapped_list = Vec::new();
         for item in values_py_list.iter() {
-             let wrapped = self._wrap_result(py, "?".to_string(), item.unbind())?;
+             let wrapped = self.wrap_result(py, "?".to_string(), item.unbind())?;
              wrapped_list.push(wrapped);
         }
         Ok(PyList::new_bound(py, wrapped_list).into())
@@ -756,7 +756,7 @@ impl SupervisorProxy {
                      let k = tuple.get_item(0)?;
                      let v = tuple.get_item(1)?;
                      let k_str = k.str()?.to_string();
-                     let wrapped_v = self._wrap_result(py, k_str, v.unbind())?;
+                     let wrapped_v = self.wrap_result(py, k_str, v.unbind())?;
                      
                      // Safe Tuple Creation
                      let elements = vec![k.unbind(), wrapped_v];
@@ -770,6 +770,7 @@ impl SupervisorProxy {
 
     // === Zero Trust Mutators ===
 
+    #[allow(clippy::needless_pass_by_value)]
     fn update(&self, py: Python, other: Option<PyObject>, kwargs: Option<PyObject>) -> PyResult<()> {
         if self.read_only {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
@@ -924,6 +925,7 @@ impl SupervisorProxy {
     }
 
 
+    #[allow(clippy::needless_pass_by_value)]
     fn setdefault(&self, py: Python, key: PyObject, default: Option<PyObject>) -> PyResult<PyObject> {
         if self.read_only {
              return Err(pyo3::exceptions::PyPermissionError::new_err(
@@ -962,9 +964,9 @@ impl SupervisorProxy {
         
         // Wrap result
         let key_str = key.bind(py).str()?.to_string();
-        self._wrap_result(py, key_str, res)
+        self.wrap_result(py, key_str, res)
     }
-    fn _wrap_result(&self, py: Python, key_or_path: String, val: PyObject) -> PyResult<PyObject> {
+    fn wrap_result(&self, py: Python, key_or_path: String, val: PyObject) -> PyResult<PyObject> {
          let nested_path = if self.path.is_empty() {
             key_or_path
         } else {
@@ -1045,6 +1047,7 @@ impl SupervisorProxy {
 
     // === Pickle Support (v3.2) ===
     
+    #[allow(clippy::unnecessary_wraps)]
     fn __getstate__(&self, py: Python) -> PyResult<PyObject> {
         // We pickle the target and metadata.
         // We LOSE transaction context across pickle boundaries usually (e.g. multiprocessing)
@@ -1062,6 +1065,7 @@ impl SupervisorProxy {
         Ok(tuple.into())
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
         let tuple = state.downcast_bound::<PyTuple>(py)?;
         self.inner = tuple.get_item(0)?.unbind();
@@ -1082,6 +1086,7 @@ impl SupervisorProxy {
         Ok(())
     }
 
+    #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
     fn __getnewargs__(&self, py: Python) -> PyResult<PyObject> {
         // Provide dummy args to satisfy __new__ signature during unpickling
         // (target, path, read_only, transaction)

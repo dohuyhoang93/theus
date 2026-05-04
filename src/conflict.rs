@@ -45,15 +45,15 @@ impl ConflictManager {
 
     /// Report a conflict failure for a process/key.
     /// Returns a decision on whether to retry and how long to wait.
-    pub fn report_conflict(&self, key: String) -> RetryDecision {
+    pub fn report_conflict(&self, key: &str) -> RetryDecision {
         let mut map = self.failures.lock().unwrap();
-        let count = map.entry(key.clone()).or_insert(0);
+        let count = map.entry(key.to_string()).or_insert(0);
         
         let mut vip_lock = self.vip_holder.lock().unwrap();
         
         // Check if I am blocked by another VIP
         if let Some(ref current_vip) = *vip_lock {
-            if current_vip != &key {
+            if current_vip != key {
                 // I am blocked by a VIP. Wait nicely.
                 return RetryDecision { should_retry: true, wait_ms: 50 }; // 50ms snooze
             }
@@ -65,13 +65,13 @@ impl ConflictManager {
             // Reset counter partly to allow execution attempt as VIP?
             // Or just grant VIP and return retry?
             if vip_lock.is_none() {
-                *vip_lock = Some(key.clone());
+                *vip_lock = Some(key.to_string());
                  // Reset counter to give VIP unlimited attempts? Or just access?
                  // Let's reset counter to 0 so it doesn't fail immediately max limit check.
                  // *count = 0; 
                  // Return immediate retry with VIP status.
                  return RetryDecision { should_retry: true, wait_ms: 1 };
-            } else if *vip_lock == Some(key.clone()) {
+            } else if *vip_lock == Some(key.to_string()) {
                  // I am already VIP. Keep trying.
                  // Don't fail me.
                  return RetryDecision { should_retry: true, wait_ms: 1 };
@@ -91,7 +91,8 @@ impl ConflictManager {
         // Add random Jitter +/- 20%
         let mut rng = rand::thread_rng();
         let jitter = rng.gen_range(0.8..1.2);
-        delay = (delay as f64 * jitter) as u64;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        { delay = (delay as f64 * jitter) as u64; }
         
         RetryDecision { 
             should_retry: true, 
@@ -112,9 +113,9 @@ impl ConflictManager {
     }
     
     /// Get current failure count (Internal Diagnostic)
-    pub fn get_failure_count(&self, key: String) -> u32 {
+    pub fn get_failure_count(&self, key: &str) -> u32 {
         let map = self.failures.lock().unwrap();
-        *map.get(&key).unwrap_or(&0)
+        *map.get(key).unwrap_or(&0)
     }
     
     /// Check if action is blocked by VIP
