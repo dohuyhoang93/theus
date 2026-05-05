@@ -1085,6 +1085,9 @@ class TheusEngine:
 
                     # [FIX hybrid-precedence] If proxy delta already wrote this path,
                     # the mutation wins — return value is treated as ack, not data.
+                    # NOTE: This is correct ONLY when pending_data is built from
+                    # build_pending_from_deltas() (actual proxy writes) and NOT from
+                    # to_dict() snapshot. INC-026 Fix 1 (empty init below) ensures this.
                     if _proxy_delta_exists(pending_data, path):
                         continue
 
@@ -1102,22 +1105,13 @@ class TheusEngine:
                         key = "global" if root == "global_" else root
 
                         # Ensure root is in pending_data (Merge Base)
+                        # [FIX v3.0.26-patch] Use empty dict instead of to_dict() snapshot.
+                        # Using to_dict() caused _proxy_delta_exists to treat snapshot fields
+                        # as "already set by proxy mutation", skipping legitimate return-value
+                        # updates (e.g. domain.experiments after load_config).
+                        # Rust CAS performs a key-level MERGE, so empty-dict init is safe.
                         if key not in pending_data:
-                            curr_wrapper = getattr(self.state, key, None)
-                            
-                            # If not on object, try to fetch from Registry data directly
-                            if curr_wrapper is None and key in registry._namespaces:
-                                curr_wrapper = registry._namespaces[key]["data"]
-
-                            if curr_wrapper is None:
-                                pending_data[key] = {}  # Auto-init
-                            elif hasattr(curr_wrapper, "to_dict"):
-                                pending_data[key] = curr_wrapper.to_dict()
-                            elif isinstance(curr_wrapper, dict):
-                                pending_data[key] = curr_wrapper.copy()
-                            else:
-                                # Preserve Object Identity
-                                pending_data[key] = curr_wrapper
+                            pending_data[key] = {}  # Merge base: Rust CAS will preserve unchanged fields
 
                         if len(rest) > 0:
                             # Recursive Access

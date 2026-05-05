@@ -7,7 +7,7 @@
 
 ## Overview
 
-Version 3.0.26 is a **Code Quality & Stability** release. It resolves four incidents (INC-022 through INC-025) introduced or uncovered during the v3.0.25 stabilization cycle, and eliminates all 99 `clippy::pedantic` lint errors that were previously suppressed globally in CI.
+Version 3.0.26 is a **Code Quality & Stability** release. It resolves five incidents (INC-022 through INC-026) introduced or uncovered during the v3.0.25–v3.0.26 stabilization cycle, and eliminates all 99 `clippy::pedantic` lint errors that were previously suppressed globally in CI.
 
 ---
 
@@ -60,6 +60,22 @@ Version 3.0.26 is a **Code Quality & Stability** release. It resolves four incid
 **Fix:** Replaced single-task warmup with `asyncio.gather(*[engine.execute(...) for _ in range(warmup_concurrency)])` where `warmup_concurrency=2`. This forces both workers to spawn concurrently before the timed measurement begins.
 
 **Files:** `tests/manual/verify_parallel_execution.py`
+
+---
+
+### [INC-026] `to_dict()` Merge Base Contamination Causes `_proxy_delta_exists` to Block All Output Mapping (High)
+
+**Problem:** All return values from processes declaring `outputs=[...]` were silently discarded when the process did not proxy-mutate its output namespace (e.g., `ctx.domain`). This caused `domain.experiments` to stay `[]` after `p_load_config` returned a full list, preventing any episodes from running.
+
+**Root Cause:** When `pending_data[key]` did not yet exist in the output mapping loop (no proxy write occurred), the code initialized it from `BaseDomainContext.to_dict()` — a full domain snapshot. This pre-populated every domain field in `pending_data` before any return value was applied. The downstream guard `_proxy_delta_exists` found each field already present, concluded a proxy mutation had occurred, and silently skipped every return value.
+
+`_proxy_delta_exists` itself is semantically correct: its precondition is that `pending_data` contains only actual proxy writes. The `to_dict()` init violated that precondition. For processes that DO proxy-write a field, `build_pending_from_deltas()` already populates `pending_data` with the proxy value — the `{}` init branch is never reached — and `_proxy_delta_exists` correctly suppresses the return value (hybrid proxy+ack pattern preserved).
+
+**Fix:** One-line change in `theus/engine.py`: replaced `pending_data[key] = curr_wrapper.to_dict()` with `pending_data[key] = {}`. Rust CAS performs field-level merge (`deep_update_inplace`), so an empty init is safe — unchanged fields are preserved. `_proxy_delta_exists` remains in place.
+
+**Regression tests:** `tests/11_rfc001/test_inc026_output_mapping_bypass.py` — 13 tests covering INV-1 through INV-6 (including proxy-only, return-only, hybrid proxy+ack, and integration scenarios).
+
+**Files:** `theus/engine.py`, `tests/11_rfc001/test_inc026_output_mapping_bypass.py`
 
 ---
 
@@ -127,7 +143,7 @@ Version 3.0.26 is a **Code Quality & Stability** release. It resolves four incid
 ## Test Results
 
 - **Rust tests:** 1 passed, 0 failed
-- **Python tests:** 385 passed, 3 skipped, 0 failed
+- **Python tests:** 389 passed, 5 skipped, 3 warnings
 - **Clippy:** 0 errors, 0 warnings
 - **Pyright:** 0 errors, 0 warnings
 - **Ruff:** All checks passed
