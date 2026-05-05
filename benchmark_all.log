@@ -1,0 +1,161 @@
+=== Running benchmark_isolation.py ===
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[TheusCore] Registry GC: 1 lines read, 0 kept (1 dropped). Rewriting...
+[TheusCore] Cleanup SUCCESS. File rewritten.
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+=== Theus Isolation Benchmark (Zero-Copy Pure Python) ===
+
+--- Benchmarking: ProcessPool (Spawn) ---
+[ManagedAllocator] Registry initialized successfully.
+Init Time (Engine+Pool): 1.7270s
+Exec Time (4 Workers):   0.9135s
+Results Checksum: 100
+
+--- Benchmarking: InterpreterPool (PEP 684) ---
+[ManagedAllocator] Registry initialized successfully.
+Init Time (Engine+Pool): 0.0609s
+Exec Time (4 Workers):   0.7210s
+Results Checksum: 100
+
+--- Comparison ---
+Init Speedup (Interp vs Proc): 28.38x
+Exec Speedup (Interp vs Proc): 1.27x
+=== Running benchmark_signalhub.py ===
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+============================================================
+SignalHub Performance Benchmark
+============================================================
+
+[1/3] Benchmarking recv() blocking...
+
+recv() blocking (n=100)
+  Throughput: 154131 msgs/sec
+  Latency:    6.49 μs
+  Total time: 0.001 sec
+
+[2/3] Benchmarking recv_async() native...
+
+recv_async() native (n=100)
+  Throughput: 5479 msgs/sec
+  Latency:    182.50 μs
+  Total time: 0.018 sec
+
+[3/3] Benchmarking asyncio.to_thread(recv())...
+
+asyncio.to_thread(recv())
+  Throughput: 3042 msgs/sec
+  Latency:    328.78 μs
+  Total time: 0.033 sec
+
+============================================================
+Comparison
+============================================================
+recv_async() vs recv():      +2712.9% latency
+recv_async() vs to_thread(): 1.8x faster
+
+============================================================
+Conclusion
+============================================================
+⚠️  recv_async() overhead is high (+2712.9%)
+⚠️  recv_async() not significantly faster than to_thread()
+=== Running benchmark_zero_copy.py ===
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+=== THEUS V3.1.2 ZERO-COPY BENCHMARK ===
+Ma trận: 3000x3000 | Số luồng: 4
+Kích thước dữ liệu: 68.66 MB
+------------------------------
+1. Chạy tuần tự:    2.1576s (Gốc)
+2. Đa luồng (GIL):  2.2236s (Nhanh hơn: 0.97x)
+3. MP (Pickle):     5.4694s (Nhanh hơn: 0.39x)
+4. Theus Core ZC:   4.3101s (Nhanh hơn: 0.50x)
+   (Thời gian copy: 0.0983s đã bao gồm)
+------------------------------
+[ManagedAllocator] Registry initialized successfully.
+[09:30:05] Bắt đầu chạy Parallel Tasks qua Engine...
+5. Theus Engine API: 6.6749s (Nhanh hơn: 0.32x)
+   (Overhead so với Core: 2.3647s)
+=== Running comprehensive_benchmark.py ===
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[TheusCore] Registry GC: 1 lines read, 0 kept (1 dropped). Rewriting...
+[TheusCore] Cleanup SUCCESS. File rewritten.
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+--- Theus Comprehensive Benchmark (v3.1.2 Idiomatic) ---
+Items: 5000 | Ops: 1000 | Array: 1000000 floats
+[ManagedAllocator] Registry initialized successfully.
+
+[Case 1: Read Performance]
+Native Python: 0.18 us/op
+Theus Proxy:   39.04 us/op
+Overhead:      219.2x
+
+[Case 2: Deep Merge Write (v3.1.2)]
+Write Duration: 1.4273 ms
+Integrity Check: ✅ PASSED (No silent overwrite)
+
+[Case 3: Heavy Zone Zero-Copy]
+Native Numpy:   3.43 ms
+Theus Heavy:    3.72 ms
+Efficiency:     1.08x (Ideal ~1.0x)
+
+[Case 4: Serialization (TheusEncoder)]
+Manual dict() cast: 8.49 ms
+TheusEncoder:       1.96 ms
+
+[Case 5: Pydantic Interop (ORM Mode)]
+Interoperability Check: ✅ PASSED
+
+Benchmark Complete.
+=== Running scalability_test.py ===
+=== SCALABILITY TEST: 200MB Matrix (5000x5000 float64) ===
+Generating data...
+Data Size: 190.73 MB
+
+[Scenario A: Traditional Pickle (No Zero Copy)]
+-> Time: 1.0899s
+-> Impact: High RAM Usage (Copy per worker), CPU Spike (Pickling)
+
+[Scenario B: Theus Zero Copy]
+-> Time: 0.4906s
+-> Impact: Near-Zero RAM overhead, Instant Startup
+
+=== CONCLUSION ===
+Without Zero Copy, you pay transfer costs for EVERY task.
+=== Running test_read_performance.py ===
+[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+1. Initializing Engine...
+2. Populating State (Size: 10000 items)...
+   Population took: 0.0001s
+
+--- TEST 1: GETTER LATENCY (ops/sec) ---
+Legacy (FrozenDict): 10000 ops in 0.0026s => 3,805,393 ops/s
+Supervisor (Proxy):  100000 ops in 0.0297s => 3,365,621 ops/s
+SPEEDUP: 0.88x
+
+--- TEST 2: DEEP ACCESS LATENCY (ops/sec) ---
+Legacy (['key']):      10000 ops in 0.0516s => 193,773 ops/s
+Supervisor (.attr):    100000 ops in 0.8583s => 116,510 ops/s
+SPEEDUP: 0.60x
+
+WARNING: Supervisor is SLOWER. Check proxy overhead or getattr logic.

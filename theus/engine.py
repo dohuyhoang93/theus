@@ -13,6 +13,7 @@ try:
         class SupervisorProxy(dict): pass
 
     from theus.structures import StateUpdate
+    from theus.structures import ContextError
 
     _HAS_RUST_CORE = True
 except ImportError as e:
@@ -643,9 +644,9 @@ class TheusEngine:
         # [v3.3 FIX] Hoist Transaction to preserve Outbox across CAS retries
         # Long-running simulation processes often exceed 5s, bumping to 30s.
         while True:
-            # NOTE: Transaction.__init__ calls deepcopy on state.data for snapshot isolation.
-            # If state contains leaked Transaction refs (not picklable), deepcopy fails.
-            # We catch this and clean state before retrying.
+            # NOTE: Transaction captures start_version at __enter__ for OCC conflict detection.
+            # Read-Committed semantics (not MVCC snapshot): reads see latest committed data.
+            # On field-level conflict, __exit__ raises CAS Version Mismatch -> triggers retry below.
             try:
                 _tx_ctx = theus_core.Transaction(self._core, write_timeout_ms=self._write_timeout_ms)
             except RuntimeError as tx_err:
@@ -666,64 +667,88 @@ class TheusEngine:
                 else:
                     raise
             
-            with _tx_ctx as tx:
-                try:
-                    result = await self._attempt_execute(func, tx, *args, **kwargs)
+            try:
+                with _tx_ctx as tx:
+                    try:
+                        result = await self._attempt_execute(func, tx, *args, **kwargs)
 
-                    # If success, clear conflict counter
-                    if hasattr(self._core, "report_success"):
-                        self._core.report_success(func.__name__)
+                        # If success, clear conflict counter
+                        if hasattr(self._core, "report_success"):
+                            self._core.report_success(func.__name__)
 
-                    # [v3.3] Manual Flush for Flux Engine (Fix for Outbox msg loss)
-                    if hasattr(self._core, "flush_outbox"):
-                        self._core.flush_outbox()
+                        # [v3.3] Manual Flush for Flux Engine (Fix for Outbox msg loss)
+                        if hasattr(self._core, "flush_outbox"):
+                            self._core.flush_outbox()
 
-                    # Transaction commits when block exits
-                    pass
-                except Exception as e:
-                    # Check for CAS Conflict (ContextError)
-                    err_msg = str(e)
-                    is_cas_error = "CAS Version Mismatch" in err_msg
-                    is_busy_error = "System Busy" in err_msg
-                    
-                    # [RE-ENABLED FOR DIAGNOSIS]
-                    import sys
-                    print(f"[DEBUG] Execute Exception: {err_msg!r} | CAS={is_cas_error} | Busy={is_busy_error}", file=sys.stderr)
-                    sys.stderr.flush()
+                        # Transaction commits when block exits
+                        pass
+                    except Exception as e:
+                        # Check for CAS Conflict (ContextError) raised by process body
+                        err_msg = str(e)
+                        is_cas_error = "CAS Version Mismatch" in err_msg
+                        is_busy_error = "System Busy" in err_msg
 
-                    if is_busy_error:
-                        is_cas_error = True 
+                        if is_busy_error:
+                            is_cas_error = True 
 
+                        should_retry = False
+                        backoff_ms = 50
+
+                        if is_cas_error:
+                            # 1. Try Rust Core Logic first
+                            if hasattr(self._core, "report_conflict"):
+                                decision = self._core.report_conflict(func.__name__)
+                                if decision.should_retry:
+                                    should_retry = True
+                                    backoff_ms = decision.wait_ms
+                            
+                            # 2. Fallback to Python Manual Retry with CAPPED Backoff + Full Jitter
+                            if not should_retry and current_retries < max_retries:
+                                should_retry = True
+                                current_retries += 1
+                                
+                                MAX_BACKOFF_MS = 1000
+                                raw_backoff = 50 * (2 ** (current_retries - 1))
+                                
+                                import random
+                                actual_backoff = random.uniform(0, min(MAX_BACKOFF_MS, raw_backoff))
+                                
+                                backoff_ms = actual_backoff
+                                print(f"[*] CAS/Busy Conflict for {func.__name__}. Retry {current_retries}/{max_retries} in {backoff_ms:.2f}ms...")
+
+                        if should_retry:
+                            await asyncio.sleep(backoff_ms / 1000.0)
+                            continue
+
+                        raise e
+            except ContextError as commit_err:
+                # Transaction.__exit__ raised OCC conflict (field-level version mismatch at commit time).
+                # Apply the same retry policy as body-level CAS errors.
+                err_msg = str(commit_err)
+                if "CAS Version Mismatch" in err_msg or "System Busy" in err_msg:
                     should_retry = False
                     backoff_ms = 50
 
-                    if is_cas_error:
-                        # 1. Try Rust Core Logic first
-                        if hasattr(self._core, "report_conflict"):
-                            decision = self._core.report_conflict(func.__name__)
-                            if decision.should_retry:
-                                should_retry = True
-                                backoff_ms = decision.wait_ms
-                        
-                        # 2. Fallback to Python Manual Retry with CAPPED Backoff + Full Jitter
-                        if not should_retry and current_retries < max_retries:
+                    if hasattr(self._core, "report_conflict"):
+                        decision = self._core.report_conflict(func.__name__)
+                        if decision.should_retry:
                             should_retry = True
-                            current_retries += 1
-                            
-                            MAX_BACKOFF_MS = 1000
-                            raw_backoff = 50 * (2 ** (current_retries - 1))
-                            
-                            import random
-                            actual_backoff = random.uniform(0, min(MAX_BACKOFF_MS, raw_backoff))
-                            
-                            backoff_ms = actual_backoff
-                            print(f"[*] CAS/Busy Conflict for {func.__name__}. Retry {current_retries}/{max_retries} in {backoff_ms:.2f}ms...")
+                            backoff_ms = decision.wait_ms
+
+                    if not should_retry and current_retries < max_retries:
+                        should_retry = True
+                        current_retries += 1
+                        MAX_BACKOFF_MS = 1000
+                        raw_backoff = 50 * (2 ** (current_retries - 1))
+                        import random
+                        backoff_ms = random.uniform(0, min(MAX_BACKOFF_MS, raw_backoff))
+                        print(f"[*] CAS Commit Conflict for {func.__name__}. Retry {current_retries}/{max_retries} in {backoff_ms:.2f}ms...")
 
                     if should_retry:
                         await asyncio.sleep(backoff_ms / 1000.0)
                         continue
 
-                    raise e
+                raise commit_err
             
             # Successful COMMIT. Sync back to registry for legacy tests.
             self._sync_registry_from_core()

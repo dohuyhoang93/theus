@@ -4,7 +4,6 @@ import time
 import pytest
 import asyncio
 from theus import TheusEngine as Theus
-from theus_core import State
 
 # =============================================================================
 # REPRO REPORT: AB-BA Deadlock in `infer_shadow_deltas` vs `get_shadow`
@@ -45,9 +44,9 @@ async def test_deadlock_abba_concurrency_stress():
         "config": {"active": True}
     }
     
-    state = State(data=initial_data)
-    engine._core.commit_state(state)
-    
+    with engine.transaction() as tx:
+        tx.update(data=initial_data)
+
     stop_event = threading.Event()
     
     def worker_access(tx):
@@ -101,9 +100,9 @@ def test_shadow_inference_logic():
     from theus_core import SupervisorProxy
     
     engine = Theus()
-    state = State(data={"a": 1, "b": [1, 2]})
-    engine._core.commit_state(state)
-    
+    with engine.transaction() as tx:
+        tx.update(data={"a": 1, "b": [1, 2]})
+
     with engine.transaction() as tx:
         # WRONG: tx.pending_data is empty initially.
         # CORRECT: Wrap existing state in Proxy with the tx.

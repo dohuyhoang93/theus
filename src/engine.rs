@@ -114,6 +114,7 @@ impl TheusEngine {
             pending_signal: PyList::empty_bound(py).unbind(), // Fix: PyList
             pending_outbox: Arc::new(Mutex::new(Vec::new())),
             start_time: None,
+            start_version: 0,
             write_timeout_ms,
             delta_log: Arc::new(Mutex::new(Vec::new())),
             shadow_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -124,10 +125,6 @@ impl TheusEngine {
 
     }
 
-    fn commit_state(&mut self, state: Py<State>) {
-        self.state = state;
-    }
-    
     fn attach_worker(&self, worker: PyObject) {
         let mut w = self.worker.lock().unwrap();
         *w = Some(worker);
@@ -380,6 +377,7 @@ pub struct Transaction {
     pending_signal: Py<PyList>, // Changed from PyDict to PyList
     pending_outbox: Arc<Mutex<Vec<OutboxMsg>>>,
     start_time: Option<Instant>,
+    start_version: u64,
     write_timeout_ms: u64,
     // [v3.1 Zero Trust] Unified Delta Log
     pub delta_log: Arc<Mutex<Vec<crate::delta::DeltaEntry>>>, 
@@ -443,6 +441,7 @@ impl Transaction {
             pending_signal: PyList::empty_bound(py).unbind(), // Init empty list
             pending_outbox: Arc::new(Mutex::new(Vec::new())),
             start_time: None,
+            start_version: 0,
             write_timeout_ms,
             delta_log: Arc::new(Mutex::new(Vec::new())),
             shadow_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -602,8 +601,13 @@ impl Transaction {
 
 
     #[allow(clippy::unnecessary_wraps)]
-    fn __enter__(mut slf: PyRefMut<Self>, _py: Python) -> PyResult<Py<Self>> {
+    fn __enter__(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Self>> {
         slf.start_time = Some(Instant::now());
+        // [OCC] Capture state version at transaction open — baseline for conflict detection
+        let engine = slf.engine.bind(py);
+        let engine_borrow = engine.borrow();
+        slf.start_version = engine_borrow.state.bind(py).borrow().version;
+        drop(engine_borrow);
         Ok(slf.into())
     }
 
@@ -641,6 +645,55 @@ impl Transaction {
         // 2. Apply delta_log to pending_data
         self.commit(py)?;
 
+        // [OCC] Field-level conflict detection (Smart CAS — same policy as compare_and_swap).
+        // Runs after pending_data is fully populated (post-shadow-infer + post-commit).
+        // Raises CAS Version Mismatch → triggers execute() retry loop.
+        if self.start_version > 0 {
+            let conflict = {
+                let engine_borrow = engine.borrow();
+                let current_state_bound = engine_borrow.state.bind(py);
+                let current_state = current_state_bound.borrow();
+                let current_version = current_state.version;
+
+                if current_version == self.start_version {
+                    None
+                } else {
+                    let mut safe = true;
+                    let pending = self.pending_data.bind(py);
+
+                    'outer: for (zone_k, zone_v) in pending.iter() {
+                        let zone_key = zone_k.extract::<String>()?;
+                        if let Ok(inner_dict) = zone_v.downcast::<pyo3::types::PyDict>() {
+                            for (ik, _) in inner_dict.iter() {
+                                let inner_key = ik.extract::<String>()?;
+                                let field_path = format!("{zone_key}.{inner_key}");
+                                if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
+                                    if *last_ver > self.start_version {
+                                        safe = false;
+                                        break 'outer;
+                                    }
+                                }
+                            }
+                        } else if let Some(last_ver) = current_state.key_last_modified.get(&zone_key) {
+                            if *last_ver > self.start_version {
+                                safe = false;
+                            }
+                        }
+                        if !safe { break; }
+                    }
+
+                    if safe { None } else { Some((self.start_version, current_version)) }
+                }
+                // engine_borrow, current_state_bound, current_state all drop here
+            };
+
+            if let Some((expected, found)) = conflict {
+                return Err(ContextError::new_err(format!(
+                    "CAS Version Mismatch (Conflict Detected): Expected {expected}, Found {found} (Keys Changed)"
+                )));
+            }
+        }
+
         // Optimistic Update: Create new state version
         let new_state_obj = current_state_obj.call_method(
             "update", 
@@ -668,7 +721,12 @@ impl Transaction {
              }
         }
 
-        engine.call_method1("commit_state", (new_state_obj,))?;
+        // [v3.0.27] Direct Rust field assignment — replaces stringly-typed call_method1("commit_state", ...).
+        // Closing the OCC bypass: commit_state is no longer exported via #[pymethods].
+        {
+            let mut engine_ref = engine.borrow_mut();
+            engine_ref.state = new_state_obj.extract::<Py<State>>()?;
+        }
 
         // [INC-023] Deferred signal dispatch — fires AFTER data is committed to engine.state.
         // State.update() above only populated last_signals (Flux latch), no publish yet.
