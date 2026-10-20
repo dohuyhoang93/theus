@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "theus"
-version = "3.0.26"
+version = "3.0.27"
 description = "Reliable, Rust-Powered Agentic AI Framework with Transactional Memory."
 authors = [{name = "Do Huy Hoang", email = "dohuyhoangvn93@gmail.com"}]
 readme = "README.md"
@@ -77,20 +77,22 @@ exclude = [
 ]
 
 [tool.ruff.lint]
+select = ["E", "F"]
 ignore = [
     "E402",  # Module level import not at top of file
     "E701",  # Multiple statements on one line (colon)
     "E722",  # Bare except used in defensive code paths
+    "E501",  # Line too long (handled by line-length/formatter)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["F401"]  # Tests can have unused imports for test setup
 
-[tool.pyright]
-pythonVersion = "3.12"
-typeCheckingMode = "basic"
-include = ["scripts"]
-exclude = [
+
+
+[tool.pyrefly]
+project-includes = ["scripts"]
+project-excludes = [
     "target",
     "examples",
     "benchmarks",
@@ -103,3 +105,5 @@ exclude = [
     "theus/schema_gen.py",
     "theus/theus_core.pyi",
 ]
+python-version = "3.12.0"
+infer-with-first-use = false

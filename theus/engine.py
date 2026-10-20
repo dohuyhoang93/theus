@@ -1,6 +1,7 @@
 import os
 import sys
 import dataclasses
+import warnings
 from contextlib import contextmanager
 
 # Load Core Rust Module
@@ -435,15 +436,32 @@ class TheusEngine:
     def state(self):
         """v3.3 Returns the Rust Core State object (Hybrid View)."""
         core_state = self._core.state
-        instance = self
-        
-        # [v3.3 FIX] Cache StateView to preserve identity (fixes test_transaction_rollback.py)
         curr_ver = core_state.version
-        if getattr(self, "_cached_state_ver", -1) == curr_ver:
-             if hasattr(self, "_cached_state_view"):
-                  return self._cached_state_view
 
+        if getattr(self, "_cached_state_ver", -1) == curr_ver and hasattr(self, "_cached_state_view"):
+            return self._cached_state_view
+
+        # Reset fail count khi version thay đổi
+        if getattr(self, "_cached_state_ver", -1) != curr_ver:
+            object.__setattr__(self, "_sync_fail_count", 0)
+
+        synced = self._sync_registry_from_core()
+        is_stale = False
+
+        if not synced:
+            fail_count = getattr(self, "_sync_fail_count", 0) + 1
+            object.__setattr__(self, "_sync_fail_count", fail_count)
+            if fail_count >= 3:
+                warnings.warn(
+                    f"StateView context sync degraded for version {curr_ver} after {fail_count} attempts; serving fallback state.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                is_stale = True
+
+        instance = self
         class StateView:
+            _is_stale = is_stale
             @property
             def version(self): return core_state.version
             @property
@@ -454,27 +472,27 @@ class TheusEngine:
                         # 1. Try Pydantic/Object from Context
                         val = getattr(instance._context, key, None)
                         if val is not None:
-                             # Decide whether to wrap in ContextGuard for hybrid subscript support.
-                             # Only wrap objects that lack native __getitem__ AND are not Pydantic models.
-                             # Return Pydantic models and primitives directly to preserve isinstance() checks.
-                             is_primitive = isinstance(val, (int, float, str, bool, list, dict, type(None), ContextGuard))
-                             try:
-                                 from pydantic import BaseModel as PydanticBase
-                                 is_pydantic = isinstance(val, PydanticBase)
-                             except ImportError:
-                                 is_pydantic = False
-                             has_subscript = hasattr(type(val), "__getitem__") and not is_pydantic
-                             if not is_primitive and not is_pydantic and not has_subscript:
-                                  proxy = getattr(val, "_theus_proxy", None)
-                                  # NOTE: _inner must be non-None to skip Rust guard construction.
-                                  return ContextGuard(
-                                      val, 
-                                      allowed_inputs={"*"}, 
-                                      allowed_outputs={"*"},
-                                      _inner=proxy or val,
-                                      process_name="StateView"
-                                  )
-                             return val
+                            # Decide whether to wrap in ContextGuard for hybrid subscript support.
+                            # Only wrap objects that lack native __getitem__ AND are not Pydantic models.
+                            # Return Pydantic models and primitives directly to preserve isinstance() checks.
+                            is_primitive = isinstance(val, (int, float, str, bool, list, dict, type(None), ContextGuard))
+                            try:
+                                from pydantic import BaseModel as PydanticBase
+                                is_pydantic = isinstance(val, PydanticBase)
+                            except ImportError:
+                                is_pydantic = False
+                            has_subscript = hasattr(type(val), "__getitem__") and not is_pydantic
+                            if not is_primitive and not is_pydantic and not has_subscript:
+                                proxy = getattr(val, "_theus_proxy", None)
+                                # NOTE: _inner must be non-None to skip Rust guard construction.
+                                return ContextGuard(
+                                    val,
+                                    allowed_inputs={"*"},
+                                    allowed_outputs={"*"},
+                                    _inner=proxy or val,
+                                    process_name="StateView"
+                                )
+                            return val
                         # 2. Try Rust Core Proxy
                         return core_state.data[key]
                     def __getattr__(self, name): return getattr(core_state.data, name)
@@ -484,14 +502,20 @@ class TheusEngine:
                     def __iter__(self): return iter(core_state.data)
                     def __len__(self): return len(core_state.data)
                 return HybridData()
-            
+
             def __getattr__(self, name): return getattr(core_state, name)
-            def __repr__(self): return f"<StateView v{self.version}>"
-            
+            def __repr__(self): return f"<StateView v{self.version}{' (stale)' if self._is_stale else ''}>"
+
         view = StateView()
-        object.__setattr__(self, "_cached_state_ver", curr_ver)
-        object.__setattr__(self, "_cached_state_view", view)
+        if synced or getattr(self, "_sync_fail_count", 0) >= 3:
+            object.__setattr__(self, "_cached_state_ver", curr_ver)
+            object.__setattr__(self, "_cached_state_view", view)
         return view
+
+    @property
+    def hub(self):
+        """SignalHub instance (alias to state.signal)."""
+        return self.state.signal
 
     @property
     def heavy(self):
@@ -539,71 +563,76 @@ class TheusEngine:
         
         return res
 
-    def _sync_registry_from_core(self):
-        """Syncs the current Rust Core state back to the NamespaceRegistry and Context object."""
-        if not hasattr(self, "_core"): return
+    def _sync_registry_from_core(self) -> bool:
+        """Syncs current Rust Core state to NamespaceRegistry and Context object with per-field fallback."""
+        if not hasattr(self, "_core"):
+            return False
         try:
             data = self._core.state.data
-            # 1. Sync Namespaces (Legacy Registry)
+            # 1. Sync Namespaces
             for name, ns_info in self._namespaces._namespaces.items():
                 if name == "default":
                     ns_info["data"] = {k: v for k, v in data.items() if k not in self._namespaces._namespaces}
                 elif name in data:
                     ns_info["data"] = data[name]
-            
-            # 2. Sync Context Fields (Pydantic/Object)
+
+            # 2. Sync Context Fields (domain, global, etc.)
             if hasattr(self, "_context"):
-                # Supports aliases domain_ctx and global_ctx for backward/project compatibility
                 for field_name in ["domain", "domain_ctx", "global_ctx", "global"]:
                     core_key = "global" if field_name in ("global_ctx", "global") else "domain"
                     if core_key in data and hasattr(self._context, field_name):
                         curr_val = getattr(self._context, field_name)
                         if curr_val is not None:
-                            # Try to update in-place or re-validate to maintain Type
                             model_cls = type(curr_val)
+                            native_proxy = data[core_key]
+                            raw_proxy = {
+                                k: v for k, v in native_proxy.items()
+                                if not k.startswith("_") and k not in ("transaction", "inner", "target")
+                            }
+                            clean_proxy = raw_proxy
+
                             try:
-                                native_proxy = data[core_key]
-                                # Filter out any internal ContextGuard meta-fields 
-                                # to prevent them from leaking into the Pydantic instance 
-                                # and causing Pickling/Serialization failures.
-                                raw_proxy = {k: v for k, v in native_proxy.items() if not k.startswith("_") and k not in ("transaction", "inner", "target")}
-                                clean_proxy = raw_proxy
-                                
                                 if hasattr(model_cls, "model_validate"):
                                     new_obj = model_cls.model_validate(clean_proxy)
                                 elif hasattr(model_cls, "parse_obj"):
                                     new_obj = model_cls.parse_obj(clean_proxy)
+                                elif dataclasses.is_dataclass(curr_val):
+                                    for f in dataclasses.fields(curr_val):
+                                        if f.name in clean_proxy:
+                                            incoming_val = clean_proxy[f.name]
+                                            if incoming_val is None:
+                                                existing_val = getattr(curr_val, f.name, None)
+                                                if existing_val is not None and not isinstance(
+                                                    existing_val, (int, float, str, list, dict, bool)
+                                                ):
+                                                    continue
+                                            try:
+                                                setattr(curr_val, f.name, incoming_val)
+                                            except Exception:
+                                                pass
+                                    new_obj = curr_val
                                 else:
-                                    # [v3.1.2] Fallback for standard dataclasses (preserves Type and Identity)
-                                    if dataclasses.is_dataclass(curr_val):
-                                         for f in dataclasses.fields(curr_val):
-                                              if f.name in clean_proxy:
-                                                   # [Fix v3.3.1] Skip Overwriting Heavy/Complex Python Objects with Rust None Stubs
-                                                   incoming_val = clean_proxy[f.name]
-                                                   if incoming_val is None:
-                                                       existing_val = getattr(curr_val, f.name, None)
-                                                       if existing_val is not None and not isinstance(existing_val, (int, float, str, list, dict, bool)):
-                                                           continue # Preserve live Python object
-                                                   try: setattr(curr_val, f.name, incoming_val)
-                                                   except: pass
-                                         new_obj = curr_val
-                                    else:
-                                        new_obj = native_proxy
-                                
-                                # Attach native proxy for ContextGuard chain (Hybrid Bridge)
-                                if new_obj is not None:
-                                     try: object.__setattr__(new_obj, "_theus_proxy", native_proxy)
-                                     except: pass
-                                object.__setattr__(self._context, field_name, new_obj)
+                                    new_obj = native_proxy
                             except Exception:
-                                # Safe fallback — still clean Transaction refs
+                                # Per-field fallback:
+                                warnings.warn(
+                                    f"Model validation failed during context sync for field '{field_name}'. "
+                                    "Falling back to native proxy (typing degraded).",
+                                    RuntimeWarning,
+                                    stacklevel=2,
+                                )
+                                object.__setattr__(self._context, "_sync_degraded", True)
+                                new_obj = native_proxy
+
+                            if new_obj is not None:
                                 try:
-                                    clean_fallback = dict(data[core_key]) if hasattr(data[core_key], 'items') else data[core_key]
-                                    object.__setattr__(self._context, field_name, clean_fallback)
+                                    object.__setattr__(new_obj, "_theus_proxy", native_proxy)
                                 except Exception:
                                     pass
+                            object.__setattr__(self._context, field_name, new_obj)
+            return True
         except Exception:
-            pass # Never block execution success for sync failures
+            return False
 
     def register(self, func):
         """
@@ -641,8 +670,7 @@ class TheusEngine:
         max_retries = kwargs.pop("retries", 0)
         current_retries = 0
 
-        # [v3.3 FIX] Hoist Transaction to preserve Outbox across CAS retries
-        # Long-running simulation processes often exceed 5s, bumping to 30s.
+        # NOTE: Transaction is intentionally instantiated inside while loop per attempt to capture fresh start_version and isolate retry lifecycles.
         while True:
             # NOTE: Transaction captures start_version at __enter__ for OCC conflict detection.
             # Read-Committed semantics (not MVCC snapshot): reads see latest committed data.

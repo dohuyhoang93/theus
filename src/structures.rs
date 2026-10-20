@@ -389,6 +389,10 @@ impl State {
             // the corresponding state transition is visible in engine.state.
             if let Ok(s_list) = s.downcast_bound::<PyList>(py) {
                 for item in s_list {
+                    // [INC-029] Fail-fast: signal list items MUST be dicts.
+                    // Silent-ignore (`if let Ok`) is forbidden here — a malformed
+                    // signal would vanish from last_signals with no trace, reproducing
+                    // the class of bug fixed in INC-023. Propagate the error explicitly.
                     let s_dict = item.downcast::<PyDict>()?;
                     for (k, v) in s_dict {
                         let topic = k.extract::<String>()?;

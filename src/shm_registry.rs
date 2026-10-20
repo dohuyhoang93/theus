@@ -136,7 +136,7 @@ impl MemoryRegistry {
     pub fn cleanup(&self) {
         // Unlink all owned
         if let Ok(map) = self.owned_allocations.lock() {
-             for (name, _) in map.iter() {
+             for name in map.keys() {
                  // Open and Unlink
                  if let Ok(mut shm) = ShmemConf::new().os_id(name).open() {
                      shm.set_owner(true);

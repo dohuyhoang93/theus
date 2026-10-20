@@ -31,6 +31,53 @@ impl OutboxCollector {
     }
 }
 
+#[allow(clippy::doc_markdown)]
+/// Shared field-level OCC conflict detector for compare_and_swap and Transaction::__exit__
+fn detect_field_conflict(
+    current_state: &State,
+    start_ver: u64,
+    data_dict: Option<&Bound<'_, PyDict>>,
+    heavy_dict: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Option<(u64, u64)>> {
+    let current_version = current_state.version;
+    if current_version == start_ver {
+        return Ok(None);
+    }
+
+    let check_dict = |dict_opt: Option<&Bound<'_, PyDict>>| -> PyResult<bool> {
+        if let Some(d) = dict_opt {
+            for (zone_k, zone_v) in d.iter() {
+                let zone_key = zone_k.extract::<String>()?;
+                if let Ok(inner_dict) = zone_v.downcast::<PyDict>() {
+                    for (ik, _) in inner_dict.iter() {
+                        let inner_key = ik.extract::<String>()?;
+                        let field_path = format!("{zone_key}.{inner_key}");
+                        if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
+                            if *last_ver > start_ver {
+                                return Ok(false);
+                            }
+                        }
+                    }
+                } else if let Some(last_ver) = current_state.key_last_modified.get(&zone_key) {
+                    if *last_ver > start_ver {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+        Ok(true)
+    };
+
+    if !check_dict(data_dict)? {
+        return Ok(Some((start_ver, current_version)));
+    }
+    if !check_dict(heavy_dict)? {
+        return Ok(Some((start_ver, current_version)));
+    }
+
+    Ok(None)
+}
+
 #[pyclass(module = "theus_core", subclass)]
 pub struct TheusEngine {
     state: Py<State>,
@@ -114,7 +161,7 @@ impl TheusEngine {
             pending_signal: PyList::empty_bound(py).unbind(), // Fix: PyList
             pending_outbox: Arc::new(Mutex::new(Vec::new())),
             start_time: None,
-            start_version: 0,
+            lifecycle: Mutex::new(TransactionLifecycle::Unopened),
             write_timeout_ms,
             delta_log: Arc::new(Mutex::new(Vec::new())),
             shadow_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -190,79 +237,13 @@ impl TheusEngine {
             // v3.3 Smart CAS: Check Key-Level Conflicts
             // If the specific keys we are updating haven't changed since expected_version,
             // we can safely merge even if global version bumped.
-            
-            let mut safe = true;
-            
-            // v3.1: Check FIELD-Level Conflicts (domain.counter, not just domain)
-            // Check Data Keys
-            if let Some(ref d) = data {
-                if let Ok(d_dict) = d.downcast_bound::<PyDict>(py) {
-                    for (zone_k, zone_v) in d_dict.iter() {
-                         let zone_key = zone_k.extract::<String>()?;
-                         
-                         // Check nested fields if value is a dict
-                         if let Ok(inner_dict) = zone_v.downcast::<PyDict>() {
-                             for (ik, _) in inner_dict {
-                                 let inner_key = ik.extract::<String>()?;
-                                 let field_path = format!("{zone_key}.{inner_key}");  // "domain.counter"
-                                 
-                                 if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
-                                     if *last_ver > expected_version {
-                                         safe = false;
-                                         break;
-                                     }
-                                 }
-                             }
-                         } else {
-                             // Non-dict value: fall back to zone-level check
-                             if let Some(last_ver) = current_state.key_last_modified.get(&zone_key) {
-                                 if *last_ver > expected_version {
-                                     safe = false;
-                                 }
-                             }
-                         }
-                         if !safe { break; }
-                    }
-                }
-            }
-            
-            // Check Heavy Keys (if safe so far)
-            if safe {
-                if let Some(ref h) = heavy {
-                    if let Ok(h_dict) = h.downcast_bound::<PyDict>(py) {
-                        for (zone_k, zone_v) in h_dict.iter() {
-                             let zone_key = zone_k.extract::<String>()?;
-                             
-                             // Check nested fields if value is a dict
-                             if let Ok(inner_dict) = zone_v.downcast::<PyDict>() {
-                                 for (ik, _) in inner_dict {
-                                     let inner_key = ik.extract::<String>()?;
-                                     let field_path = format!("{zone_key}.{inner_key}");
-                                     
-                                     if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
-                                         if *last_ver > expected_version {
-                                             safe = false;
-                                             break;
-                                         }
-                                     }
-                                 }
-                             } else {
-                                 // Non-dict value: fall back to zone-level check
-                                 if let Some(last_ver) = current_state.key_last_modified.get(&zone_key) {
-                                     if *last_ver > expected_version {
-                                         safe = false;
-                                     }
-                                 }
-                             }
-                             if !safe { break; }
-                        }
-                    }
-                }
-            }
+            let data_dict = data.as_ref().and_then(|d| d.bind(py).downcast::<PyDict>().ok());
+            let heavy_dict = heavy.as_ref().and_then(|h| h.bind(py).downcast::<PyDict>().ok());
 
-            if !safe {
+            let conflict = detect_field_conflict(&current_state, expected_version, data_dict, heavy_dict)?;
+            if let Some((expected, found)) = conflict {
                 return Err(ContextError::new_err(format!(
-                    "CAS Version Mismatch (Conflict Detected): Expected {expected_version}, Found {current_version} (Keys Changed)"
+                    "CAS Version Mismatch (Conflict Detected): Expected {expected}, Found {found} (Keys Changed)"
                 )));
             }
             // If safe, fall through to update (Optimistic Merge)
@@ -369,6 +350,16 @@ impl TheusEngine {
 
 // ... 
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TransactionLifecycle {
+    Unopened,
+    Active { start_version: u64 },
+    Committing,
+    Committed,
+    Aborted,
+    Failed,
+}
+
 #[pyclass(module = "theus_core")]
 pub struct Transaction {
     engine: Py<TheusEngine>,
@@ -377,7 +368,7 @@ pub struct Transaction {
     pending_signal: Py<PyList>, // Changed from PyDict to PyList
     pending_outbox: Arc<Mutex<Vec<OutboxMsg>>>,
     start_time: Option<Instant>,
-    start_version: u64,
+    lifecycle: Mutex<TransactionLifecycle>,
     write_timeout_ms: u64,
     // [v3.1 Zero Trust] Unified Delta Log
     pub delta_log: Arc<Mutex<Vec<crate::delta::DeltaEntry>>>, 
@@ -391,8 +382,9 @@ impl Transaction {
     /// Collect all explicit pending paths from a nested dict.
     ///
     /// Example:
-    /// {"domain": {"documents": {...}, "`outbox_queue"`: [...]}}
-    /// => "domain", "domain.documents", "`domain.outbox_queue`"
+    /// {"domain": {"documents": {...}, "outbox_queue": [...]}}
+    /// => "domain", "domain.documents", "domain.outbox_queue"
+    #[allow(clippy::doc_markdown)]
     fn collect_pending_paths(
         py: Python,
         obj: &Bound<'_, PyAny>,
@@ -441,7 +433,7 @@ impl Transaction {
             pending_signal: PyList::empty_bound(py).unbind(), // Init empty list
             pending_outbox: Arc::new(Mutex::new(Vec::new())),
             start_time: None,
-            start_version: 0,
+            lifecycle: Mutex::new(TransactionLifecycle::Unopened),
             write_timeout_ms,
             delta_log: Arc::new(Mutex::new(Vec::new())),
             shadow_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -506,9 +498,14 @@ impl Transaction {
              }
         }
         if let Some(s) = signal {
-             // For signals, we append the delta dict to the list to preserve sequence
-             let s_bound = s.bind(py);
-             self.pending_signal.bind(py).append(s_bound)?;
+            let s_bound = s.bind(py);
+            if let Ok(s_list) = s_bound.downcast::<PyList>() {
+                for item in s_list {
+                    self.pending_signal.bind(py).append(item)?;
+                }
+            } else {
+                self.pending_signal.bind(py).append(s_bound)?;
+            }
         }
         Ok(())
     }
@@ -603,15 +600,27 @@ impl Transaction {
     #[allow(clippy::unnecessary_wraps)]
     fn __enter__(mut slf: PyRefMut<Self>, py: Python) -> PyResult<Py<Self>> {
         slf.start_time = Some(Instant::now());
-        // [OCC] Capture state version at transaction open — baseline for conflict detection
         let engine = slf.engine.bind(py);
         let engine_borrow = engine.borrow();
-        slf.start_version = engine_borrow.state.bind(py).borrow().version;
+        let current_ver = engine_borrow.state.bind(py).borrow().version;
         drop(engine_borrow);
+
+        let mut guard = slf.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        // ĐÒN BẨY: Chặn đứng re-entrancy
+        if *guard != TransactionLifecycle::Unopened {
+            return Err(ContextError::new_err(format!(
+                "Cannot enter transaction: transaction is already {:?}",
+                *guard
+            )));
+        }
+
+        *guard = TransactionLifecycle::Active { start_version: current_ver };
+        drop(guard);
         Ok(slf.into())
     }
 
-    #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
     fn __exit__(
         &self, 
         py: Python, 
@@ -619,72 +628,78 @@ impl Transaction {
         _exc_value: Option<PyObject>, 
         _traceback: Option<PyObject>
     ) -> PyResult<()> {
-        
-        if exc_type.is_some() {
-            return Ok(());
-        }
+        // BƯỚC 1: Thẩm định và lấy start_version trong phạm vi khoá hẹp
+        let start_ver = {
+            let mut guard = self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        // Enforce Timeout
-        if let Some(start) = self.start_time {
-             #[allow(clippy::cast_possible_truncation)]
-             if start.elapsed().as_millis() as u64 > self.write_timeout_ms {
-                 return Err(WriteTimeoutError::new_err(format!(
-                     "Transaction timed out after {}ms (limit {}ms)", 
-                     start.elapsed().as_millis(), 
-                     self.write_timeout_ms
-                 )));
-             }
-        }
+            match *guard {
+                TransactionLifecycle::Unopened => {
+                    return Err(ContextError::new_err(
+                        "Transaction commit attempted on unopened transaction (missing __enter__)",
+                    ));
+                }
+                TransactionLifecycle::Committed => {
+                    return Ok(()); // Replay an toàn
+                }
+                TransactionLifecycle::Committing => {
+                    return Err(ContextError::new_err(
+                        "Transaction commit is already in progress",
+                    ));
+                }
+                TransactionLifecycle::Aborted => {
+                    return Err(ContextError::new_err(
+                        "Transaction cannot be re-exited: transaction was aborted",
+                    ));
+                }
+                TransactionLifecycle::Failed => {
+                    return Err(ContextError::new_err(
+                        "Transaction cannot be committed: previous commit attempt failed",
+                    ));
+                }
+                TransactionLifecycle::Active { start_version } => {
+                    if exc_type.is_some() {
+                        *guard = TransactionLifecycle::Aborted;
+                        return Ok(());
+                    }
+                    *guard = TransactionLifecycle::Committing;
+                    start_version
+                }
+            }
+        }; // Khoá nhả tại đây — Zero-Deadlock Scope
 
-        let engine = self.engine.bind(py);
-        let current_state_obj = engine.getattr("state")?;
-        
-        // [v3.1.2] Differential Shadow Merging:
-        // 1. Infer mutations from shadows
-        self.infer_shadow_deltas(py)?;
-        // 2. Apply delta_log to pending_data
-        self.commit(py)?;
+        // BƯỚC 2: ĐÒN BẨY — Enclosed Execution Scope
+        let execute_commit = || -> PyResult<Py<State>> {
+            // 2.1. Timeout check
+            if let Some(start) = self.start_time {
+                #[allow(clippy::cast_possible_truncation)]
+                if start.elapsed().as_millis() as u64 > self.write_timeout_ms {
+                    return Err(WriteTimeoutError::new_err(format!(
+                        "Transaction timed out after {}ms (limit {}ms)",
+                        start.elapsed().as_millis(),
+                        self.write_timeout_ms
+                    )));
+                }
+            }
 
-        // [OCC] Field-level conflict detection (Smart CAS — same policy as compare_and_swap).
-        // Runs after pending_data is fully populated (post-shadow-infer + post-commit).
-        // Raises CAS Version Mismatch → triggers execute() retry loop.
-        if self.start_version > 0 {
+            // 2.2. Shadow inference và commit deltas
+            self.infer_shadow_deltas(py)?;
+            self.commit(py)?;
+
+            // 2.3. OCC Conflict Check
+            let engine = self.engine.bind(py);
             let conflict = {
                 let engine_borrow = engine.borrow();
                 let current_state_bound = engine_borrow.state.bind(py);
                 let current_state = current_state_bound.borrow();
-                let current_version = current_state.version;
+                let pending_data_bound = self.pending_data.bind(py);
+                let pending_heavy_bound = self.pending_heavy.bind(py);
 
-                if current_version == self.start_version {
-                    None
-                } else {
-                    let mut safe = true;
-                    let pending = self.pending_data.bind(py);
-
-                    'outer: for (zone_k, zone_v) in pending.iter() {
-                        let zone_key = zone_k.extract::<String>()?;
-                        if let Ok(inner_dict) = zone_v.downcast::<pyo3::types::PyDict>() {
-                            for (ik, _) in inner_dict.iter() {
-                                let inner_key = ik.extract::<String>()?;
-                                let field_path = format!("{zone_key}.{inner_key}");
-                                if let Some(last_ver) = current_state.key_last_modified.get(&field_path) {
-                                    if *last_ver > self.start_version {
-                                        safe = false;
-                                        break 'outer;
-                                    }
-                                }
-                            }
-                        } else if let Some(last_ver) = current_state.key_last_modified.get(&zone_key) {
-                            if *last_ver > self.start_version {
-                                safe = false;
-                            }
-                        }
-                        if !safe { break; }
-                    }
-
-                    if safe { None } else { Some((self.start_version, current_version)) }
-                }
-                // engine_borrow, current_state_bound, current_state all drop here
+                detect_field_conflict(
+                    &current_state,
+                    start_ver,
+                    Some(pending_data_bound),
+                    Some(pending_heavy_bound),
+                )?
             };
 
             if let Some((expected, found)) = conflict {
@@ -692,51 +707,60 @@ impl Transaction {
                     "CAS Version Mismatch (Conflict Detected): Expected {expected}, Found {found} (Keys Changed)"
                 )));
             }
-        }
 
-        // Optimistic Update: Create new state version
-        let new_state_obj = current_state_obj.call_method(
-            "update", 
-            (self.pending_data.clone_ref(py), self.pending_heavy.clone_ref(py), self.pending_signal.clone_ref(py)), 
-            None
-        )?;
+            // 2.4. Update State
+            let current_state_obj = engine.getattr("state")?;
+            let new_state_obj = current_state_obj.call_method(
+                "update",
+                (self.pending_data.clone_ref(py), self.pending_heavy.clone_ref(py), self.pending_signal.clone_ref(py)),
+                None,
+            )?;
 
-        // Schema Enforcement (Phase 32.2)
-        {
-             let engine_borrow = engine.borrow();
-             let schema_guard = engine_borrow.schema.lock().unwrap();
-             if let Some(ref schema) = *schema_guard {
-                 // Convert State.data to Dict for Pydantic validation
-                 // We validate the *Resulting* state data to ensure consistency.
-                 
-                 // Access property via getattr, not call_method
-                 // Access property via getattr, not call_method
-                 let frozen_data = new_state_obj.getattr("data")?;
-                 let dict_data = frozen_data.call_method0("to_dict")?;
-                 
-                 // Pydantic model_validate
-                 if let Err(e) = schema.call_method1(py, "model_validate", (dict_data,)) {
-                      return Err(crate::config::SchemaViolationError::new_err(format!("Schema Violation: {e}")));
-                 }
-             }
-        }
+            // 2.5. Schema Validation (dùng map_err, không unwrap)
+            {
+                let engine_borrow = engine.borrow();
+                let schema_guard = engine_borrow.schema.lock().map_err(|e| {
+                    ContextError::new_err(format!("Schema lock poisoned: {e}"))
+                })?;
+                if let Some(ref schema) = *schema_guard {
+                    let frozen_data = new_state_obj.getattr("data")?;
+                    let dict_data = frozen_data.call_method0("to_dict")?;
+                    if let Err(e) = schema.call_method1(py, "model_validate", (dict_data,)) {
+                        return Err(crate::config::SchemaViolationError::new_err(format!("Schema Violation: {e}")));
+                    }
+                }
+            }
 
-        // [v3.0.27] Direct Rust field assignment — replaces stringly-typed call_method1("commit_state", ...).
-        // Closing the OCC bypass: commit_state is no longer exported via #[pymethods].
+            new_state_obj.extract::<Py<State>>()
+        };
+
+        // BƯỚC 3: Đánh giá kết quả duy nhất (Không bao giờ kẹt ở Committing, kháng ngộ độc lock)
+        let new_state = match execute_commit() {
+            Ok(state) => state,
+            Err(e) => {
+                let mut guard = self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                *guard = TransactionLifecycle::Failed;
+                return Err(e);
+            }
+        };
+
+        // BƯỚC 4: Ghi State vào Core (Point of Durability)
+        let engine = self.engine.bind(py);
         {
             let mut engine_ref = engine.borrow_mut();
-            engine_ref.state = new_state_obj.extract::<Py<State>>()?;
+            engine_ref.state = new_state;
         }
 
-        // [INC-023] Deferred signal dispatch — fires AFTER data is committed to engine.state.
-        // State.update() above only populated last_signals (Flux latch), no publish yet.
-        // Now that engine.state is updated, subscribers will see consistent state.
         {
-            let committed_state = engine.getattr("state")?;
-            committed_state.call_method1(
-                "publish_signals",
-                (self.pending_signal.clone_ref(py),)
-            )?;
+            let mut guard = self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *guard = TransactionLifecycle::Committed;
+        }
+
+        // BƯỚC 5: Post-Commit Signal Hook (Lỗi không làm hỏng commit)
+        if let Ok(committed_state) = engine.getattr("state") {
+            if let Err(e) = committed_state.call_method1("publish_signals", (self.pending_signal.clone_ref(py),)) {
+                log::warn!("[TheusCore] Post-commit signal publish encountered error (state is durable): {e}");
+            }
         }
 
         // Commit Outbox to Engine
@@ -744,7 +768,6 @@ impl Transaction {
             let mut pending = self.pending_outbox.lock().unwrap();
             let msgs = pending.drain(..).collect::<Vec<_>>();
             
-            // Access Engine Outbox
             let engine_ref = engine.borrow();
             engine_ref.outbox.lock().unwrap().extend(msgs);
         }
@@ -900,7 +923,7 @@ impl Transaction {
             let cache = self.shadow_cache.lock().unwrap();
             // NOTE: This loop performs no mutations — it's a legacy analysis block.
             // The actual commit logic uses delta_log below.
-            for (_, (original, shadow)) in cache.iter() {
+            for (original, shadow) in cache.values() {
                 if original.bind(py).as_ptr() == shadow.bind(py).as_ptr() {
                      continue;
                 }

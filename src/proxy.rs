@@ -419,13 +419,9 @@ impl SupervisorProxy {
                     val.clone_ref(py)
                 } else {
                     // [v3.1.2] Differential Shadow Optimization
-                    match tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone()))) {
-                        Ok(s) => {
-                            is_child_shadow = true;
-                            s.unbind()
-                        },
-                        Err(e) => return Err(e)
-                    }
+                    let s = tx_bound.call_method1("get_shadow", (val.clone_ref(py), Some(nested_path.clone())))?;
+                    is_child_shadow = true;
+                    s.unbind()
                 }
             } else {
                 val.clone_ref(py)

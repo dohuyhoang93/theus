@@ -183,3 +183,33 @@ Effect: Disables strict architectural guards (ContextGuard), allowing access to 
 *   **Whitepaper:** [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 **Maintained by:** [Hoàng Đỗ Huy](https://github.com/dohuyhoang93)
+
+## Cài đặt Rust Toolchain:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+```
+
+## Cài đặt C toolchain và Python development tools:
+
+```bash
+sudo apt update && sudo apt install -y build-essential python3-venv python3-pip python3-dev
+```
+
+## Tạo môi trường ảo và cài đặt công cụ build (maturin, pytest):
+### Tạo và kích hoạt venv trong thư mục theus
+```
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### Cài đặt maturin và pytest
+```
+pip install maturin pytest
+```
+
+### Xác thực lại môi trường build của Theus:
+
+```bash
+python scripts/Local_CI.py verify
+```

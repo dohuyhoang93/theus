@@ -57,8 +57,9 @@ def step_build_install(env):
     # Try maturin develop first (faster, editable-ish)
     try:
         run_step(["maturin", "develop", "--release"], env, "Compiling Rust Core (Maturin)")
-    except SystemExit:
-        print("⚠️ 'maturin develop' failed. Fallback to pip install...")
+    except SystemExit as e:
+        print(f"⚠️ 'maturin develop' failed (exit code {e.code}). Underlying compiler output is shown above.")
+        print("   Attempting fallback to pip install '.'...")
         run_step([sys.executable, "-m", "pip", "install", "."], env, "Installing via Pip")
 
 def step_gen_stubs(env):
@@ -129,10 +130,10 @@ def step_clippy(env):
         "Running Cargo Clippy (Strict + Pedantic)",
     )
 
-def step_pyright(env):
-    """Run Pyright static type checking."""
+def step_pyrefly(env):
+    """Run Pyrefly static type checking."""
     env["PYTHONPATH"] = get_project_root()
-    run_step([sys.executable, "-m", "pyright"], env, "Running Pyright")
+    run_step(["pyrefly", "check"], env, "Running Pyrefly")
 
 def step_ruff(env):
     """Run Ruff Python linter/formatter."""
@@ -149,6 +150,11 @@ def step_verify_parity(env):
     run_step([sys.executable, "tests/verify_api_parity.py"], env, "Verifying API Parity")
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(line_buffering=True)
+
     print("🛡️  Theus Local CI Automation Tool")
     print(f"   Python: {sys.version.split()[0]}")
     print(f"   Platform: {platform.system()}")
@@ -159,9 +165,9 @@ def main():
     if not args or args[0] in ["--help", "-h", "help"]:
         print("\nUsage: python scripts/Local_CI.py <command>")
         print("Commands:")
-        print("  full   : Build -> Stubs -> Clippy -> Pyright -> Ruff -> Rust Test -> Pytest -> Manual Test")
+        print("  full   : Build -> Stubs -> Clippy -> Pyrefly -> Ruff -> Rust Test -> Verify API Parity -> Pytest -> Manual Test")
         print("  build  : Build -> Install")
-        print("  verify : Build -> Clippy -> Pyright -> Ruff -> Rust Test -> Verify API Parity")
+        print("  verify : Build -> Stubs -> Clippy -> Pyrefly -> Ruff -> Rust Test -> Verify API Parity")
         print("  help   : Show this help message")
         sys.exit(0)
         
@@ -172,17 +178,19 @@ def main():
         step_build_install(env)
         step_gen_stubs(env)
         step_clippy(env)
-        step_pyright(env)
+        step_pyrefly(env)
         step_ruff(env)
         step_rust_test(env)
+        step_verify_parity(env)
         step_test_automated(env)
         step_test_manual(env)
     elif command == "build":
         step_build_install(env)
     elif command == "verify":
         step_build_install(env)
+        step_gen_stubs(env)
         step_clippy(env)
-        step_pyright(env)
+        step_pyrefly(env)
         step_ruff(env)
         step_rust_test(env)
         step_verify_parity(env)

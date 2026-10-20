@@ -1,99 +1,43 @@
 """
-Deep Investigation: Transaction.__exit__ No OCC + CAS Retry Dead Code
+Regression Guard: Transaction.__exit__ OCC & CAS Retry Validation (INC-028)
 ======================================================================
 
-Critical Analysis (SKILL.md — 8 Rules + 4-Tier Case Framework)
+Verification & Invariant Guard Suite:
 ---------------------------------------------------------------
+This suite guards the Optimistic Concurrency Control (OCC) invariants
+restored in INC-028:
 
-PROBLEM STATEMENT (Rule 1):
-  Two HIGH-severity findings discovered during execute_process_async investigation:
+  INVARIANT 1 — Transaction.__exit__ enforces OCC (Field-Level Smart CAS).
+    Transaction.__enter__ captures start_version at open time.
+    Transaction.__exit__ validates that no concurrent writes modified
+    any overlapping fields since start_version. If a conflict exists,
+    it raises ContextError("CAS Version Mismatch (Conflict Detected) ...").
 
-  FINDING 1 — Transaction.__exit__ has NO version check (no OCC).
-    Transaction.__enter__ only captures start_time, NOT start_version.
-    Transaction.__exit__ reads engine.state at commit time (latest), calls
-    State.update() on it, then directly assigns engine_ref.state — no version
-    comparison, no conflict detection, no error raised.
-    Result: last-writer-wins semantics — silent lost updates in concurrent workloads.
-
-  FINDING 2 — CAS retry in execute() is dead code for the standard process path.
-    execute() catches exceptions matching "CAS Version Mismatch" and retries.
-    But Transaction.__exit__ NEVER raises this string — only compare_and_swap does.
-    Transaction.__exit__ was intentionally decoupled from compare_and_swap in v3.3
-    ("Do NOT call compare_and_swap here, as it causes double-bumps").
-    Result: retries=N in execute() has no effect. Every process runs exactly once
-    regardless of concurrent conflicts.
-
-INQUIRY SCOPE (Rule 2):
-  For each finding, verify:
-    (a) Structural proof — what's missing in the code path
-    (b) Behavioral proof — runtime demonstration via direct Transaction API
-    (c) Concurrency proof — asyncio.gather scenario with overlapping fields
-    (d) Contrast proof — compare_and_swap path works; shows the gap is in __exit__
-
-DATA INTEGRITY (Rule 3):
-  All findings verified against:
-    src/engine.rs        Transaction::__enter__, Transaction::__exit__
-    src/engine.rs        compare_and_swap() — the correct OCC path
-    theus/engine.py      execute() retry loop, _attempt_execute()
-    theus/engine.py      Comment "Transaction.__init__ calls deepcopy" (false)
-
-CONCEPTUAL CLARITY (Rule 4):
-  - OCC (Optimistic Concurrency Control): reader captures start_version,
-    writer checks current_version == start_version before commit, raises error if not.
-  - compare_and_swap: the existing correct OCC implementation (takes expected_version)
-  - Transaction.__exit__: the NEW commit path that BYPASSED the OCC check
-  - asyncio single-thread: concurrent tasks interleave at `await` points only
-
-LOGICAL CONSISTENCY (Rule 5):
-  Evidence chain:
-    1. __enter__: sets only start_time, not start_version → no baseline for OCC
-    2. __exit__: reads current engine.state (not snapshot) → uses latest, not start
-    3. __exit__: no if current_version != start_version check → no error possible
-    4. CAS retry checks for "CAS Version Mismatch" string → only from compare_and_swap
-    5. compare_and_swap not called in __exit__ (by design) → string never appears
-    6. Conclusion: retries=N is syntactically valid but semantically no-op
-
-IMPLICATIONS (Rule 6):
-  - Follows: Concurrent execute() calls on overlapping fields silently produce
-    lost updates. No exception is raised, no audit log records the conflict.
-  - Ignored: Developers who pass retries=3 expect retry behavior — they get none.
-    The retry infrastructure (backoff, report_conflict, ConflictManager) is bypassed
-    for the primary code path.
-
-ASSUMPTIONS (Rule 7):
-  - asyncio event loop is single-threaded → tasks interleave only at await points
-  - Lost update requires: (a) concurrent execution + (b) overlapping field writes
-  - For non-overlapping fields, State.update() deep merge produces correct results
-
-PERSPECTIVE (Rule 8):
-  Steelman of current design: asyncio GIL + single thread makes true parallel
-  corruption impossible. State.update() is a pure function (returns new State).
-  The lost update is "semantic" (based on read-then-write intent), not a memory
-  corruption issue. Some systems explicitly choose last-writer-wins for simplicity.
-  Counter-argument: Theus markets OCC via retries=N API. That API is broken as shown.
+  INVARIANT 2 — CAS retry in execute() is fully integrated with Transaction.__exit__.
+    When Transaction.__exit__ raises "CAS Version Mismatch", the outer handler
+    in execute() catches it, reports conflict to ConflictManager, and retries.
 
 TEST STRUCTURE:
-  Section A — FINDING 1: Transaction.__exit__ has no OCC
-    A1. Structural: Transaction has no start_version field
-    A2. Direct API: open tx, bump state externally, commit tx → no error
-    A3. Direct API: verify committed value overwrites the concurrent commit
-    A4. Concurrency: asyncio.gather — both increments commit, final=1 not 2 (lost update)
-    A5. Concurrency: non-overlapping fields both survive (benign concurrent case)
-    A6. Edge: 5 concurrent processes on same field — only last writer's value survives
-    A7. Conflict: __exit__ vs compare_and_swap behavior comparison on same scenario
+  Section A — Transaction.__exit__ OCC Enforcement
+    A1. Structural: Transaction.start_version is an internal Rust field
+    A2. Smart OCC: Non-overlapping fields commit successfully
+    A3. Conflict OCC: Same-field concurrent commit raises CAS Version Mismatch
+    A4. Concurrency: Concurrent increments trigger retries, avoiding lost updates
+    A5. Concurrency: Non-overlapping fields both survive
+    A6. Edge: 5 concurrent processes on same field all succeed via retries
+    A7. Parity: Sequential execution after external commit succeeds
 
-  Section B — FINDING 2: CAS retry is dead code
-    B1. Baseline: compare_and_swap DOES raise "CAS Version Mismatch"
-    B2. Proof: Transaction.__exit__ NEVER raises "CAS Version Mismatch"
-    B3. Dead code: retries=3 → process runs exactly 3 times, no retries triggered
-    B4. Retry dead code: final counter = 1 not 3 (lost update + no retry)
-    B5. Contrast: retry IS triggered when process explicitly calls compare_and_swap
-    B6. Contrast: "System Busy" IS caught by retry loop (showing infrastructure works)
-    B7. Edge: retries=0 vs retries=3 → identical execution count (both = 1 per process)
+  Section B — CAS Retry Integration
+    B1. Baseline: compare_and_swap raises "CAS Version Mismatch"
+    B2. Exit trigger: Transaction.__exit__ raises "CAS Version Mismatch" on conflict
+    B3. Retry active: retries=N triggers retry loop on standard execute() path
+    B4. Retry convergence: retries converge without lost update
+    B5. Contrast: retry triggers for explicit CAS inside process
+    B6. Contrast: "System Busy" triggers retry loop
 
-  Section C — Comment Audit
-    C1. Comment "Transaction.__init__ calls deepcopy" is false
-    C2. Transaction.__init__ captures no version information
+  Section C — Audit & Verifications
+    C1. Snapshot semantics: Transaction reads live state, not deepcopy
+    C2. Capture baseline: Transaction.__enter__ captures version and detects conflict
 
 Run: python -m pytest tests/verify_transaction_occ_gap.py -v
 """
@@ -110,16 +54,16 @@ from theus.engine import TheusEngine
 
 
 # ---------------------------------------------------------------------------
-# SECTION A: FINDING 1 — Transaction.__exit__ Has No OCC
+# SECTION A: Transaction.__exit__ OCC Enforcement
 # ---------------------------------------------------------------------------
 
-class TestTransactionExitNoOCC(unittest.TestCase):
+class TestTransactionExitOCC(unittest.TestCase):
     """
-    FINDING 1: Transaction.__exit__ performs a blind last-writer-wins commit.
-    There is no captured start_version and no version comparison at commit time.
+    OCC ENFORCEMENT: Transaction.__exit__ enforces smart CAS validation.
+    Verifies that start_version is captured and same-field concurrent commits are rejected.
     """
 
-    def test_a1_transaction_has_no_start_version_field(self):
+    def test_a1_transaction_start_version_is_internal_rust_field(self):
         """
         STRUCTURAL NOTE: Transaction.start_version is an internal Rust field,
         not exposed to Python (no #[pyo3(get)] attribute).
@@ -178,7 +122,7 @@ class TestTransactionExitNoOCC(unittest.TestCase):
             "No exception: external bump on domain.y does NOT conflict with tx write on domain.x (smart OCC)."
         )
 
-    def test_a3_exit_overwrites_concurrent_commit(self):
+    def test_a3_exit_raises_cas_mismatch_on_same_field_concurrent_commit(self):
         """
         OCC ENFORCEMENT: Open a transaction that writes domain.x=42.
         An external commit writes domain.x=99 before our commit.
@@ -211,7 +155,7 @@ class TestTransactionExitNoOCC(unittest.TestCase):
 
 
 @pytest.mark.asyncio
-async def test_a4_concurrent_increment_lost_update():
+async def test_a4_concurrent_increment_prevents_lost_update():
     """
     OCC + RETRY CORRECTNESS:
     Two processes both read counter=0, both compute counter+1=1.
@@ -284,7 +228,7 @@ async def test_a5_non_overlapping_fields_both_survive():
 
 
 @pytest.mark.asyncio
-async def test_a6_five_concurrent_same_field_last_writer_wins():
+async def test_a6_five_concurrent_same_field_all_succeed_via_retries():
     """
     OCC RETRY: 5 concurrent processes all write to the same field.
     With OCC: each conflict is detected, process retries. All eventually succeed.
@@ -349,13 +293,13 @@ async def test_a6_five_concurrent_same_field_last_writer_wins():
 
 
 @pytest.mark.asyncio
-async def test_a7_compare_and_swap_vs_exit_on_same_scenario():
+async def test_a7_sequential_commit_after_external_bump_succeeds():
     """
-    CONTRAST: Same scenario — concurrent writes to same field.
-    Path A: via compare_and_swap (has OCC) → second writer RAISES error.
-    Path B: via Transaction.__exit__ (no OCC) → second writer SILENTLY succeeds.
+    SEQUENTIAL COMMIT:
+    Path A: compare_and_swap with an explicitly stale version expected_version=v0 RAISES error.
+    Path B: Transaction opened AFTER an external write captures the latest version and commits cleanly.
     """
-    # --- Path A: compare_and_swap raises CAS error ---
+    # --- Path A: compare_and_swap with stale version raises CAS error ---
     engine_a = TheusEngine()
     engine_a._core.compare_and_swap(0, {"domain": {"x": 0}})
     v0 = engine_a.state.version
@@ -367,7 +311,7 @@ async def test_a7_compare_and_swap_vs_exit_on_same_scenario():
     with pytest.raises(Exception, match="CAS"):
         engine_a._core.compare_and_swap(v0, {"domain": {"x": 2}})  # stale v0
 
-    # --- Path B: Transaction.__exit__ does NOT raise error ---
+    # --- Path B: Transaction opened after external write captures current state ---
     engine_b = TheusEngine()
     engine_b._core.compare_and_swap(0, {"domain": {"x": 0}})
     v0b = engine_b.state.version
@@ -376,37 +320,33 @@ async def test_a7_compare_and_swap_vs_exit_on_same_scenario():
     engine_b._core.compare_and_swap(v0b, {"domain": {"x": 1}})
     _v1b = engine_b.state.version
 
-    # Second writer via Transaction — stale state, no version check
+    # Second writer via Transaction — opened after first writer, captures _v1b
     tx = theus_core.Transaction(engine_b._core)
     tx.__enter__()
     tx.update(data={"domain": {"x": 2}})
 
-    # This SHOULD raise (if OCC was in __exit__), but it doesn't
+    # Sequential commit succeeds without conflict
     try:
-        tx.__exit__(None, None, None)  # No error despite version being stale
+        tx.__exit__(None, None, None)
     except Exception as exc:
         pytest.fail(
-            f"Path B raised unexpectedly: {exc}. "
-            "Expected: compare_and_swap raises, __exit__ does not."
+            f"Sequential commit raised unexpectedly: {exc}. "
+            "Expected: commit succeeds since start_version == current_version."
         )
 
-    # compare_and_swap enforces OCC; Transaction.__exit__ does not
     assert dict(engine_b.state.data)["domain"]["x"] == 2, (
-        "DIVERGENCE CONFIRMED: compare_and_swap raises CAS error on same scenario; "
-        "Transaction.__exit__ silently commits."
+        "Sequential transaction commit succeeded as expected."
     )
 
 
 # ---------------------------------------------------------------------------
-# SECTION B: FINDING 2 — CAS Retry Is Dead Code
+# SECTION B: CAS Retry Integration
 # ---------------------------------------------------------------------------
 
-class TestCASRetryDeadCode(unittest.TestCase):
+class TestCASRetryActive(unittest.TestCase):
     """
-    FINDING 2: The retry loop in execute() triggers on "CAS Version Mismatch".
-    This string is only raised by compare_and_swap.
-    Transaction.__exit__ never raises it (it was decoupled in v3.3).
-    Therefore, retries=N is a no-op for the standard execute() path.
+    CAS RETRY INTEGRATION: Verifies that execute() retry loop triggers
+    when Transaction.__exit__ raises CAS Version Mismatch on conflict.
     """
 
     def test_b1_compare_and_swap_raises_cas_version_mismatch(self):
@@ -434,7 +374,7 @@ class TestCASRetryDeadCode(unittest.TestCase):
             f"compare_and_swap raised '{error_msg}' — confirms CAS string exists."
         )
 
-    def test_b2_transaction_exit_never_raises_cas_version_mismatch(self):
+    def test_b2_transaction_exit_raises_cas_version_mismatch_on_conflict(self):
         """
         OCC ENFORCEMENT: Transaction.__exit__ DOES raise "CAS Version Mismatch"
         when state was bumped on the SAME field between open and commit.
@@ -471,7 +411,7 @@ class TestCASRetryDeadCode(unittest.TestCase):
 
 
 @pytest.mark.asyncio
-async def test_b3_retries_N_does_not_retry_standard_path():
+async def test_b3_retries_triggers_retry_loop_on_standard_path():
     """
     RETRY ACTIVE:
     3 concurrent processes each increment counter from 0 with retries=3.
@@ -511,7 +451,7 @@ async def test_b3_retries_N_does_not_retry_standard_path():
 
 
 @pytest.mark.asyncio
-async def test_b4_retries_0_vs_3_identical_behavior():
+async def test_b4_retries_converge_without_lost_update():
     """
     RETRY CORRECTNESS:
     With OCC active, retries=N now has observable effect.
@@ -683,7 +623,7 @@ class TestCommentAudit(unittest.TestCase):
         )
         self.assertEqual(final.get("z"), 777, "Transaction's own write (z=777) also applied")
 
-    def test_c2_transaction_init_captures_no_version(self):
+    def test_c2_transaction_enter_captures_version_and_detects_conflict(self):
         """
         OCC CAPTURES VERSION AT OPEN: Transaction.__enter__ captures start_version.
         When the same field is modified 5 times while tx is open, __exit__ detects
