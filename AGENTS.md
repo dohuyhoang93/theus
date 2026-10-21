@@ -31,6 +31,8 @@ If you run build commands manually instead of `Local_CI.py`, set `PYO3_USE_ABI3_
 - Do not store live runtime objects in state; store ids, names, or metadata and keep live handles in ephemeral registries
 - Heavy-zone and proxy-backed objects are not generally pickle-safe; for worker processes, pass shared-memory metadata or handles, then reattach in the worker
 - When changing Rust exports or Python wrappers, treat `src/`, `theus/`, and `theus/theus_core.pyi` as one contract and run `python scripts/Local_CI.py verify`
+- **`State::update()` must stay O(delta_size × log N), not O(N).** Full `HashMap::clone()` per commit is the root cause of INC-030 (O(N²) sequential write latency). Any refactor of the commit path must not reintroduce a full-collection clone.
+- **OCC correctness claim is scoped:** "no known OCC bypass on verified single-interpreter paths." `theus_core` does not support subinterpreters, so multi-interpreter races are unverified.
 
 ## Read Before Going Deep
 
@@ -39,3 +41,4 @@ If you run build commands manually instead of `Local_CI.py`, set `PYO3_USE_ABI3_
 - Rust/Python boundary notes: [Documents/tutorials/ai/09_FFI_AND_ARCHITECTURE_REFERENCE.md](Documents/tutorials/ai/09_FFI_AND_ARCHITECTURE_REFERENCE.md)
 - API reference: [Documents/Architecture/01_Specs/THEUS_API_REFERENCE.md](Documents/Architecture/01_Specs/THEUS_API_REFERENCE.md)
 - Current technical debt: [Documents/Technical-Debt-v3.0.23.md](Documents/Technical-Debt-v3.0.23.md)
+- Open performance incident: [INC-030](Documents/Incidents/by-area/core/INC-030_CommitCoW_Sequential_Write_Quadratic_Latency.md) — Commit CoW O(N²) latency, targeted for next performance release
