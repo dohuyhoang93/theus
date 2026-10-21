@@ -275,3 +275,93 @@ Once INC-030 is resolved:
    latency. At 1000 writes, 7.5s is jarring. At 10,000 writes (a plausible event-sourcing scenario)
    the estimate exceeds 10 minutes. The failure mode is discontinuous and hard to anticipate without
    explicit scaling tests.
+
+---
+
+## 8. Comprehensive Forensic Analysis & Resolution Plan
+*(Executed under `@critical-analysis` & `@deep-incident-analysis` protocols)*
+
+### 8.1. All Hypotheses Examined (Brainstorming & Elimination)
+
+| Hypothesis | Description | Forensic / Empirical Finding | Verdict |
+|---|---|---|---|
+| **H1: Full State HashMap Clone** | `State::update()` clones `self.data`, `self.heavy`, `self.key_last_modified` in Rust on every commit. | Code forensic confirmed at `src/structures.rs:291-297`. Empirical test confirmed: with 5,000 durable keys, per-write latency jumps from 10 µs to 509 µs (50× slower). | **CONFIRMED (Primary Root Cause)** |
+| **H2: Python Context Sync (`_sync_registry_from_core`)** | Post-commit synchronization in `theus/engine.py` inspects proxies and reconstructs models. | Tested via no-op bypass and isolated benchmark: Scenario 4 shows median ~9.2 µs/op, Δ < 2%. | **REFUTED (Negligible contributor)** |
+| **H3: Nested Dict Shallow Copy (`deep_merge_cow`)** | `deep_merge_cow()` copies Python dict via `target_dict.copy()`. | Forensic at `src/structures.rs:215-234`. Tested via Scenario 3: flat vs nested yields ~11.6 µs vs ~6.4 µs. Minor constant overhead, but scales if a single sub-dict contains thousands of keys. | **SECONDARY (Bounded constant factor)** |
+| **H4: CAS Conflict Detection (`detect_field_conflict`)** | OCC conflict verification checks keys against `key_last_modified`. | Code inspection (`src/conflict.rs`): scales with number of keys in *pending delta*, NOT total state size. For single-key updates, cost is O(1). | **REFUTED (Not scaling with state size)** |
+| **H5: Ring Buffer Lock Contention (`meta_logs`)** | `new_state.log_meta()` acquires `Mutex<VecDeque>` and appends log entry. | Forensic at `src/structures.rs:302`: mutex is uncontended in single-thread bursts. Queue is bounded by `meta_capacity=1000`. | **REFUTED (Constant bounded cost)** |
+| **H6: GIL / Concurrency Noise** | Concurrent background processes inflate wall-clock execution time. | Verified empirically: background compilation inflated 7.5s → 34s (2.5× to 4.5× distortion). Isolated tests produce clean reproducible timings. | **CONFIRMED (Measurement artifact)** |
+
+---
+
+### 8.2. Phase 1: The 8 Core Analytical Rules
+
+1. **Problem Statement:** Sequential write commits degrade from sub-millisecond latency to tens of milliseconds as durable state accumulates, exhibiting O(N) cost per commit and O(N²) cumulative time for bursts of size N.
+2. **Inquiry Scope:** Rust transaction lifecycle, state cloning semantics, nested dict merging, Python-side proxy sync, and empirical scaling under varying state topologies (flat, distinct, prepopulated, nested).
+3. **Data Integrity:** All measurements collected via dedicated benchmark harness `tests/perf/burst_write_benchmark.py` running in isolated process on the target Linux environment (`CPython 3.14.4 + PyO3`).
+4. **Conceptual Clarity:** Distinguishing *Snapshot Read Isolation* (semantic invariant) from *Full Object Copying* (implementation choice). Immutable state does NOT mandate eager cloning when persistent structural sharing (HAMT) is available.
+5. **Logical Consistency:** Hypotheses tested by varying exactly one variable at a time: constant state size vs growing state size, populated state vs empty state, sync enabled vs disabled.
+6. **Implications & Consequences:** Leaving this unaddressed risks catastrophic latency degradation in long-lived services, workflow engines, or data-seeding tasks where state size exceeds 10,000 keys.
+7. **Assumptions & Presuppositions:** Challenged the assumption that "OCC hardening in v3.0.27 caused regression" (disproved: v3.0.26 baseline had identical quadratic profile) and "Python sync is the bottleneck" (disproved: < 2% impact).
+8. **Perspective & Breadth:** Evaluated trade-offs between zero-dependency standard `std::collections::HashMap`, persistent collections (`im` crate HAMT), epoch-based GC, and write-ahead delta logging.
+
+---
+
+### 8.3. Phase 2: Complexity & Case Analysis
+
+* **Standard / Model Case:**
+  Small transaction updating 1–5 fields in an engine containing < 500 keys.
+  *Measured latency:* ~6–10 µs per commit. Imperceptible overhead.
+
+* **Related Cases:**
+  - Nested dict updates (`domain.subdict.leaf`): Handled via `deep_merge_cow`, costs ~11.5 µs per commit when subdict is compact.
+  - Direct Rust state updates (`state.update()`): ~3.6 µs per commit, verifying Python wrapper overhead is ~3–5 µs.
+
+* **Edge Cases (Mandatory ≥ 2):**
+  - **Edge Case 1 (Prepopulated Large State):** State pre-seeded with 5,000 keys, followed by 1,000 single-key updates.
+    *Measured latency:* 509 µs per commit (50× slowdown). Every commit copies all 5,000 Arc pointers. Total time for 1,000 writes jumps to ~0.51s.
+  - **Edge Case 2 (Monotonically Growing State):** Transaction burst appending N distinct keys (`key_0` to `key_N`).
+    *Measured latency:* N=100 (20 µs/op) → N=500 (30 µs/op) → N=1000 (47 µs/op) → N=2000 (96 µs/op). Latency per operation scales linearly with N.
+
+* **Conflict / Inverse Case (Mandatory ≥ 1):**
+  - **Conflict Case 1 (Shallow Replace on Structurally Shared Map):** If `im::HashMap` is introduced naively without adapting `deep_merge_cow()`, updating a nested Python `dict` could still trigger full Python dict copies or unbind Arc references incorrectly, maintaining a hidden secondary bottleneck inside Python dictionary serialization.
+
+---
+
+### 8.4. Empirical Forensic Matrix (Measured on Reference Machine)
+
+*Source: `tests/perf/burst_write_benchmark.py` (Median of 3 runs, isolated process)*
+
+| Scenario | N=100 | N=500 | N=1000 | Latency Profile |
+|---|---|---|---|---|
+| **1. Flat Single Key (O(1) state)** | 0.0011s (10.6 µs/op) | 0.0042s (8.4 µs/op) | 0.0106s (10.5 µs/op) | **Strictly Linear O(N)** |
+| **2. Distinct Keys (State 1..N)** | 0.0023s (22.7 µs/op) | 0.0155s (31.0 µs/op) | 0.0475s (47.5 µs/op) | **Quadratic O(N²)** |
+| **3. Nested Domain (`deep_merge_cow`)** | 0.0016s (15.5 µs/op) | 0.0082s (16.5 µs/op) | 0.0096s (9.5 µs/op) | **Linear O(N)** |
+| **4. Context + Proxy Sync** | 0.0019s (19.4 µs/op) | 0.0081s (16.2 µs/op) | 0.0114s (11.4 µs/op) | **Linear O(N)** |
+| **5. Prepopulated State (5,000 keys)** | 0.0503s (503 µs/op) | 0.2537s (507 µs/op) | 0.5096s (509 µs/op) | **O(K × N) — 50× slower** |
+
+---
+
+### 8.5. Intellectual Virtue & Epistemic Audit
+
+* **Humility:** The earlier assertion that `_sync_registry_from_core` caused the latency was abandoned immediately when disproven by empirical data. We acknowledge that for small states (<100 keys), the current implementation is very fast (~10 µs), but scaling claims must be truthful.
+* **Courage:** Acknowledging that resolving INC-030 requires replacing core data structures (`HashMap` → `im::HashMap`) in `src/structures.rs`, rather than applying cosmetic Python-side tweaks.
+* **Integrity:** Ensuring that benchmark numbers are reported from clean, isolated runs without background thread pollution, and admitting when previous numbers were distorted by environmental noise.
+* **Objectivity:** Distinguishing between what is provably verified (single-interpreter OCC safety) and what remains unverified (multi-subinterpreter race conditions).
+
+---
+
+### 8.6. Solution Synthesis (Action Plan)
+
+1. **Immediate Action (Band-aid):**
+   - Document INC-030 clearly in `RELEASE_NOTES_v3.0.27.md` and `AGENTS.md` (completed in commit `ff5b71e`).
+   - Provide `tests/perf/burst_write_benchmark.py` as standard test gate.
+
+2. **Structural Fix (Cure — Target v3.0.28):**
+   - Integrate `im` crate (persistent HAMT) into `src/structures.rs` for `State.data`, `State.heavy`, and `State.key_last_modified`.
+   - Make `State::clone()` an O(1) pointer-bump sharing immutable subtrees.
+   - Refactor `deep_merge_cow` to operate directly with structural sharing.
+
+3. **Process Fix (Vaccine):**
+   - Add performance regression check to `Local_CI.py full` that fails if `bench_prepopulated(5000, 1000)` exceeds 0.20s (budgeting 200 µs/op max).
+
