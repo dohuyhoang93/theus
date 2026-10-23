@@ -26,18 +26,18 @@ Requirement already satisfied: pygments<3.0.0,>=2.13.0 in ./.venv/lib/python3.14
 Requirement already satisfied: prompt_toolkit<4.0,>=2.0 in ./.venv/lib/python3.14/site-packages (from questionary>=2.0) (3.0.53)
 Requirement already satisfied: wcwidth>=0.1.4 in ./.venv/lib/python3.14/site-packages (from prompt_toolkit<4.0,>=2.0->questionary>=2.0) (0.9.2)
 Requirement already satisfied: mdurl~=0.1 in ./.venv/lib/python3.14/site-packages (from markdown-it-py>=2.2.0->rich>=13.0) (0.1.2)
-    Finished `release` profile [optimized] target(s) in 0.05s
-📦 Built wheel for CPython 3.14 to /tmp/.tmpebTyy5/theus-3.0.26-cp314-cp314-linux_x86_64.whl
+    Finished `release` profile [optimized] target(s) in 0.18s
+📦 Built wheel for CPython 3.14 to /tmp/.tmpd6jpVT/theus-3.0.27-cp314-cp314-linux_x86_64.whl
 ✏️ Setting installed package as editable
-🛠 Installed theus-3.0.26
-✅ [SUCCESS] Compiling Rust Core (Maturin) (1.71s)
+🛠 Installed theus-3.0.27
+✅ [SUCCESS] Compiling Rust Core (Maturin) (2.65s)
 
 ==================================================
 🚀 [STEP] Generating Type Stubs
    Exec: /home/hoang/Demo/theus/.venv/bin/python scripts/gen_stubs.py
    CWD:  /home/hoang/Demo/theus
 ==================================================
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 Generating stubs for theus_core...
 Processing Class: AuditAbortError
 Processing Class: AuditBlockError
@@ -69,15 +69,15 @@ Processing Class: Transaction
 Processing Class: WorkflowEngine
 Processing Class: WriteTimeoutError
 ✅ Generated theus/theus_core.pyi
-✅ [SUCCESS] Generating Type Stubs (0.06s)
+✅ [SUCCESS] Generating Type Stubs (0.05s)
 
 ==================================================
 🚀 [STEP] Running Cargo Clippy (Strict + Pedantic)
    Exec: cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic -A clippy::missing_errors_doc -A clippy::missing_panics_doc -A clippy::match_same_arms -A clippy::items_after_statements -A clippy::unreadable_literal -A clippy::needless_continue -A clippy::only_used_in_recursion
    CWD:  /home/hoang/Demo/theus
 ==================================================
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
-✅ [SUCCESS] Running Cargo Clippy (Strict + Pedantic) (0.14s)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+✅ [SUCCESS] Running Cargo Clippy (Strict + Pedantic) (0.34s)
 
 ==================================================
 🚀 [STEP] Running Pyrefly
@@ -87,7 +87,7 @@ Processing Class: WriteTimeoutError
  WARN PYTHONPATH environment variable is set to `/home/hoang/Demo/theus`. Checks in other environments may not include these paths.
  INFO Checking project configured at `/home/hoang/Demo/theus/pyproject.toml`
  INFO 0 errors
-✅ [SUCCESS] Running Pyrefly (0.19s)
+✅ [SUCCESS] Running Pyrefly (0.22s)
 
 ==================================================
 🚀 [STEP] Running Ruff
@@ -95,29 +95,29 @@ Processing Class: WriteTimeoutError
    CWD:  /home/hoang/Demo/theus
 ==================================================
 All checks passed!
-✅ [SUCCESS] Running Ruff (0.06s)
+✅ [SUCCESS] Running Ruff (0.13s)
 
 ==================================================
 🚀 [STEP] Running Rust Tests
    Exec: cargo test
    CWD:  /home/hoang/Demo/theus
 ==================================================
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
-     Running unittests src/lib.rs (target/debug/deps/theus_core-2a39944dac0bec70)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/theus_core-863c5e593e9304b6)
 
 running 1 test
 test structures_helper::tests::test_parse_path_segments ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-✅ [SUCCESS] Running Rust Tests (0.10s)
+✅ [SUCCESS] Running Rust Tests (0.19s)
 
 ==================================================
 🚀 [STEP] Verifying API Parity
    Exec: /home/hoang/Demo/theus/.venv/bin/python tests/verify_api_parity.py
    CWD:  /home/hoang/Demo/theus
 ==================================================
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 .
 ----------------------------------------------------------------------
 Ran 1 test in 0.001s
@@ -138,8 +138,8 @@ OK
    Checking method: set_strict_guards... ✅ OK (Mapped to @property 'strict_guards' with setter)
    Checking method: transaction... ✅ OK
 Classified 12 methods (6 signature-verified, 2 properties, 4 internal).
-✅ [SUCCESS] Verifying API Parity (0.17s)
-   Purged 19 __pycache__ directories under tests/
+✅ [SUCCESS] Verifying API Parity (0.30s)
+   Purged 20 __pycache__ directories under tests/
 
 ==================================================
 🚀 [STEP] Running Automated Tests (Pytest)
@@ -270,18 +270,18 @@ tests/07_audit/test_audit_levels.py::TestAuditLevels::test_audit_dual_threshold_
     audit.log_fail("test_key")  # count=5
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-================= 490 passed, 3 skipped, 3 warnings in 48.99s ==================
-✅ [SUCCESS] Running Automated Tests (Pytest) (49.59s)
+================= 490 passed, 3 skipped, 3 warnings in 44.22s ==================
+✅ [SUCCESS] Running Automated Tests (Pytest) (44.81s)
 
 ==================================================
 🚀 [STEP] Running Manual Integration Suite
    Exec: /home/hoang/Demo/theus/.venv/bin/python tests/manual/run_suite.py
    CWD:  /home/hoang/Demo/theus
 ==================================================
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 Checking Parallelism Primitives (Automated CI Mode)...
 
 --- Testing Backend: Sub-interpreters ---
@@ -293,28 +293,28 @@ Running in Pure Python Fallback (Slower).
 Parallel Backend Active: InterpreterPool
 1. Running Serial Task...
    [CPU] Heavy loop starting (n=20000000)...
-   OK: PID=339146, TID=129669466560192
+   OK: PID=2201, TID=131372334126784
 2. Running Parallel Task...
 WARNING: 'theus_core' not found. Reason: module theus_core.theus_core does not support loading in subinterpreters
 Running in Pure Python Fallback (Slower).
    [CPU] Heavy loop starting (n=20000000)...
-   OK: PID=339146, TID=129669447988928
+   OK: PID=2201, TID=131371305531072
 
 --- Testing Backend: ProcessPool ---
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 Parallel Backend Active: ProcessPool
 1. Running Serial Task...
    [CPU] Heavy loop starting (n=20000000)...
-   OK: PID=339146, TID=129669466560192
+   OK: PID=2201, TID=131372334126784
 2. Running Parallel Task...
-   OK: PID=339195, TID=134526158401984
+   OK: PID=2237, TID=123358551810496
    [CPU] Heavy loop starting (n=20000000)...
    [CPU] Heavy loop starting (n=20000000)...
 
 ✅ Parallel Smoke Test Passed for all modes.
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 SupervisorProxy type has __dict__ descriptor: True
 vars(SupervisorProxy) = type <class 'mappingproxy'>, keys: ['__new__', '__repr__', '__str__', '__getattribute__', '__setattr__']...
 
@@ -323,7 +323,7 @@ SupervisorProxy.__basicsize__: 64
 
 __dict__ descriptor found on: <class 'theus_core.SupervisorProxy'>
   descriptor type: <class 'getset_descriptor'>
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 Test 1: Basic async receive
 ✅ Received: test_message
 
@@ -334,23 +334,23 @@ Test 3: Can be awaited multiple times
 ✅ Received sequentially: msg2, msg3
 
 ✅ All manual tests passed!
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 Checking Standalone Pure Tasks...
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
 1. Running Standalone Add (10, 20)...
    Result: 30 (Expected 30)
 ✅ Standalone Smoke Test Passed.
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 initializing Standard Theus Engine...
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
-Init State Keys: ['global_ctx', 'domain_ctx', 'global', 'domain']
+Init State Keys: ['global_ctx', 'domain', 'global', 'domain_ctx']
 Engine Ready.
 
 
 --- [Tier 1] Implicit POP (@process) ---
-DEBUG: Current State Keys: ['global_ctx', 'domain_ctx', 'global', 'domain']
+DEBUG: Current State Keys: ['global_ctx', 'domain', 'global', 'domain_ctx']
 After : counter=1, status=processed
 ✅ PASS: Implicit POP worked correctly.
 
@@ -370,7 +370,7 @@ After : counter=999
 
 ========================================
 🎉 ALL SYSTEMS GO: Standard Verification Passed.
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 
 --- TEST 1: APP DEVELOPER API (ctx) ---
 [TheusCore] Registry GC: No cleanup needed. All records alive?
@@ -410,7 +410,7 @@ B. Strict CAS (strict_cas=True)
 [ManagedAllocator] Registry initialized successfully.
    Attempting update 'a' with STALE version 1 (Current: 2)...
    ✅ Strict CAS REJECTED update (Version Mismatch): Strict CAS Mismatch: Expected 1, Found 2 (Strict CAS Enabled)
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 ==============================================
    THEUS ARCHITECTURE CLAIMS VERIFICATION 
    (Chapter 16 Masterclass) 
@@ -425,28 +425,28 @@ B. Strict CAS (strict_cas=True)
 [Claim 3] Performance: Strict (Safe) vs Non-Strict (Fast)
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
-   🚀 Non-Strict Mode: 3732.2 ops/sec
+   🚀 Non-Strict Mode: 3386.7 ops/sec
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
-   🛡️  Strict Mode:    4332.1 ops/sec
-   ℹ️  Safety Overhead: ~-13.8%
+   🛡️  Strict Mode:    3246.1 ops/sec
+   ℹ️  Safety Overhead: ~4.3%
    ✅ Dual-Mode Architecture Verified.
 
 ==============================================
    🎉 ARCHITECTURE MASTERCLASS VERIFIED
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 ==============================================
    THEUS DISPATCHER VERIFICATION (CHAP 17) 
 ==============================================
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
-   Main Thread ID: 133172234793408
+   Main Thread ID: 127386544579008
 
 [Test] Running Async + Sync concurrently...
-   [Async] Start sleeping 1s on Loop... (Thread: 133172234793408)
-   [Sync] Start blocking 1s... (Thread: 133171486099136)
-   [Async] Done.
-   [Sync] Done.
+   [Async] Start sleeping 1s on Loop... (Thread: 127386544579008)
+   [Sync] Start blocking 1s... (Thread: 127385862031040)
+   [Async] Done.   [Sync] Done.
+
 
    Total Duration: 1.00s
    ✅ SUCCESS: Parallel execution confirmed (< 1.2s).
@@ -479,7 +479,7 @@ B. Strict CAS (strict_cas=True)
 
 ==============================================
    🎉 ALL CLI TOOLS VERIFIED SUCCESSFULLY
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 ==============================================
    THEUS CORE ARCHITECTURE VERIFICATION 
    (Data, Heavy, Signal, Meta, CAS) 
@@ -499,7 +499,7 @@ B. Strict CAS (strict_cas=True)
       Read Back Value[0]: 3.141590118408203
 
 [Step 3] Verifying SIGNAL Zone (Ephemeral)...
-   Injected Signal. Current State keys: ['domain', 'global']
+   Injected Signal. Current State keys: ['global', 'domain']
    ✅ Signal Injection: OK (No Rejection)
 
 [Step 4] Verifying META Zone (Audit)...
@@ -516,7 +516,7 @@ B. Strict CAS (strict_cas=True)
    🎉 GRAND TOUR COMPLETED SUCCESSFULLY
 ==============================================
 All 4 Zones verified in a single runtime environment.
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 === Verifying domain_ctx vs domain behavior ===
 [TheusCore] Registry GC: 1 lines read, 0 kept (1 dropped). Rewriting...
 [TheusCore] Cleanup SUCCESS. File rewritten.
@@ -532,7 +532,7 @@ Executing probe...
 ------------------------------
 Global State 'counter' value: 100
 ✅ Global State remains immutable (100).
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 
 --- Testing Contract Enforcement | Strict: True ---
 [TheusCore] Registry GC: No cleanup needed. All records alive?
@@ -547,14 +547,14 @@ Global State 'counter' value: 100
     -> [Spy] Reading declared...
     -> [Spy] Trying to read SECRET (Undeclared)...
     [Result] EXECUTION SUCCESS (Guard did not block)
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 Verifying Transaction Guard Whitelist...
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
 Inside process -- accessing transaction...
-Got transaction object: <theus_core.Transaction object at 0x7bf67b355c50>
+Got transaction object: <theus_core.Transaction object at 0x76bf24d65b10>
 SUCCESS: Transaction accessed safely without DeepCopy error
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 ==============================================
    THEUS HEAVY ZONE VERIFICATION (CHAP 20) 
 ==============================================
@@ -568,17 +568,17 @@ SUCCESS: Transaction accessed safely without DeepCopy error
    Created Array. Shape: (10000000,). Mean: 1.0000004
 
 [Step 2] Launching Worker to access Data...
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
-   Worker Result: {'pid': 339716, 'shape': (10000000,), 'mean': 1.0000004, 'access_time': 0.011262178421020508}
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
+   Worker Result: {'pid': 2674, 'shape': (10000000,), 'mean': 1.0000004, 'access_time': 0.009398698806762695}
 
 [Analysis]
-   Worker Access Time: 0.011262s
-   Worker PID: 339716 (Main: 339674)
+   Worker Access Time: 0.009399s
+   Worker PID: 2674 (Main: 2643)
    Data Integrity: ✅ Clean
    ✅ SUCCESS: Zero-Copy Shared Memory Verified.
 
 ==============================================
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 ============================================================
 TEST: ContextGuard Integration
 ============================================================
@@ -587,7 +587,7 @@ TEST: ContextGuard Integration
 
 --- Manual Transaction ---
 2.1 Transaction started
-2.2 ContextGuard created: <builtins.ContextGuard object at 0x7b9f2f843ed0>
+2.2 ContextGuard created: <builtins.ContextGuard object at 0x721dbd18bed0>
 2.3 guard['nested'] type: <class 'theus_core.SupervisorProxy'>
     repr: <SupervisorProxy[dict] at path='domain.nested' cap=1111>
 2.4 Accessing nested_proxy.a: 1
@@ -603,7 +603,7 @@ TEST: ContextGuard Integration
 
 --- PURE Process Test ---
 ✅ PURE test skipped (Covered by Phase 1 Unit Test)
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 ==============================================
    THEUS PARALLELISM VERIFICATION (CHAP 19) 
 ==============================================
@@ -622,9 +622,9 @@ Running in Pure Python Fallback (Slower).
 
 --- Running Suite: Sub-interpreters [InterpreterPool] ---
    [Baseline] Running 2 Serial Tasks (Threaded/GIL)...
-   [CPU] Heavy loop starting (n=20000000)...
-   [CPU] Heavy loop starting (n=20000000)...
-      Duration: 1.301s
+   [CPU] Heavy loop starting (n=20000000)...   [CPU] Heavy loop starting (n=20000000)...
+
+      Duration: 1.250s
    [Experiment] Running 2 Parallel Tasks...
 WARNING: 'theus_core' not found. Reason: module theus_core.theus_core does not support loading in subinterpreters
 Running in Pure Python Fallback (Slower).
@@ -632,47 +632,47 @@ WARNING: 'theus_core' not found. Reason: module theus_core.theus_core does not s
 Running in Pure Python Fallback (Slower).
    [CPU] Heavy loop starting (n=20000000)...
    [CPU] Heavy loop starting (n=20000000)...
-      Duration: 1.013s
-   ℹ️  Speedup: 1.28x
+      Duration: 0.854s
+   ℹ️  Speedup: 1.46x
    ✅ Sub-interpreters working!
 
 === MODE 2: ProcessPool (Production Standard) ===
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
    [CPU] Heavy loop starting (n=20000000)...
 
 --- Running Suite: ProcessPool [ProcessPool] ---
    [Baseline] Running 2 Serial Tasks (Threaded/GIL)...
    [CPU] Heavy loop starting (n=20000000)...   [CPU] Heavy loop starting (n=20000000)...
 
-      Duration: 1.331s
+      Duration: 1.297s
    [Experiment] Running 2 Parallel Tasks...
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
-      Duration: 1.194s
-   ℹ️  Speedup: 1.11x
-   ❌ ProcessPool failed to parallelize?
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
+      Duration: 1.044s
+   ℹ️  Speedup: 1.24x
+   ✅ ProcessPool working (>1.2x — Windows spawn variance expected)
 
 ==============================================
    [CPU] Heavy loop starting (n=20000000)...
    [CPU] Heavy loop starting (n=20000000)...
    [CPU] Heavy loop starting (n=20000000)...
 <sys>:0: RuntimeWarning: remaining subinterpreters; close them with Interpreter.close()
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 Verifying Proxy to_dict with Pydantic v2...
 [TheusCore] Registry GC: No cleanup needed. All records alive?
 [ManagedAllocator] Registry initialized successfully.
 Proxy type: <class 'theus_core.SupervisorProxy'>
 Result: {'x': 1}
 SUCCESS: to_dict returned correct dict
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 >> Initializing Pool...
 >> Submitting Standalone Pure Task...
 >> Waiting for result...
-✅ Success! Result: {'result': 30, 'pid': 339924, 'tid': 125315994089152, 'context': 'standalone'}
-ℹ️ PIDs match (Expected for sub-interpreters): 339924
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+✅ Success! Result: {'result': 30, 'pid': 2808, 'tid': 128362363221696, 'context': 'standalone'}
+ℹ️ PIDs match (Expected for sub-interpreters): 2808
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 
 --- TEST 1: Smart CAS (Key-Level Optimism) ---
 [TheusCore] Registry GC: No cleanup needed. All records alive?
@@ -694,7 +694,7 @@ Attempting Anonymous Write (Expect Failure)...
 ✅ Anonymous Write Correctly Blocked: System Busy (VIP Access Only)
 
 All Tests Passed
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 
 --- Testing strict_guards=True ---
 [TheusCore] Registry GC: No cleanup needed. All records alive?
@@ -709,7 +709,7 @@ Result: EXECUTION SUCCESS
   [Process] Type of ctx.domain.data_items: <class 'theus.guards.ContextGuard'>
   [Process] Mutation SUCCESS (strict_guards=False behavior)
 Result: EXECUTION SUCCESS
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 
 ========================================
  TESTING TRANSACTION | Strict Guards: True
@@ -742,7 +742,7 @@ Result: EXECUTION SUCCESS
   [Step 2] Executing 'process_success'...
   [Result] Items after Success: <SupervisorProxy[list] at path='domain.data_list' cap=0001>
   [PASS] ✅ COMMIT SUCCESSFUL!
-[THEUS-CORE] Loaded Version: 3.0.26(Target Env Build)
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
 ==============================================
    THEUS OUTBOX PATTERN VERIFICATION (CHAP 18) 
 ==============================================
@@ -755,7 +755,7 @@ Result: EXECUTION SUCCESS
 
 [Step 2] System Relay (Consumer): Processing...
    📤 Sending 3 messages to external system...
-   Sent IDs: ['msg_1792523013930', 'msg_1792523013931', 'msg_1792523013931']
+   Sent IDs: ['msg_1792632292612', 'msg_1792632292613', 'msg_1792632292613']
    🔒 Committing (Clearing Queue) via CAS...
    ✅ Commit Successful.
 
@@ -842,35 +842,267 @@ Found 25 verification scripts.
 ============================================================
 MANUAL SUITE SUMMARY
 ============================================================
-✅ PASS | test_linter_behavioral.py           | 0.16s
-✅ PASS | test_linter_mutation.py             | 0.19s
-✅ PASS | test_linter_paradox.py              | 0.17s
-✅ PASS | test_parallel_tasks.py              | 4.61s
+✅ PASS | test_linter_behavioral.py           | 0.20s
+✅ PASS | test_linter_mutation.py             | 0.20s
+✅ PASS | test_linter_paradox.py              | 0.19s
+✅ PASS | test_parallel_tasks.py              | 6.14s
 ✅ PASS | test_pyclass_dict.py                | 0.02s
-✅ PASS | test_recv_async_manual.py           | 0.71s
-✅ PASS | test_standalone_task.py             | 0.37s
-✅ PASS | verify_all_mutations.py             | 0.42s
-✅ PASS | verify_api_v3_1.py                  | 0.45s
-✅ PASS | verify_architecture_claims.py       | 2.85s
-✅ PASS | verify_async_dispatch.py            | 1.40s
-✅ PASS | verify_cli_tools.py                 | 1.63s
-✅ PASS | verify_core_architecture.py         | 0.44s
-✅ PASS | verify_domain_ctx_leak.py           | 0.36s
-✅ PASS | verify_firewall.py                  | 0.41s
-✅ PASS | verify_guard_transaction.py         | 0.37s
-✅ PASS | verify_heavy_zone.py                | 0.72s
-✅ PASS | verify_integration_v31.py           | 0.05s
-✅ PASS | verify_parallel_execution.py        | 7.49s
-✅ PASS | verify_proxy_todict.py              | 0.35s
-✅ PASS | verify_pure_parallel.py             | 0.20s
-✅ PASS | verify_smart_cas.py                 | 0.35s
-✅ PASS | verify_strict_mode.py               | 0.30s
-✅ PASS | verify_transaction.py               | 0.33s
-✅ PASS | verify_transactional_outbox.py      | 0.31s
+✅ PASS | test_recv_async_manual.py           | 0.72s
+✅ PASS | test_standalone_task.py             | 0.34s
+✅ PASS | verify_all_mutations.py             | 0.33s
+✅ PASS | verify_api_v3_1.py                  | 0.33s
+✅ PASS | verify_architecture_claims.py       | 3.33s
+✅ PASS | verify_async_dispatch.py            | 1.32s
+✅ PASS | verify_cli_tools.py                 | 1.52s
+✅ PASS | verify_core_architecture.py         | 0.24s
+✅ PASS | verify_domain_ctx_leak.py           | 0.26s
+✅ PASS | verify_firewall.py                  | 0.27s
+✅ PASS | verify_guard_transaction.py         | 0.26s
+✅ PASS | verify_heavy_zone.py                | 0.62s
+✅ PASS | verify_integration_v31.py           | 0.02s
+✅ PASS | verify_parallel_execution.py        | 6.82s
+✅ PASS | verify_proxy_todict.py              | 0.31s
+✅ PASS | verify_pure_parallel.py             | 0.22s
+✅ PASS | verify_smart_cas.py                 | 0.24s
+✅ PASS | verify_strict_mode.py               | 0.24s
+✅ PASS | verify_transaction.py               | 0.23s
+✅ PASS | verify_transactional_outbox.py      | 0.26s
 ------------------------------------------------------------
-Total Time: 24.68s
+Total Time: 24.62s
 Passed: 25/25
 ALL GREEN.
-✅ [SUCCESS] Running Manual Integration Suite (24.71s)
+✅ [SUCCESS] Running Manual Integration Suite (24.65s)
+
+==================================================
+🚀 [STEP] Running Performance Benchmark Gate
+   Exec: /home/hoang/Demo/theus/.venv/bin/python tests/perf/burst_write_benchmark.py
+   CWD:  /home/hoang/Demo/theus
+==================================================
+[THEUS-CORE] Loaded Version: 3.0.27(Target Env Build)
+[TheusCore] Registry GC: 4 lines read, 0 kept (4 dropped). Rewriting...
+[TheusCore] Cleanup SUCCESS. File rewritten.
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+[TheusCore] Registry GC: No cleanup needed. All records alive?
+Starting INC-030 Burst Write Benchmark Suite (Python 3.14 + Theus Core)...
+Methodology: All scenarios evaluated as median of 3 isolated runs.
+
+==========================================
+Scenario: 1. Flat Single Key (O(1) state size)
+==========================================
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 100 | Median: 0.0013s | Mean: 0.0014s | Per-op:  13.05 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 500 | Median: 0.0070s | Mean: 0.0070s | Per-op:  14.06 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N=1000 | Median: 0.0107s | Mean: 0.0115s | Per-op:  10.73 µs
+
+==========================================
+Scenario: 2. Distinct Keys Growth (State size grows 1..N, im::HashMap)
+==========================================
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 100 | Median: 0.0020s | Mean: 0.0019s | Per-op:  19.55 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 500 | Median: 0.0153s | Mean: 0.0155s | Per-op:  30.57 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N=1000 | Median: 0.0548s | Mean: 0.0541s | Per-op:  54.75 µs
+
+==========================================
+Scenario: 3. Nested Domain Dict (Compact subdict, deep_merge_cow)
+==========================================
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 100 | Median: 0.0014s | Mean: 0.0013s | Per-op:  13.88 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 500 | Median: 0.0064s | Mean: 0.0064s | Per-op:  12.73 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N=1000 | Median: 0.0148s | Mean: 0.0149s | Per-op:  14.81 µs
+
+==========================================
+Scenario: 4. Context + Proxy Sync (_sync_registry_from_core)
+==========================================
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 100 | Median: 0.0020s | Mean: 0.0017s | Per-op:  19.51 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 500 | Median: 0.0100s | Mean: 0.0101s | Per-op:  20.08 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N=1000 | Median: 0.0153s | Mean: 0.0154s | Per-op:  15.31 µs
+
+==========================================
+Scenario: 5. Prepopulated State (5,000 keys durable, O(K) sync)
+==========================================
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 100 | Median: 0.0543s | Mean: 0.0558s | Per-op: 543.42 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 500 | Median: 0.2735s | Mean: 0.2746s | Per-op: 546.92 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N=1000 | Median: 0.5336s | Mean: 0.5338s | Per-op: 533.57 µs
+
+==========================================
+Scenario: 6a. Growing Nested Sub-dict (Direct txn leaf delta)
+==========================================
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 100 | Median: 0.0019s | Mean: 0.0019s | Per-op:  19.18 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 500 | Median: 0.0058s | Mean: 0.0059s | Per-op:  11.53 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N=1000 | Median: 0.0149s | Mean: 0.0149s | Per-op:  14.89 µs
+
+==========================================
+Scenario: 6b. Process Contract Full Dict Return (INC-030 Bottleneck)
+==========================================
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 100 | Median: 0.0897s | Mean: 0.0902s | Per-op: 896.63 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 500 | Median: 1.8011s | Mean: 1.8159s | Per-op: 3602.26 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N=1000 | Median: 6.9001s | Mean: 6.9910s | Per-op: 6900.08 µs
+
+==========================================
+Scenario: 7. Process Contract Delta Return (Target Fix Baseline)
+==========================================
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 100 | Median: 0.0134s | Mean: 0.0127s | Per-op: 134.10 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N= 500 | Median: 0.0321s | Mean: 0.0305s | Per-op:  64.27 µs
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+[ManagedAllocator] Registry initialized successfully.
+  N=1000 | Median: 0.0574s | Mean: 0.0577s | Per-op:  57.36 µs
+
+=================================================================
+BENCHMARK GATE EVALUATION (Regression Ceilings)
+=================================================================
+  ✅ PASS | Scenario 1 (N=1000)                 | 0.0107s (ceiling: 0.0500s)
+  ✅ PASS | Scenario 2 (N=1000)                 | 0.0548s (ceiling: 0.1500s)
+  ✅ PASS | Scenario 3 (N=1000)                 | 0.0148s (ceiling: 0.0500s)
+  ✅ PASS | Scenario 4 (N=1000)                 | 0.0153s (ceiling: 0.0500s)
+  ✅ PASS | Scenario 5 (N=1000)                 | 0.5336s (ceiling: 1.5000s)
+  ✅ PASS | Scenario 6a (N=1000)                | 0.0149s (ceiling: 0.0800s)
+  ✅ PASS | Scenario 6b (N=1000)                | 6.9001s (ceiling: 15.0000s)
+  ✅ PASS | Scenario 7 (N=1000)                 | 0.0574s (ceiling: 0.1000s)
+
+=================================================================
+POST-FIX ACCEPTANCE TARGETS (INC-030 Resolution Standards)
+=================================================================
+  🎯 TARGET | Scenario 5 (N=1000, Delta-Aware Sync) | < 0.1000s (< 100 µs/op)
+  🎯 TARGET | Scenario 6b (N=1000, Contract Delta) | < 1.0000s (< 1000 µs/op)
+  🎯 TARGET | Scenario 7 (N=1000, Optimal Delta)  | < 0.0500s (< 50 µs/op)
+
+🎉 ALL BENCHMARK REGRESSION GATES PASSED.
+✅ [SUCCESS] Running Performance Benchmark Gate (30.81s)
 
 🎉 LOCAL CI COMPLETED SUCCESSFULLY!

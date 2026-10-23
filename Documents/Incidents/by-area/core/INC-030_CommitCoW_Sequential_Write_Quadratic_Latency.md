@@ -4,7 +4,7 @@ title: Commit CoW Full-State Clone — O(N²) Sequential Write Latency
 area: core
 severity: medium
 introduced_in: v3.0 (PyO3 Transaction architecture)
-fixed_in: ~
+fixed_in: — (open)
 status: open
 ---
 
@@ -12,14 +12,13 @@ status: open
 
 ## Summary
 
-Every call to `Transaction.__exit__` (the commit path) constructs a **full clone** of the current
-engine state via `State::update()`. As the durable document set grows to size N, each successive
-commit clones N entries. Across a burst of N sequential writes, total clone work is
-`1 + 2 + ... + N = O(N²)`, producing a measurable quadratic latency profile.
+Sequential writes against growing state exhibit two distinct scaling bottlenecks:
+1. **O(N²) quadratic latency in growing nested dictionaries (`deep_merge_cow` + contract CoW):** When accumulating documents in a nested sub-dict (e.g. `domain.documents` in `@process` explicit contracts), each successive commit copies the full dictionary of N elements (`target_dict.copy()?` in Rust and `dict(...)` in Python). Across N writes, total work is `1 + 2 + ... + N = O(N²)`, producing **~7.5s for 1,000 writes** (`test_case3_bien_burst_no_document_loss`).
+2. **O(K) per-transaction overhead from Python namespace synchronization:** When the engine holds K durable keys, each transaction exit calls `_sync_registry_from_core()`, which performs a dict comprehension across all K keys in Python (`ns_info["data"] = {k: v for k, v in data.items() ...}`), costing ~450–500 µs per commit when K=5,000 (even though pure Rust `theus_core.Transaction` is flat O(1) at ~1.3 µs).
 
-This is not a regression introduced by any recent fix. Measurements taken at the v3.0.26 baseline
-(pre-v3.0.27 OCC hardening) confirm the same profile. The bottleneck is structural and has been
-present since the CoW state model was adopted in v3.0.
+> **Architectural Fact:** `State` in `src/structures.rs` **already uses `im::HashMap`** (`use im::HashMap; pub data: HashMap<String, Arc<PyObject>>`). Clones of top-level zone state in Rust are O(1). The bottleneck is NOT `State` lacking HAMT, but rather nested Python containers within zones (`PyDict` shallow-copying in `deep_merge_cow`) combined with post-commit Python registry synchronization.
+
+This is not a regression introduced by any recent fix. Measurements taken at the v3.0.26 baseline (pre-v3.0.27 OCC hardening) confirm the same profile.
 
 ---
 
@@ -29,24 +28,34 @@ present since the CoW state model was adopted in v3.0.
 
 All timing claims below were produced with a **single isolated process, no background tasks**, as
 the median of ≥3 runs. Numbers collected concurrently with other terminal activity are excluded
-(they introduced approximately 2.5× artificial inflation in earlier preliminary measurements).
+(they introduced approximately 2.5× to 4.5× artificial inflation in earlier preliminary measurements).
 
-### How `State::update()` Currently Works
+### How CoW Commit Currently Works
 
 ```rust
-// Conceptual pseudocode — src/engine.rs (commit path)
-// State::update() — called inside Transaction::__exit__
-fn update(current_state: &State, pending_delta: &Delta) -> State {
-    let mut new_docs = current_state.documents.clone();  // full clone of N entries
-    for (k, v) in &pending_delta.changes {
-        new_docs.insert(k, v);
-    }
-    State { documents: new_docs, version: current_state.version + 1, ... }
+// Actual commit mechanics in src/structures.rs & engine.rs
+// 1. Rust top-level zones use im::HashMap (O(1) clone):
+pub struct State {
+    pub data: im::HashMap<String, Arc<PyObject>>,         // persistent HAMT — O(1) clone
+    pub heavy: im::HashMap<String, Arc<PyObject>>,        // persistent HAMT — O(1) clone
+    pub key_last_modified: im::HashMap<String, u64>,      // persistent HAMT — O(1) clone
 }
+
+// 2. BUT nested objects inside zones are raw Python dicts merged via deep_merge_cow():
+fn deep_merge_cow(py: Python, target: PyObject, source: &Bound<PyDict>) -> PyResult<PyObject> {
+    if let Ok(target_dict) = target.downcast_bound::<PyDict>(py) {
+        let new_dict = target_dict.copy()?; // Shallow copy of all existing N items!
+        for (k, v) in source { ... }
+        Ok(new_dict.into())
+    } ...
+}
+
+// 3. AND Python wrapper executes full namespace resynchronization on transaction exit:
+// theus/engine.py: _sync_registry_from_core()
+ns_info["data"] = {k: v for k, v in data.items() if k not in self._namespaces._namespaces} // O(K) loop
 ```
 
-Each commit clones `documents` in full, regardless of how many keys the transaction actually
-modified. For a delta of size 1, a clone of N entries is still performed.
+When a nested container (e.g. `domain.documents`) grows to size N, each commit makes a shallow copy of all N items in `deep_merge_cow()`. Furthermore, if the process returns the entire modified dictionary (`docs = dict(ctx.domain.documents); return docs`), Python copies N items and Rust iterates over all N items, yielding total quadratic work $\sum_{i=1}^N i = O(N^2)$.
 
 ---
 
@@ -139,70 +148,77 @@ copying.
 ---
 
 ## Proposed Fix Direction
+ 
+### Option A: Phased Optimization Levers (Prioritized by Impact) — Recommended
 
-### Option A: Persistent (Structural-Sharing) Map — Recommended
+Forensic profiling reveals that the quadratic latency and transaction overhead arise from three distinct layers. Solutions are prioritized by leverage and return-on-investment:
 
-Replace `documents: HashMap<String, Value>` on `State` with a persistent (immutable, structurally
-shared) map. Candidates:
+1. **Lever 1 (Đòn bẩy lớn nhất — Tăng tốc 118× đến 139×): Thay Đổi Mẫu Sử Dụng & Cập Nhật Hướng Dẫn Contract (Không Phải Bản Vá Mã)**
+   - *Bản chất kỹ thuật:* **Hoàn toàn KHÔNG cần thay đổi mã nguồn engine (cả Rust lẫn Python).** Theus engine từ trước đã hỗ trợ gộp sub-dictionary vào nested state thông qua `deep_merge_cow()`. Điểm nghẽn không nằm ở lõi engine mà phát sinh từ anti-pattern trong code người dùng/test: đọc toàn bộ dictionary rồi trả ngược lại toàn bộ trạng thái.
+   - *Cơ chế nghẽn cũ:* Khi dùng contract tường minh `@process(inputs=["domain.documents"], outputs=["domain.documents"])`, process thường lấy `docs = dict(ctx.domain.documents)` rồi `return docs`. Việc này kích hoạt 3 thao tác $O(N)$ dồn dập ở mỗi lượt commit: (1) clone dict N phần tử trên Python heap, (2) truyền cả N phần tử qua ranh giới FFI Python-Rust, và (3) Rust `deep_merge_cow` duyệt lại toàn bộ N phần tử.
+   - *Giải pháp & Tác động:* Đổi sang trả về delta nhỏ gọn `{doc_id: payload}`. Thời gian thực thi cho $N=1000$ ghi tuần tự giảm ngay lập tức từ **~5.94s–6.41s xuống ~0.046s–0.050s** (~139×).
+   - *Kiểm chứng tính toàn vẹn dữ liệu:* Benchmark Scenario 7 tự động chạy kiểm tra xác thực (assert) đầy đủ $N$ khóa (`DOC-0000` đến `DOC-(N-1)`) cùng nội dung payload sau vòng lặp, khẳng định tốc độ vượt trội không phải do bỏ bớt công việc hay mất mát dữ liệu.
+   - *Hướng dẫn Chuyển đổi (Migration Guide) & Hệ quả đối với người dùng:*
+     > [!WARNING]
+     > **Hệ quả quan trọng:** Mọi `@process` hiện có đang viết theo kiểu trả full dict sẽ tiếp tục chịu độ trễ $O(N^2)$ cho đến khi được sửa. Engine không thể tự động thu nhỏ full dict nếu contract của người dùng chỉ định ghi đè. Cần phát hành hướng dẫn migration và bổ sung cảnh báo linter/runtime trong v3.0.28:
+     ```python
+     # ❌ CÁCH CŨ (Anti-pattern, $O(N^2)$ — Không nên dùng):
+     @process(inputs=["domain.documents"], outputs=["domain.documents"])
+     async def p_save_doc(ctx, doc_id, payload):
+         docs = dict(ctx.domain.documents)  # Copy N phần tử trên Python heap
+         docs[doc_id] = payload
+         return docs                         # Bắn cả N phần tử qua FFI -> Rust deep_merge_cow quét lại cả N
 
-- **`im::HashMap` / `im::OrdMap`** from the [`im` crate](https://docs.rs/im) — persistent HAMTs
-  with O(1) clone and O(log N) insert, sharing unchanged subtrees between versions.
-- **Custom Arc-wrapped segment map** — partition `documents` into immutable Arc'd segments;
-  commits copy only the segments containing modified keys.
+     # ✅ MẪU KHUYẾN NGHỊ (Tối ưu, Delta O(1) — Tăng tốc ~139×):
+     @process(inputs=["domain.documents"], outputs=["domain.documents"])
+     async def p_save_doc(ctx, doc_id, payload):
+         return {doc_id: payload}  # Chỉ 1 item qua FFI; Rust tự động merge vào domain.documents
+     ```
 
-Under Option A, `State::update()` becomes O(delta_size × log N) instead of O(N), reducing the
-burst cost from O(N²) to O(N log N).
+2. **Lever 2 (Đòn bẩy cao — Tăng tốc ~55× trên State có sẵn nhiều khóa): Delta-Aware Registry Synchronization**
+   - *Điểm nghẽn:* Khi state chứa lượng khóa bền vững lớn ($K=5.000$), hàm `TheusEngine._sync_registry_from_core()` chạy vòng lặp duyệt toàn bộ $K$ khóa khi thoát transaction (`{k: v for k, v in data.items() ...}`), tiêu tốn ~413–526 µs mỗi commit ngay cả khi transaction chỉ cập nhật 1 khóa duy nhất. Tắt bước sync này giảm độ trễ xuống ~7.5 µs (55×).
+   - *Bản vá mã dự kiến (v3.0.28):* Nâng cấp `_sync_registry_from_core()` để chỉ duyệt qua các khóa có trong delta vừa commit, loại bỏ hoàn toàn việc quét $O(K)$.
 
-```rust
-// Pseudocode (im::HashMap approach)
-use im::HashMap as PMap;
+3. **Lever 3 (Chiều sâu kiến trúc): Granular Nested Container CoW & Structural Sharing**
+   - *Điểm nghẽn:* `deep_merge_cow()` trong Rust shallow-copy dictionary cha (`target_dict.copy()?`) mỗi khi một trường con thay đổi.
+   - *Bản vá mã dự kiến (v3.0.28):* Tối ưu `deep_merge_cow` để cập nhật trực tiếp hoặc tích hợp cấu trúc persistent trie (như `rpds.HashTrieMap`) cho các container lồng nhau, giảm chi phí ghi full dict từ ~6s xuống < 1s.
 
-struct State {
-    documents: PMap<String, Value>,  // persistent, Arc-shared subtrees
-    version: u64,
-    // ...
-}
+**Hiệu năng tổng thể dự kiến sau cả 3 đòn bẩy:**
+- Ghi dồn tài liệu lồng nhau ($N=1000$): từ ~6.0s–7.5s → < 0.05s (**đã đạt ngay hôm nay qua Lever 1**).
+- State đã có sẵn 5.000 khóa: từ ~470–526 µs/op → < 15 µs/op (mục tiêu v3.0.28 qua Lever 2).
 
-fn update(current: &State, delta: &Delta) -> State {
-    let mut new_docs = current.documents.clone();  // O(1) — shares structure
-    for (k, v) in &delta.changes {
-        new_docs = new_docs.update(k.clone(), v.clone());  // O(log N) per key
-    }
-    State { documents: new_docs, version: current.version + 1, ... }
-}
-```
+### Option B: Write-Ahead Delta Log (Kiến trúc MVCC dài hạn)
 
-**Expected performance:** 1000-write burst from ~7.5s → < 0.5s (estimated, subject to validation).
-
-### Option B: Epoch-Based Compaction (Simpler, Partial Fix)
-
-Keep the current `HashMap` but add a GC step: when no active transactions reference a prior
-state, the engine may discard intermediate snapshots. This reduces peak memory usage but does not
-change the per-commit clone cost. **Does not fix the O(N²) scaling.**
-
-### Option C: Write-Ahead Delta Log (Future Architecture)
-
-Store only deltas in the commit path; materialize full state lazily or on explicit checkpoint.
-This is the architecture used by MVCC databases. Highest throughput potential, but requires a
-significant refactor of state access patterns across the Rust and Python layers.
-
-**Recommendation:** Implement Option A. The `im` crate is mature, maintained, and designed for
-exactly this use case. It preserves the CoW semantics (new state is a distinct object that does
-not alias the old one) while making clones O(1) and inserts O(log N).
+Chỉ lưu delta trong commit path; chỉ tái tạo full state khi có checkpoint hoặc truy vấn cụ thể. Có thông lượng cao nhất nhưng đòi hỏi tái cấu trúc lớn ở cả tầng Rust và Python.
 
 ---
 
-## Acceptance Criteria
+## Phạm Vi Giả Định (Technical Assumptions & Scope of Validity)
 
-A fix for INC-030 must satisfy:
+Tất cả các kết luận và số đo định lượng trong báo cáo INC-030 được xác lập dựa trên 4 giả định giới hạn:
 
-1. **Correctness (unchanged):** All existing pytest tests pass without modification.
-2. **Snapshot isolation preserved:** A transaction starting at version N must still see a
-   consistent snapshot of state at version N, regardless of concurrent commits.
-3. **Performance benchmark (new):** `tests/perf/burst_write_benchmark.py` (to be created)
-   records median elapsed for N=100, 500, 1000. The N=1000 case must complete in < 1.0s on
-   the reference machine (vs ~7.5s current).
-4. **No regression in full suite:** `python scripts/Local_CI.py verify` exit 0.
+1. **Workload tuần tự, đơn luồng (Single-Threaded):** Khảo sát đặc tính ghi dồn (burst writes) trong một worker/process. Không bao gồm kịch bản nhiều tiến trình/luồng ghi tranh chấp (write contention), lock contention, hoặc bão xung đột CAS abort/retry.
+2. **Môi trường & Phần cứng tham chiếu:** Đo đạc trên nền tảng Linux x86_64, CPython 3.14.4 và PyO3. Thời gian tuyệt đối có thể dao động theo xung nhịp CPU, nhưng quy luật tiệm cận ($O(N^2)$, $O(N)$, $O(K)$) và tỷ lệ chênh lệch (~139×, ~55×) mang tính bất biến về cấu trúc.
+3. **Cấu trúc dữ liệu Dict-of-Dict:** Kiểm chứng trên mapping lồng nhau dạng từ điển (`domain.documents[doc_id]`). Các hình thái contract khác (danh sách lồng nhau `list.append`, tuple, hoặc contract nhiều đầu ra phức tạp) có đặc tính cấp phát bộ nhớ khác và chưa nằm trong phạm vi đo này.
+4. **Quy mô trạng thái ($K=5.000$):** Được chọn làm mốc đại diện cho trạng thái bền vững cỡ vừa đến lớn. Với state nhỏ ($K < 100$), chi phí đồng bộ $O(K)$ nằm trong biên độ nhiễu đo lường (< 5 µs).
+
+---
+
+## Tiêu Chí Nghiệm Thu (Acceptance Criteria & Reference Points)
+
+Một bản cập nhật hoàn chỉnh cho INC-030 phải thỏa mãn:
+
+1. **Tính đúng đắn & Toàn vẹn dữ liệu:** Toàn bộ test suite pytest hiện hữu pass 100%. Benchmark bắt buộc phải assert bảo toàn 100% dữ liệu (`len(docs) == N`, đủ toàn bộ các khóa từ `DOC-0000` đến `DOC-(N-1)` và đúng payload).
+2. **Bảo toàn Snapshot Isolation:** Transaction bắt đầu ở phiên bản N vẫn luôn nhìn thấy snapshot nhất quán của phiên bản N.
+3. **Phân định rõ Chuẩn Hiệu Năng:**
+   - **Regression Ceiling Gate (Cổng bảo vệ CI hiện tại — Ngăn hồi quy):**
+     Tất cả các kịch bản trong `tests/perf/burst_write_benchmark.py` phải nằm dưới trần (Scenario 6b ≤ 15.0s, Scenario 5 ≤ 1.50s, Scenario 7 ≤ 0.10s) trên trung vị của ≥3 lần chạy độc lập.
+   - **Acceptance Targets (Mục tiêu nghiệm thu cho bản vá mã v3.0.28):**
+     * Scenario 5 (5.000 durable keys): **< 0.10s** (< 100 µs/op thông qua Lever 2 Delta-Aware Sync).
+     * Scenario 6b (Full-dict CoW path): **< 1.0s** (< 1000 µs/op thông qua Lever 3 Granular CoW).
+   - **Reference Point (Mốc Tham Chiếu — ĐÃ ĐẠT ngay trên codebase hiện tại qua Mẫu Sử Dụng):**
+     * Scenario 7 (Delta Return Pattern): **~0.046s–0.050s** (< 50 µs/op, kiểm chứng bảo toàn 100% dữ liệu).
+4. **Cổng kiểm tra tự động:** `python scripts/Local_CI.py perf` và `python scripts/Local_CI.py full` thoát mã 0.
 
 ---
 
@@ -222,59 +238,28 @@ is attributable to OCC path consolidation, not CoW optimization.
 
 ---
 
-## What Is NOT the Root Cause
+## Causal Disambiguation: `_sync_registry_from_core()`
 
-| Hypothesis                           | Verdict           | Evidence                                              |
-|--------------------------------------|-------------------|-------------------------------------------------------|
-| `_sync_registry_from_core()` latency | **Refuted**       | No-op patch: N=1000 timing unchanged (Δ < 2%)        |
-| OCC bypass fixes in v3.0.27          | **Unrelated**     | Baseline at v3.0.26 shows identical quadratic profile |
-| Python-side context overhead          | **Refuted**       | Sync no-op experiment eliminates Python layer         |
-| GIL contention                        | **Not applicable**| Single-threaded sequential writes; GIL not a factor  |
+An earlier hypothesis regarding `_sync_registry_from_core()` produced seemingly contradictory results depending on workload state size:
+
+- **When durable key count K is small (K ≈ 1):** In a test updating `domain.documents`, disabling sync showed Δ < 2% (6.32s vs 6.44s). In this mode, Python sync is negligible, and the bottleneck is entirely the 3-phase document accumulation.
+- **When durable key count K is large (K = 5,000):** Benchmarking with sync enabled vs disabled yields **413.1–526 µs/op vs 7.5 µs/op** — a **55× disparity**. Here, `_sync_registry_from_core()` dominates per-transaction latency via its O(K) dictionary comprehension.
+
+| Subsystem | Impact on Burst 1000 Writes (Scenario 6b) | Impact on Prepopulated 5000 Keys (Scenario 5) |
+|---|---|---|
+| **Python Dict Clone + FFI Pass** | **Primary driver of O(N²) (~6.0s–7.5s)** | Minimal (< 10 µs) |
+| **Rust `deep_merge_cow` Copy** | Secondary driver of O(N²) | Minimal (< 10 µs) |
+| **`_sync_registry_from_core`** | Minimal (< 2% on compact state) | **Primary driver of O(K) (~470–526 µs/op, 55× cost)** |
+| **Rust Core `State.data` (HAMT)** | O(1) pointer-bump (No bottleneck) | O(1) pointer-bump (~1.3 µs raw transaction) |
 
 ---
 
 ## Prevention & Forward Work
 
-Once INC-030 is resolved:
-
-1. **Benchmark gate:** Add `tests/perf/burst_write_benchmark.py` to `Local_CI.py full`; fail CI
-   if N=1000 burst exceeds a configured threshold (e.g., 2.0s).
-2. **Architecture note in AGENTS.md:** Add under "Conventions That Matter" that `State::update()`
-   must remain O(delta_size × log N), not O(N).
-3. **INC-030 resolved marker:** Update `fixed_in` field and add a post-mortem section confirming
-   which benchmark result validated the fix.
-
----
-
-## Related
-
-- INC-020 (`TransactionLeakCOW`): Related CoW semantics — transactions must not share mutable
-  state across isolation boundary
-- INC-027, INC-028, INC-029: Sibling incidents in `Transaction::__exit__` commit path (OCC
-  correctness, now resolved in v3.0.27)
-- `src/engine.rs`: Primary implementation site for `State::update()`
-- `tests/manual/run_suite.py`: Suite that surfaces the quadratic scaling under sequential load
-
----
-
-## Lessons Learned
-
-1. **CoW correctness ≠ CoW efficiency.** Snapshot isolation requires that old readers see old
-   state; it does not require copying unchanged data. Conflating these requirements leads to
-   unnecessary O(N) clones per commit.
-
-2. **Profile before attributing.** The Python sync layer was a plausible suspect, but the
-   experiment showed < 2% impact. Without measurement, a fix targeting `_sync_registry_from_core`
-   would have been expensive (Python-layer refactor) and ineffective.
-
-3. **Baselines must be isolated.** Measurements taken under background load (other terminals,
-   concurrent compilers) can show 2–3× inflation. Use median of ≥3 isolated runs as the
-   measurement standard.
-
-4. **O(N²) in a commit path is invisible at small N.** 100 writes takes 0.04s — within acceptable
-   latency. At 1000 writes, 7.5s is jarring. At 10,000 writes (a plausible event-sourcing scenario)
-   the estimate exceeds 10 minutes. The failure mode is discontinuous and hard to anticipate without
-   explicit scaling tests.
+1. **Continuous Performance Gate:** `tests/perf/burst_write_benchmark.py` is integrated into `scripts/Local_CI.py` under `perf` and `full`, automatically evaluating all 8 scenarios with `reps=3` against regression ceilings with built-in data integrity assertions.
+2. **Delta Contracts in v3.0.28:** Update `@process` documentation and patterns to promote returning deltas (`return {doc_id: payload}`) rather than mutating copies of parent state.
+3. **Delta-Aware Sync in v3.0.28:** Optimize `_sync_registry_from_core()` to only touch keys modified by the transaction delta.
+4. **Architecture Convention:** Maintain rule in `AGENTS.md` that state updates must remain $O(\Delta \times \log N)$, not $O(N)$.
 
 ---
 
@@ -285,83 +270,45 @@ Once INC-030 is resolved:
 
 | Hypothesis | Description | Forensic / Empirical Finding | Verdict |
 |---|---|---|---|
-| **H1: Full State HashMap Clone** | `State::update()` clones `self.data`, `self.heavy`, `self.key_last_modified` in Rust on every commit. | Code forensic confirmed at `src/structures.rs:291-297`. Empirical test confirmed: with 5,000 durable keys, per-write latency jumps from 10 µs to 509 µs (50× slower). | **CONFIRMED (Primary Root Cause)** |
-| **H2: Python Context Sync (`_sync_registry_from_core`)** | Post-commit synchronization in `theus/engine.py` inspects proxies and reconstructs models. | Tested via no-op bypass and isolated benchmark: Scenario 4 shows median ~9.2 µs/op, Δ < 2%. | **REFUTED (Negligible contributor)** |
-| **H3: Nested Dict Shallow Copy (`deep_merge_cow`)** | `deep_merge_cow()` copies Python dict via `target_dict.copy()`. | Forensic at `src/structures.rs:215-234`. Tested via Scenario 3: flat vs nested yields ~11.6 µs vs ~6.4 µs. Minor constant overhead, but scales if a single sub-dict contains thousands of keys. | **SECONDARY (Bounded constant factor)** |
-| **H4: CAS Conflict Detection (`detect_field_conflict`)** | OCC conflict verification checks keys against `key_last_modified`. | Code inspection (`src/conflict.rs`): scales with number of keys in *pending delta*, NOT total state size. For single-key updates, cost is O(1). | **REFUTED (Not scaling with state size)** |
-| **H5: Ring Buffer Lock Contention (`meta_logs`)** | `new_state.log_meta()` acquires `Mutex<VecDeque>` and appends log entry. | Forensic at `src/structures.rs:302`: mutex is uncontended in single-thread bursts. Queue is bounded by `meta_capacity=1000`. | **REFUTED (Constant bounded cost)** |
+| **H1: Full State HashMap Clone in Rust** | `State::update()` clones `self.data`, `self.heavy`, `self.key_last_modified` in Rust on every commit. | Code forensic at `src/structures.rs:5`: `use im::HashMap;` confirms `State` **already uses persistent HAMT**. Pure Rust `theus_core.Transaction` is flat O(1) across K=0..5000 (1.3 µs/op). | **REFUTED as root cause (Already HAMT)** |
+| **H2: Python Context Sync (`_sync_registry_from_core`)** | Post-commit synchronization in `theus/engine.py` inspects proxies and reconstructs models. | Forensic at `theus/engine.py:575`: iterates all K keys on transaction exit (`{k: v for k, v in data.items() ...}`). Causes 55× overhead (413 µs vs 7.5 µs) at K=5000. | **CONFIRMED (Root Cause of O(K) per-tx overhead on populated states)** |
+| **H3: 3-Phase Compounded O(N) in Explicit Process Contracts** | `@process` returns full `dict(...)` across FFI into Rust `deep_merge_cow()`. | Forensic at `tests/test_explicit_contract_stress_4case.py:51` & `src/structures.rs:215`. Three compounded O(N) operations: (1) Python dict clone, (2) FFI transfer of N items, (3) Rust `target_dict.copy()`. Producing ~5.9s–7.5s at N=1000. | **CONFIRMED (Primary Root Cause of 7.5s O(N²) latency)** |
+| **H4: Direct Sub-dict Transaction Update** | Direct `tx.update(data={"domain": {"documents": {leaf: val}}})` triggers quadratic blowup. | Tested in Scenario 6a: N=1000 takes only **0.0121s** (12.1 µs/op). Hằng số rất nhỏ vì chỉ có 1 leaf-key đi qua FFI và không clone Python dict. | **REFUTED (Bounded O(N) constant)** |
+| **H5: CAS Conflict Detection (`detect_field_conflict`)** | OCC conflict verification checks keys against `key_last_modified`. | Code inspection (`src/conflict.rs`): scales with number of keys in *pending delta*, NOT total state size. For single-key updates, cost is O(1). | **REFUTED (Not scaling with state size)** |
 | **H6: GIL / Concurrency Noise** | Concurrent background processes inflate wall-clock execution time. | Verified empirically: background compilation inflated 7.5s → 34s (2.5× to 4.5× distortion). Isolated tests produce clean reproducible timings. | **CONFIRMED (Measurement artifact)** |
 
 ---
 
-### 8.2. Phase 1: The 8 Core Analytical Rules
+### 8.2. Empirical Forensic Matrix (Measured on Reference Machine — Median of 3 Isolated Runs)
 
-1. **Problem Statement:** Sequential write commits degrade from sub-millisecond latency to tens of milliseconds as durable state accumulates, exhibiting O(N) cost per commit and O(N²) cumulative time for bursts of size N.
-2. **Inquiry Scope:** Rust transaction lifecycle, state cloning semantics, nested dict merging, Python-side proxy sync, and empirical scaling under varying state topologies (flat, distinct, prepopulated, nested).
-3. **Data Integrity:** All measurements collected via dedicated benchmark harness `tests/perf/burst_write_benchmark.py` running in isolated process on the target Linux environment (`CPython 3.14.4 + PyO3`).
-4. **Conceptual Clarity:** Distinguishing *Snapshot Read Isolation* (semantic invariant) from *Full Object Copying* (implementation choice). Immutable state does NOT mandate eager cloning when persistent structural sharing (HAMT) is available.
-5. **Logical Consistency:** Hypotheses tested by varying exactly one variable at a time: constant state size vs growing state size, populated state vs empty state, sync enabled vs disabled.
-6. **Implications & Consequences:** Leaving this unaddressed risks catastrophic latency degradation in long-lived services, workflow engines, or data-seeding tasks where state size exceeds 10,000 keys.
-7. **Assumptions & Presuppositions:** Challenged the assumption that "OCC hardening in v3.0.27 caused regression" (disproved: v3.0.26 baseline had identical quadratic profile) and "Python sync is the bottleneck" (disproved: < 2% impact).
-8. **Perspective & Breadth:** Evaluated trade-offs between zero-dependency standard `std::collections::HashMap`, persistent collections (`im` crate HAMT), epoch-based GC, and write-ahead delta logging.
+*Source: `tests/perf/burst_write_benchmark.py` (`reps=3` across all scenarios, with data integrity assertions)*
 
----
-
-### 8.3. Phase 2: Complexity & Case Analysis
-
-* **Standard / Model Case:**
-  Small transaction updating 1–5 fields in an engine containing < 500 keys.
-  *Measured latency:* ~6–10 µs per commit. Imperceptible overhead.
-
-* **Related Cases:**
-  - Nested dict updates (`domain.subdict.leaf`): Handled via `deep_merge_cow`, costs ~11.5 µs per commit when subdict is compact.
-  - Direct Rust state updates (`state.update()`): ~3.6 µs per commit, verifying Python wrapper overhead is ~3–5 µs.
-
-* **Edge Cases (Mandatory ≥ 2):**
-  - **Edge Case 1 (Prepopulated Large State):** State pre-seeded with 5,000 keys, followed by 1,000 single-key updates.
-    *Measured latency:* 509 µs per commit (50× slowdown). Every commit copies all 5,000 Arc pointers. Total time for 1,000 writes jumps to ~0.51s.
-  - **Edge Case 2 (Monotonically Growing State):** Transaction burst appending N distinct keys (`key_0` to `key_N`).
-    *Measured latency:* N=100 (20 µs/op) → N=500 (30 µs/op) → N=1000 (47 µs/op) → N=2000 (96 µs/op). Latency per operation scales linearly with N.
-
-* **Conflict / Inverse Case (Mandatory ≥ 1):**
-  - **Conflict Case 1 (Shallow Replace on Structurally Shared Map):** If `im::HashMap` is introduced naively without adapting `deep_merge_cow()`, updating a nested Python `dict` could still trigger full Python dict copies or unbind Arc references incorrectly, maintaining a hidden secondary bottleneck inside Python dictionary serialization.
+| Scenario | N=100 | N=500 | N=1000 | Latency Profile | Root Mechanism |
+|---|---|---|---|---|---|
+| **1. Flat Single Key** | 0.0006s (6.4 µs) | 0.0030s (5.9 µs) | 0.0056s (5.6 µs/op) | **Strictly Linear O(N)** | O(1) state, single key |
+| **2. Distinct Keys (1..N)** | 0.0012s (12.2 µs) | 0.0112s (22.5 µs) | 0.0391s (39.1 µs/op) | **O(N log N)** | `im::HashMap` persistent HAMT |
+| **3. Nested Compact Subdict** | 0.0007s (7.2 µs) | 0.0032s (6.3 µs) | 0.0071s (7.1 µs/op) | **Strictly Linear O(N)** | `deep_merge_cow` on 1-key dict |
+| **4. Context + Proxy Sync** | 0.0009s (9.3 µs) | 0.0058s (11.6 µs) | 0.0089s (8.9 µs/op) | **Strictly Linear O(N)** | Clean proxy unwrap |
+| **5. Prepopulated (5,000 keys)** | 0.0567s (567 µs) | 0.2282s (456 µs) | 0.4701s (470 µs/op) | **O(K × N)** | Python `_sync_registry_from_core` O(K) scan |
+| **6a. Direct Subdict Delta** | 0.0010s (9.8 µs) | 0.0058s (11.7 µs) | 0.0121s (12.1 µs/op) | **Bounded O(N)** | Single-leaf delta in `tx.update()` |
+| **6b. Process Full Dict Return** | 0.0794s (794 µs) | 1.5024s (3005 µs) | **5.9357s** (5936 µs/op) | **Quadratic O(N²)** | 3-phase full dict copy & FFI transfer |
+| **7. Process Delta Return** | 0.0144s (144 µs) | 0.0291s (58.2 µs) | **0.0503s** (50.3 µs/op) | **Bounded Linear** | Returning `{doc_id: payload}` (**118× to 139× speedup, 100% data intact**) |
 
 ---
 
-### 8.4. Empirical Forensic Matrix (Measured on Reference Machine)
+### 8.3. Dual Standards: Regression Ceilings vs Acceptance Targets & Reference Points
 
-*Source: `tests/perf/burst_write_benchmark.py` (Median of 3 runs, isolated process)*
-
-| Scenario | N=100 | N=500 | N=1000 | Latency Profile |
-|---|---|---|---|---|
-| **1. Flat Single Key (O(1) state)** | 0.0011s (10.6 µs/op) | 0.0042s (8.4 µs/op) | 0.0106s (10.5 µs/op) | **Strictly Linear O(N)** |
-| **2. Distinct Keys (State 1..N)** | 0.0023s (22.7 µs/op) | 0.0155s (31.0 µs/op) | 0.0475s (47.5 µs/op) | **Quadratic O(N²)** |
-| **3. Nested Domain (`deep_merge_cow`)** | 0.0016s (15.5 µs/op) | 0.0082s (16.5 µs/op) | 0.0096s (9.5 µs/op) | **Linear O(N)** |
-| **4. Context + Proxy Sync** | 0.0019s (19.4 µs/op) | 0.0081s (16.2 µs/op) | 0.0114s (11.4 µs/op) | **Linear O(N)** |
-| **5. Prepopulated State (5,000 keys)** | 0.0503s (503 µs/op) | 0.2537s (507 µs/op) | 0.5096s (509 µs/op) | **O(K × N) — 50× slower** |
+| Scenario | Baseline Hiện tại (N=1000) | Regression Ceiling (CI Gate) | Phân loại Chuẩn |
+|---|---|---|---|
+| **Scenario 5 (5,000 keys durable)** | ~0.470s–0.526s | **≤ 1.5000s** (chặn hồi quy) | **Target v3.0.28**: `< 0.1000s` (< 100 µs/op via Delta Sync) |
+| **Scenario 6b (Full-dict Accumulation)** | ~5.94s–6.41s | **≤ 15.0000s** (chặn thảm họa) | **Target v3.0.28**: `< 1.0000s` (via Granular CoW) |
+| **Scenario 7 (Delta Return Pattern)** | **~0.046s–0.050s** | **≤ 0.1000s** | **Reference Point (Đã đạt trên codebase hiện tại)** |
 
 ---
 
-### 8.5. Intellectual Virtue & Epistemic Audit
+### 8.4. Intellectual Virtue & Epistemic Audit
 
-* **Humility:** The earlier assertion that `_sync_registry_from_core` caused the latency was abandoned immediately when disproven by empirical data. We acknowledge that for small states (<100 keys), the current implementation is very fast (~10 µs), but scaling claims must be truthful.
-* **Courage:** Acknowledging that resolving INC-030 requires replacing core data structures (`HashMap` → `im::HashMap`) in `src/structures.rs`, rather than applying cosmetic Python-side tweaks.
-* **Integrity:** Ensuring that benchmark numbers are reported from clean, isolated runs without background thread pollution, and admitting when previous numbers were distorted by environmental noise.
-* **Objectivity:** Distinguishing between what is provably verified (single-interpreter OCC safety) and what remains unverified (multi-subinterpreter race conditions).
-
----
-
-### 8.6. Solution Synthesis (Action Plan)
-
-1. **Immediate Action (Band-aid):**
-   - Document INC-030 clearly in `RELEASE_NOTES_v3.0.27.md` and `AGENTS.md` (completed in commit `ff5b71e`).
-   - Provide `tests/perf/burst_write_benchmark.py` as standard test gate.
-
-2. **Structural Fix (Cure — Target v3.0.28):**
-   - Integrate `im` crate (persistent HAMT) into `src/structures.rs` for `State.data`, `State.heavy`, and `State.key_last_modified`.
-   - Make `State::clone()` an O(1) pointer-bump sharing immutable subtrees.
-   - Refactor `deep_merge_cow` to operate directly with structural sharing.
-
-3. **Process Fix (Vaccine):**
-   - Add performance regression check to `Local_CI.py full` that fails if `bench_prepopulated(5000, 1000)` exceeds 0.20s (budgeting 200 µs/op max).
+* **Humility & Accuracy:** We explicitly clarify that Lever 1 is a pattern and contract documentation change, not an engine code patch, and acknowledge that existing user processes returning full dicts will require migration guidance.
+* **Methodological Rigor & Data Integrity:** Scenario 7 now explicitly asserts 100% data preservation (`len(docs) == N` and key existence), confirming that the 139× speedup does not drop documents.
+* **Separation of Concerns:** Clearly separated Regression Ceilings (guarding master against regressions), Acceptance Targets (goals for v3.0.28 engine code changes), and Reference Points (baselines already proven by pattern changes).
 

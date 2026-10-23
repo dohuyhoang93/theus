@@ -98,6 +98,11 @@ def step_test_manual(env):
     env["PYTHONPATH"] = get_project_root()
     run_step([sys.executable, "tests/manual/run_suite.py"], env, "Running Manual Integration Suite")
 
+def step_benchmark_perf(env):
+    """Run Performance Benchmark Gate (INC-030)."""
+    env["PYTHONPATH"] = get_project_root()
+    run_step([sys.executable, "tests/perf/burst_write_benchmark.py"], env, "Running Performance Benchmark Gate")
+
 def step_clippy(env):
     """Run Cargo Clippy with strict lint levels (pedantic minimum)."""
     run_step(
@@ -165,9 +170,10 @@ def main():
     if not args or args[0] in ["--help", "-h", "help"]:
         print("\nUsage: python scripts/Local_CI.py <command>")
         print("Commands:")
-        print("  full   : Build -> Stubs -> Clippy -> Pyrefly -> Ruff -> Rust Test -> Verify API Parity -> Pytest -> Manual Test")
+        print("  full   : Build -> Stubs -> Clippy -> Pyrefly -> Ruff -> Rust Test -> Verify API Parity -> Pytest -> Manual Test -> Perf Benchmark")
         print("  build  : Build -> Install")
         print("  verify : Build -> Stubs -> Clippy -> Pyrefly -> Ruff -> Rust Test -> Verify API Parity")
+        print("  perf   : Run INC-030 Performance Benchmark Gate")
         print("  help   : Show this help message")
         sys.exit(0)
         
@@ -184,6 +190,7 @@ def main():
         step_verify_parity(env)
         step_test_automated(env)
         step_test_manual(env)
+        step_benchmark_perf(env)
     elif command == "build":
         step_build_install(env)
     elif command == "verify":
@@ -194,6 +201,8 @@ def main():
         step_ruff(env)
         step_rust_test(env)
         step_verify_parity(env)
+    elif command == "perf":
+        step_benchmark_perf(env)
     else:
         print(f"❌ Unknown command: {command}")
         sys.exit(1)
